@@ -32,6 +32,25 @@ execute_process(
 if (NOT staged_revision STREQUAL vcpkg_revision)
     message(FATAL_ERROR "External vcpkg checkout differs from the pinned submodule. Use a fresh external build tree.")
 endif()
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${MCWIIU_VCPKG_ROOT}" rev-parse --is-shallow-repository
+    OUTPUT_VARIABLE vcpkg_shallow OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+)
+if (vcpkg_shallow STREQUAL "true")
+    # CI may supply shallow submodules. Versioned ports need baseline history;
+    # fetch it only in the disposable checkout, preserving the source and pin.
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_SOURCE_DIR}/dependencies/vcpkg" remote get-url origin
+        OUTPUT_VARIABLE vcpkg_origin OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Fetching pinned vcpkg history into the external checkout")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${MCWIIU_VCPKG_ROOT}" fetch --unshallow "${vcpkg_origin}" "${vcpkg_revision}"
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+endif()
 if (DEFINED CMAKE_TOOLCHAIN_FILE)
     mcwiiu_require_external_path("${CMAKE_TOOLCHAIN_FILE}")
 endif()

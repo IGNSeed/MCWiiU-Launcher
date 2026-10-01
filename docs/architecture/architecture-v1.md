@@ -147,6 +147,9 @@ bootstraps the external checkout before manifest installation when absent.
 No manual source-submodule bootstrap is required, and subsequent configures reuse
 the executable. Existing Cemu CI bootstraps externally before NuGet credential
 setup, which needs that executable; CMake then skips the bootstrap.
+CI can provide a shallow source submodule. The helper detects this in the external
+clone and fetches history at the pinned revision from the submodule's origin there,
+so versioned port baselines are available without unshallowing the source checkout.
 The preset uses vcpkg's pinned downloaded tools rather than unrelated MSYS tools
 that may also be present on PATH.
 Windows/vcpkg libusb discovery uses native CMake include/library searches with
@@ -162,6 +165,8 @@ add non-Windows support to the launcher.
 CMake 3.31.6, Node 22 and the launcher presets, fetches dependencies in clean jobs,
 checks source-tree cleanliness including ignored files, and fails on build errors.
 Successful jobs upload short-lived test executables, not official releases.
+Artifact paths are resolved to absolute paths before upload; artifact actions
+reject relative `..` path components even though the output is intentionally external.
 Interactive DevTools/window smoke checks remain separate from CI compilation.
 See [BUILD.md](../../BUILD.md) for current prerequisites, commands, outputs and
 separate legacy/upstream notes. Keep that document synchronized with presets.

@@ -99,6 +99,10 @@ Do not change submodule revisions to troubleshoot failures. Inspect
 `<binaryDir>/vcpkg-bootstrap.log`, `vcpkg-manifest-install.log`, and
 `vcpkg-source/buildtrees/<port>/`. After an intentional vcpkg revision update,
 use a new external tree; a different pinned checkout is rejected.
+If the source submodule is shallow (for example in CI), the helper fetches full
+history at the pinned revision into the external checkout only. Versioned ports
+need this history to find the manifest's baseline. The source submodule and its
+revision are preserved.
 
 The independent Windows Cemu build reports CRT mixing warnings LNK4098/LNK4286.
 Align CRT selection and allocation ownership before future runtime integration.

@@ -82,15 +82,18 @@ jobs:
         cmake --build ../_work/build/runtime
 
     - name: Prepare artifact
+      id: artifact
       run: |
         mkdir -p ../_artifacts/portable
         cp ../_work/build/runtime/bin/release/Cemu_release ../_artifacts/portable/Cemu
+        cd ../_artifacts/portable
+        echo "path=$PWD/Cemu" >> "$GITHUB_OUTPUT"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-linux-${{ matrix.arch }}
-        path: ../_artifacts/portable/Cemu
+        path: ${{ steps.artifact.outputs.path }}
 
   build-appimage:
     strategy:
@@ -120,6 +123,7 @@ jobs:
         sudo apt install -y clang-15 cmake freeglut3-dev libgcrypt20-dev libglm-dev libgtk-3-dev libpulse-dev libsecret-1-dev libsystemd-dev nasm ninja-build appstream libbluetooth-dev
 
     - name: "Build AppImage"
+      id: artifact
       working-directory: ../_work/staging/appimage
       env:
         CEMU_PACKAGING_ROOT: ${{ github.workspace }}/../_work/staging/appimage
@@ -133,12 +137,14 @@ jobs:
         dist/linux/appimage.sh ${{ runner.arch }}
         mkdir -p "$CEMU_SOURCE_ROOT/../_artifacts/portable"
         cp artifacts/*.AppImage "$CEMU_SOURCE_ROOT/../_artifacts/portable/"
+        cd "$CEMU_SOURCE_ROOT/../_artifacts/portable"
+        echo "path=$PWD/*.AppImage" >> "$GITHUB_OUTPUT"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-appimage-${{ matrix.arch }}
-        path: ../_artifacts/portable/*.AppImage
+        path: ${{ steps.artifact.outputs.path }}
 
   build-windows:
     runs-on: windows-2022
@@ -196,6 +202,7 @@ jobs:
         cmake --build ../_work/build/runtime --config ${{ env.BUILD_MODE }}
 
     - name: Prepare artifact
+      id: artifact
       run: |
         New-Item -ItemType Directory -Force ../_work/staging/windows/src/resource, ../_artifacts/portable | Out-Null
         Copy-Item bin ../_work/staging/windows/bin -Recurse
@@ -203,6 +210,8 @@ jobs:
         Copy-Item LICENSE.txt ../_work/staging/windows/
         Copy-Item ../_work/build/runtime/bin/Release/Cemu_release.exe ../_artifacts/portable/Cemu.exe
         Copy-Item ../_artifacts/portable/Cemu.exe ../_work/staging/windows/bin/Cemu.exe
+        $executable = Get-Item -LiteralPath '../_artifacts/portable/Cemu.exe'
+        "path=$($executable.FullName)" >> $env:GITHUB_OUTPUT
 
     - name: Build NSIS Installer
       shell: cmd
@@ -211,21 +220,24 @@ jobs:
         makensis /DPRODUCT_VERSION=${{ inputs.next_version_major }}.${{ inputs.next_version_minor }} installer.nsi
 
     - name: Prepare installer artifact
+      id: installer
       run: |
         New-Item -ItemType Directory -Force ../_artifacts/installer | Out-Null
         Copy-Item ../_work/staging/windows/src/resource/cemu-*-windows-x64-installer.exe ../_artifacts/installer/
+        $installerDirectory = Get-Item -LiteralPath '../_artifacts/installer'
+        "path=$($installerDirectory.FullName)/cemu-${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}-windows-x64-installer.exe" >> $env:GITHUB_OUTPUT
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-windows-x64
-        path: ../_artifacts/portable/Cemu.exe
+        path: ${{ steps.artifact.outputs.path }}
 
     - name: Upload NSIS Installer
       uses: actions/upload-artifact@v6
       with:
         name: cemu-installer-windows-x64
-        path: ../_artifacts/installer/cemu-${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}-windows-x64-installer.exe
+        path: ${{ steps.installer.outputs.path }}
 
   build-macos:
     runs-on: macos-15
@@ -306,6 +318,7 @@ jobs:
         cmake --build ../_work/build/runtime
 
     - name: Prepare artifact
+      id: artifact
       run: |
         mkdir -p ../_work/staging/macos/Cemu_app ../_artifacts/portable
         mv ../_work/build/runtime/bin/release/Cemu_release.app ../_work/staging/macos/Cemu_app/Cemu.app
@@ -316,9 +329,11 @@ jobs:
         hdiutil create ../_work/staging/macos/tmp.dmg -ov -volname "Cemu" -fs HFS+ -srcfolder "../_work/staging/macos/Cemu_app"
         hdiutil convert ../_work/staging/macos/tmp.dmg -format UDZO -o ../_artifacts/portable/Cemu.dmg
         rm ../_work/staging/macos/tmp.dmg
+        cd ../_artifacts/portable
+        echo "path=$PWD/Cemu.dmg" >> "$GITHUB_OUTPUT"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-macos-${{ matrix.arch }}
-        path: ../_artifacts/portable/Cemu.dmg
+        path: ${{ steps.artifact.outputs.path }}

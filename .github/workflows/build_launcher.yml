@@ -45,10 +45,16 @@ jobs:
             $changes | Write-Output
             throw 'The launcher build changed the source tree.'
           }
+      - name: Resolve executable path
+        id: executable
+        shell: pwsh
+        run: |
+          $executable = Get-Item -LiteralPath '../_work/build/${{ matrix.directory }}/bin/${{ matrix.configuration }}/MCWiiU Launcher.exe'
+          "path=$($executable.FullName)" >> $env:GITHUB_OUTPUT
       - name: Upload test executable
         uses: actions/upload-artifact@v6
         with:
           name: mcwiiu-launcher-windows-x64-${{ matrix.variant }}
-          path: ../_work/build/${{ matrix.directory }}/bin/${{ matrix.configuration }}/MCWiiU Launcher.exe
+          path: ${{ steps.executable.outputs.path }}
           if-no-files-found: error
           retention-days: 7
