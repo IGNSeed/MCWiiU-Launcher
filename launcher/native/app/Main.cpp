@@ -57,6 +57,7 @@ coco::stray Start(saucer::application* app, int& exitCode)
         webview->expose("getAppInfo", [&bridge] { return bridge.GetAppInfo(); });
         webview->expose("getRuntimeState", [&bridge] { return bridge.GetRuntimeState(); });
 #if MCWIIU_DEVELOPMENT
+        // Saucer v8.0.5's WebView2 backend enables tools and calls OpenDevToolsWindow.
         webview->expose("openDevTools", [&webview] { webview->set_dev_tools(true); });
 #endif
         webview->embed(saucer::embedded::all());

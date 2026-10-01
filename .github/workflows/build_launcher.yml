@@ -1,0 +1,54 @@
+name: Build MCWiiU Launcher
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-launcher-windows:
+    name: Launcher Windows x64 (${{ matrix.variant }})
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: development
+            configuration: RelWithDebInfo
+            directory: relwithdebinfo
+          - variant: release
+            configuration: Release
+            directory: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.31.6'
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Configure launcher
+        run: cmake --preset launcher-${{ matrix.variant }}
+      - name: Build launcher
+        run: cmake --build --preset launcher-${{ matrix.variant }} --parallel 2
+      - name: Verify source tree cleanliness
+        shell: pwsh
+        run: |
+          $changes = git status --porcelain --untracked-files=all --ignored
+          if ($LASTEXITCODE -ne 0 -or $changes) {
+            $changes | Write-Output
+            throw 'The launcher build changed the source tree.'
+          }
+      - name: Upload test executable
+        uses: actions/upload-artifact@v6
+        with:
+          name: mcwiiu-launcher-windows-x64-${{ matrix.variant }}
+          path: ../_work/build/${{ matrix.directory }}/bin/${{ matrix.configuration }}/MCWiiU Launcher.exe
+          if-no-files-found: error
+          retention-days: 7

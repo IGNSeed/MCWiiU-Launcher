@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getAppInfo, getRuntimeState, openDevTools } from './bridge';
+import { expectedBridgeProtocolVersion, getAppInfo, getRuntimeState, openDevTools } from './bridge';
 import type { AppInfo } from './bridge';
 import { strings } from './strings';
 
@@ -13,7 +13,13 @@ export default function App() {
     setBusy(true);
     setError('');
     try {
-      const [app, state] = await Promise.all([getAppInfo(), getRuntimeState()]);
+      const app = await getAppInfo();
+      if (app.bridgeProtocolVersion !== expectedBridgeProtocolVersion) {
+        setInfo(undefined);
+        setError(strings.bridgeIncompatible);
+        return;
+      }
+      const state = await getRuntimeState();
       setInfo({ ...app, runtimeState: state });
     } catch {
       setInfo(undefined);
@@ -57,7 +63,7 @@ export default function App() {
         </section>
         <section className="status-card" aria-labelledby="foundation-title">
           <div className="status-top"><div><div className="eyebrow">{info?.architecture ?? strings.architecture}</div><h2 id="foundation-title">{strings.foundation}</h2></div><span className="status-dot" data-connected={!!info} /></div>
-          <dl><div><dt>{strings.runtime}</dt><dd id="runtime-state">{info?.runtimeState ?? strings.connecting}</dd></div></dl>
+          <dl><div><dt>{strings.runtime}</dt><dd id="runtime-state">{info?.runtimeState ?? (error ? strings.statusUnavailable : strings.connecting)}</dd></div></dl>
           <p className="status-note" role="status">{error || (info ? strings.connected : strings.connecting)}</p>
           <p className="muted">{strings.pending}</p>
           <button className="primary-button" onClick={() => void refresh()} disabled={busy}>{busy ? strings.refreshing : strings.refresh}</button>

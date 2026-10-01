@@ -33,6 +33,12 @@ flowchart TD
 - `LauncherBridge`: allowlisted, read-only public queries. `getAppInfo()` returns
   product/architecture/build information, live runtime state and integration
   availability. `getRuntimeState()` reads the same facade, not a frontend constant.
+- `AppInfo.bridgeProtocolVersion` and the frontend's expected protocol are both
+  **1**. The UI checks this before other runtime queries or displaying Connected.
+  A missing/different version clears connected state and reports incompatibility.
+  Breaking contract changes must update both versions. Runtime/API types are
+  currently manually mirrored in C++ and TypeScript; generated contracts may be
+  introduced later if the API grows.
 - `MinecraftRuntime`: C++20 lifecycle/state boundary, owned by the application.
   Its v1 backend is explicitly unavailable: `Initialize()` returns false and
   leaves `Uninitialized`. No `Ready`/`Running` claims are fabricated. `Shutdown()`
@@ -136,6 +142,11 @@ toolchain is cloned locally at the exact submodule revision into the external
 build tree, so bootstrap tools/buildtrees/packages never dirty the submodule.
 A changed submodule revision requires a fresh external build tree. Downloads
 and binary cache directories are sibling `_work/cache/vcpkg` in the Cemu preset.
+The pinned vcpkg CMake toolchain checks for its executable and automatically
+bootstraps the external checkout before manifest installation when absent.
+No manual source-submodule bootstrap is required, and subsequent configures reuse
+the executable. Existing Cemu CI bootstraps externally before NuGet credential
+setup, which needs that executable; CMake then skips the bootstrap.
 The preset uses vcpkg's pinned downloaded tools rather than unrelated MSYS tools
 that may also be present on PATH.
 Windows/vcpkg libusb discovery uses native CMake include/library searches with
@@ -145,6 +156,15 @@ The existing Cemu CI workflow uses an external runtime build tree and stages
 upstream Windows/AppImage/macOS packaging externally before artifact collection.
 This retains upstream packaging; it does not implement a launcher installer or
 add non-Windows support to the launcher.
+
+`build_launcher.yml` is a separate reusable Windows x64 workflow called by
+`build_check.yml` for PRs and main pushes. Its Development/Release matrix uses
+CMake 3.31.6, Node 22 and the launcher presets, fetches dependencies in clean jobs,
+checks source-tree cleanliness including ignored files, and fails on build errors.
+Successful jobs upload short-lived test executables, not official releases.
+Interactive DevTools/window smoke checks remain separate from CI compilation.
+See [BUILD.md](../../BUILD.md) for current prerequisites, commands, outputs and
+separate legacy/upstream notes. Keep that document synchronized with presets.
 
 From the repository root, with native Git/CMake/Node available on PATH:
 
@@ -173,7 +193,14 @@ exclude file, never public commits. No permanent test suite is introduced in v1.
 `MCWIIU_DEVELOPMENT` is 1 for Debug/RelWithDebInfo and 0 otherwise. Native build
 configuration is the sole UI source of this distinction. Only development builds
 register `openDevTools`; Release has no such binding or normal UI control.
-DevTools start closed and context menus are disabled. Future low-level diagnostics
+DevTools start closed and context menus are disabled.
+The pinned Saucer v8.0.5 WebView2 implementation of `set_dev_tools(true)` calls
+`put_AreDevToolsEnabled(true)` and then `OpenDevToolsWindow()`: it opens the actual
+DevTools window, not just permission to use it. The existing development binding
+uses that API; no additional native WebView2 bypass is necessary. Navigation
+restrictions remain in place. Release does not register the binding.
+
+Future low-level diagnostics
 must respect this boundary and redact private data. Planned Development diagnostics
 cover Cemu logs, builds, RPX/modules, mods, patch conflicts, network, performance
 and selected low-level Cemu diagnostics.

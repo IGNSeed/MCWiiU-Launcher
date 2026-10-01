@@ -16,3 +16,5 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/build.yml
+  launcher:
+    uses: ./.github/workflows/build_launcher.yml

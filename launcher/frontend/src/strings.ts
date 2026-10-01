@@ -12,6 +12,8 @@ export const strings = {
   connecting: 'Connecting…',
   connected: 'Native bridge connected',
   bridgeUnavailable: 'Unable to connect to the native launcher. Try refreshing the status.',
+  bridgeIncompatible: 'The launcher interface and native bridge are incompatible. Restart with a matching launcher build.',
+  statusUnavailable: 'Unavailable',
   refresh: 'Refresh status',
   refreshing: 'Refreshing…',
   pending: 'Game runtime integration is pending.',
