@@ -196,11 +196,21 @@ else()
 endif()
 
 set_target_properties(CemuBin PROPERTIES
-	# multi-configuration generators will add a config subdirectory to RUNTIME_OUTPUT_DIRECTORY if no generator expression is used
-	# to get the same behavior everywhere we append an empty generator expression
-	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../bin/$<1:>"
+	# Keep binaries outside the source tree, with one directory per configuration.
+	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
 	OUTPUT_NAME "${OUTPUT_NAME}"
 )
+
+if (NOT MACOS_BUNDLE)
+	# Preserve the legacy executable's adjacent resource layout in the external tree.
+	foreach(folder gameProfiles resources)
+		add_custom_command(TARGET CemuBin POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${CMAKE_SOURCE_DIR}/bin/${folder}" "$<TARGET_FILE_DIR:CemuBin>/${folder}"
+			VERBATIM
+		)
+	endforeach()
+endif()
 
 if(ENABLE_SDL)
 	target_link_libraries(CemuBin PRIVATE SDL3::SDL3)

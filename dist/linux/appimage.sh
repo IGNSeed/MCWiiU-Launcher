@@ -6,6 +6,8 @@ if [[ -z "${GITHUB_WORKSPACE}" ]]; then
 	export GITHUB_WORKSPACE="."
 fi
 
+CEMU_PACKAGING_ROOT="${CEMU_PACKAGING_ROOT:-${GITHUB_WORKSPACE}}"
+
 curl -sSfLO "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-"${CPU_ARCH}".AppImage"
 chmod a+x linuxdeploy*.AppImage
 curl -sSfL https://github.com"$(curl https://github.com/probonopd/go-appimage/releases/expanded_assets/continuous | grep "mkappimage-.*-"${CPU_ARCH}".AppImage" | head -n 1 | cut -d '"' -f 2)" -o mkappimage.AppImage
@@ -39,21 +41,21 @@ cp /usr/lib/"${CPU_ARCH}"-linux-gnu/{libsepol.so.1,libffi.so.7,libpcre.so.3,libG
 export UPD_INFO="gh-releases-zsync|cemu-project|Cemu|ci|Cemu.AppImage.zsync"
 export NO_STRIP=1
 ./linuxdeploy-"${CPU_ARCH}".AppImage --appimage-extract-and-run \
-  --appdir="${GITHUB_WORKSPACE}"/AppDir/ \
-  -d "${GITHUB_WORKSPACE}"/AppDir/info.cemu.Cemu.desktop \
-  -i "${GITHUB_WORKSPACE}"/AppDir/info.cemu.Cemu.png \
-  -e "${GITHUB_WORKSPACE}"/AppDir/usr/bin/Cemu \
+  --appdir="${CEMU_PACKAGING_ROOT}"/AppDir/ \
+  -d "${CEMU_PACKAGING_ROOT}"/AppDir/info.cemu.Cemu.desktop \
+  -i "${CEMU_PACKAGING_ROOT}"/AppDir/info.cemu.Cemu.png \
+  -e "${CEMU_PACKAGING_ROOT}"/AppDir/usr/bin/Cemu \
   --plugin gtk \
   --plugin checkrt
 
-if ! GITVERSION="$(git rev-parse --short HEAD 2>/dev/null)"; then
+if ! GITVERSION="$(git -C "${CEMU_SOURCE_ROOT:-.}" rev-parse --short HEAD 2>/dev/null)"; then
 	GITVERSION=experimental
 fi
 echo "Cemu Version Cemu-${GITVERSION}"
 
 rm AppDir/usr/lib/libwayland-client.so.0
 echo -e "export LC_ALL=C\nexport FONTCONFIG_PATH=/etc/fonts" >> AppDir/apprun-hooks/linuxdeploy-plugin-gtk.sh
-VERSION="${GITVERSION}" ./mkappimage.AppImage --appimage-extract-and-run "${GITHUB_WORKSPACE}"/AppDir
+VERSION="${GITVERSION}" ./mkappimage.AppImage --appimage-extract-and-run "${CEMU_PACKAGING_ROOT}"/AppDir
 
-mkdir -p "${GITHUB_WORKSPACE}"/artifacts/
-mv Cemu-"${GITVERSION}"-"${CPU_ARCH}".AppImage "${GITHUB_WORKSPACE}"/artifacts/
+mkdir -p "${CEMU_PACKAGING_ROOT}"/artifacts/
+mv Cemu-"${GITVERSION}"-"${CPU_ARCH}".AppImage "${CEMU_PACKAGING_ROOT}"/artifacts/

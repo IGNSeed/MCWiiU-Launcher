@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.21.1)
 
+include(cmake/ExternalOutput.cmake)
+mcwiiu_require_external_path("${CMAKE_BINARY_DIR}")
+
+option(CEMU_BUILD_RUNTIME "Build the existing Cemu runtime and wxWidgets executable" ON)
+option(MCWIIU_BUILD_LAUNCHER "Build the Windows x64 MCWiiU Launcher shell" OFF)
+
 option(ENABLE_VCPKG "Enable the vcpkg package manager" ON)
 option(MACOS_BUNDLE "The executable when built on macOS will be created as an application bundle" OFF)
 option(ALLOW_PORTABLE "Allow Cemu to be run in portable mode" ON)
@@ -19,24 +25,9 @@ execute_process(
 )
 add_definitions(-DEMULATOR_HASH=${GIT_HASH})
 
-if (ENABLE_VCPKG)
-	# check if vcpkg is shallow and unshallow it if necessary
-	execute_process(
-	COMMAND git rev-parse --is-shallow-repository
-	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/dependencies/vcpkg
-	OUTPUT_VARIABLE is_vcpkg_shallow
-	OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-
-	if(is_vcpkg_shallow STREQUAL "true")
-		message(STATUS "vcpkg is shallow. Unshallowing it now...")
-		execute_process(
-			COMMAND git fetch --unshallow
-			WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/dependencies/vcpkg"
-			RESULT_VARIABLE result
-			OUTPUT_VARIABLE output
-		)
-	endif()
+if (ENABLE_VCPKG AND CEMU_BUILD_RUNTIME)
+	# Bootstrap vcpkg in a disposable external checkout, never in the submodule.
+	include(cmake/ExternalVcpkg.cmake)
 
 	if(UNIX AND NOT APPLE)
 		set(VCPKG_OVERLAY_PORTS "${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg_overlay_ports_linux;${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg_overlay_ports")
@@ -45,7 +36,7 @@ if (ENABLE_VCPKG)
 	else()
 		set(VCPKG_OVERLAY_PORTS "${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg_overlay_ports_win;${CMAKE_CURRENT_LIST_DIR}/dependencies/vcpkg_overlay_ports")
 	endif()
-	set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/vcpkg/scripts/buildsystems/vcpkg.cmake"
+	set(CMAKE_TOOLCHAIN_FILE "${MCWIIU_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
 		CACHE STRING "Vcpkg toolchain file")
 	# Set this so that all the various find_package() calls don't need an explicit
 	# CONFIG option
@@ -61,6 +52,17 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if (MCWIIU_BUILD_LAUNCHER)
+	add_subdirectory(launcher)
+endif()
+
+if (NOT CEMU_BUILD_RUNTIME)
+	if (NOT MCWIIU_BUILD_LAUNCHER)
+		message(FATAL_ERROR "Enable CEMU_BUILD_RUNTIME or MCWIIU_BUILD_LAUNCHER")
+	endif()
+	return()
+endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

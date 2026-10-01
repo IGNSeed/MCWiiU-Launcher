@@ -1,3 +1,15 @@
+# MCWiiU Launcher
+
+Windows x64 launcher and future in-process Cemu runtime for **Minecraft: Wii U
+Edition Patch 35 / v560**, USA/EUR/JPN. Architecture v1 provides a Saucer/WebView2
+shell and embedded React frontend; game launch is not integrated yet.
+
+See [Architecture v1 and external build instructions](docs/architecture/architecture-v1.md).
+All new build output and frontend dependencies belong outside this repository.
+No game, update, DLC, keys or account data are included.
+
+The upstream Cemu documentation is retained below for the existing runtime.
+
 # **Cemu - Wii U emulator**
 
 [![Build Process](https://github.com/cemu-project/Cemu/actions/workflows/build.yml/badge.svg)](https://github.com/cemu-project/Cemu/actions/workflows/build.yml)

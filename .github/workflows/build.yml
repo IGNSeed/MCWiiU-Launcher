@@ -11,7 +11,7 @@ on:
         type: string
 
 env:
-  VCPKG_ROOT: "${{github.workspace}}/dependencies/vcpkg"
+  VCPKG_ROOT: "${{github.workspace}}/../_work/build/runtime/vcpkg-source"
   VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
   VCPKG_FORCE_DOWNLOADED_BINARIES: true
   
@@ -55,38 +55,42 @@ jobs:
 
     - name: "Bootstrap vcpkg"
       run: |
-        bash ./dependencies/vcpkg/bootstrap-vcpkg.sh
+        mkdir -p ../_work/build/runtime
+        git clone --local dependencies/vcpkg "$VCPKG_ROOT"
+        bash "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 
     - name: 'Setup NuGet Credentials for vcpkg'
       shell: 'bash'
       run: |
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
+        mono `"$VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1` \
         sources add \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
         -storepasswordincleartext \
         -name "GitHub" \
         -username "${{ github.repository_owner }}" \
         -password "${{ secrets.GITHUB_TOKEN }}"
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
+        mono `"$VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1` \
         setapikey "${{ secrets.GITHUB_TOKEN }}" \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
         
     - name: "cmake"
       run: |
-        cmake -S . -B build ${{ env.BUILD_FLAGS }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} -DCMAKE_C_COMPILER=/usr/bin/clang-15 -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15 -G Ninja -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja
+        cmake -S . -B ../_work/build/runtime ${{ env.BUILD_FLAGS }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} -DCMAKE_C_COMPILER=/usr/bin/clang-15 -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15 -G Ninja -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja
 
     - name: "Build Cemu"
       run: |
-        cmake --build build
+        cmake --build ../_work/build/runtime
 
     - name: Prepare artifact
-      run: mv bin/Cemu_release bin/Cemu
+      run: |
+        mkdir -p ../_artifacts/portable
+        cp ../_work/build/runtime/bin/release/Cemu_release ../_artifacts/portable/Cemu
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-linux-${{ matrix.arch }}
-        path: ./bin/Cemu
+        path: ../_artifacts/portable/Cemu
 
   build-appimage:
     strategy:
@@ -108,7 +112,7 @@ jobs:
     - uses: actions/download-artifact@v8
       with:
         name: cemu-bin-linux-${{ matrix.arch }}
-        path: bin
+        path: ../_work/staging/appimage/bin
 
     - name: "Install system dependencies"
       run: |
@@ -116,16 +120,25 @@ jobs:
         sudo apt install -y clang-15 cmake freeglut3-dev libgcrypt20-dev libglm-dev libgtk-3-dev libpulse-dev libsecret-1-dev libsystemd-dev nasm ninja-build appstream libbluetooth-dev
 
     - name: "Build AppImage"
+      working-directory: ../_work/staging/appimage
+      env:
+        CEMU_PACKAGING_ROOT: ${{ github.workspace }}/../_work/staging/appimage
+        CEMU_SOURCE_ROOT: ${{ github.workspace }}
       run: |
+        mkdir -p dist
+        cp -r "$CEMU_SOURCE_ROOT/dist/linux" dist/
+        cp -r "$CEMU_SOURCE_ROOT/bin/." bin/
         export LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
         export DEPLOY_GTK_VERSION=3
         dist/linux/appimage.sh ${{ runner.arch }}
+        mkdir -p "$CEMU_SOURCE_ROOT/../_artifacts/portable"
+        cp artifacts/*.AppImage "$CEMU_SOURCE_ROOT/../_artifacts/portable/"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-appimage-${{ matrix.arch }}
-        path: artifacts
+        path: ../_artifacts/portable/*.AppImage
 
   build-windows:
     runs-on: windows-2022
@@ -154,55 +167,65 @@ jobs:
 
     - name: "Bootstrap vcpkg"
       run: |
-        ./dependencies/vcpkg/bootstrap-vcpkg.bat
+        New-Item -ItemType Directory -Force ../_work/build/runtime | Out-Null
+        git clone --local dependencies/vcpkg "$Env:VCPKG_ROOT"
+        & "$Env:VCPKG_ROOT/bootstrap-vcpkg.bat"
 
     - name: 'Setup NuGet Credentials for vcpkg'
       shell: 'bash'
       run: |
-        `./dependencies/vcpkg/vcpkg.exe fetch nuget | tail -n 1` \
+        `"$VCPKG_ROOT/vcpkg.exe" fetch nuget | tail -n 1` \
         sources add \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
         -storepasswordincleartext \
         -name "GitHub" \
         -username "${{ github.repository_owner }}" \
         -password "${{ secrets.GITHUB_TOKEN }}"
-        `./dependencies/vcpkg/vcpkg.exe fetch nuget | tail -n 1` \
+        `"$VCPKG_ROOT/vcpkg.exe" fetch nuget | tail -n 1` \
         setapikey "${{ secrets.GITHUB_TOKEN }}" \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
 
     - name: "cmake"
       run: |
-        mkdir -p build
-        cd build
         echo "[INFO] BUILD_FLAGS: ${{ env.BUILD_FLAGS }}"
         echo "[INFO] BUILD_MODE: ${{ env.BUILD_MODE }}"
-        cmake .. ${{ env.BUILD_FLAGS }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} -DVCPKG_INSTALL_OPTIONS="--clean-after-build"
+        cmake -S . -B ../_work/build/runtime ${{ env.BUILD_FLAGS }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} -DVCPKG_INSTALL_OPTIONS="--clean-after-build"
 
     - name: "Build Cemu"
       run: |
-        cd build
-        cmake --build . --config ${{ env.BUILD_MODE }}
+        cmake --build ../_work/build/runtime --config ${{ env.BUILD_MODE }}
 
     - name: Prepare artifact
-      run: Rename-Item bin/Cemu_release.exe Cemu.exe
+      run: |
+        New-Item -ItemType Directory -Force ../_work/staging/windows/src/resource, ../_artifacts/portable | Out-Null
+        Copy-Item bin ../_work/staging/windows/bin -Recurse
+        Copy-Item src/resource/installer.nsi, src/resource/logo_icon.ico ../_work/staging/windows/src/resource/
+        Copy-Item LICENSE.txt ../_work/staging/windows/
+        Copy-Item ../_work/build/runtime/bin/Release/Cemu_release.exe ../_artifacts/portable/Cemu.exe
+        Copy-Item ../_artifacts/portable/Cemu.exe ../_work/staging/windows/bin/Cemu.exe
 
     - name: Build NSIS Installer
       shell: cmd
+      working-directory: ../_work/staging/windows/src/resource
       run: |
-        cd src\resource
         makensis /DPRODUCT_VERSION=${{ inputs.next_version_major }}.${{ inputs.next_version_minor }} installer.nsi
+
+    - name: Prepare installer artifact
+      run: |
+        New-Item -ItemType Directory -Force ../_artifacts/installer | Out-Null
+        Copy-Item ../_work/staging/windows/src/resource/cemu-*-windows-x64-installer.exe ../_artifacts/installer/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-windows-x64
-        path: ./bin/Cemu.exe
+        path: ../_artifacts/portable/Cemu.exe
 
     - name: Upload NSIS Installer
       uses: actions/upload-artifact@v6
       with:
         name: cemu-installer-windows-x64
-        path: ./src/resource/cemu-${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}-windows-x64-installer.exe
+        path: ../_artifacts/installer/cemu-${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}-windows-x64-installer.exe
 
   build-macos:
     runs-on: macos-15
@@ -238,6 +261,8 @@ jobs:
 
     - name: "Install molten-vk"
       run: |
+        mkdir -p ../_work/cache/molten-vk
+        cd ../_work/cache/molten-vk
         curl -L -O https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos-privateapi.tar
         tar xf MoltenVK-macos-privateapi.tar
         sudo mkdir -p /usr/local/lib
@@ -250,27 +275,27 @@ jobs:
 
     - name: "Bootstrap vcpkg"
       run: |
-        bash ./dependencies/vcpkg/bootstrap-vcpkg.sh
+        mkdir -p ../_work/build/runtime
+        git clone --local dependencies/vcpkg "$VCPKG_ROOT"
+        bash "$VCPKG_ROOT/bootstrap-vcpkg.sh"
 
     - name: 'Setup NuGet Credentials for vcpkg'
       shell: 'bash'
       run: |
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
+        mono `"$VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1` \
         sources add \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
         -storepasswordincleartext \
         -name "GitHub" \
         -username "${{ github.repository_owner }}" \
         -password "${{ secrets.GITHUB_TOKEN }}"
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
+        mono `"$VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1` \
         setapikey "${{ secrets.GITHUB_TOKEN }}" \
         -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
 
     - name: "cmake"
       run: |
-        mkdir build
-        cd build
-        cmake .. ${{ env.BUILD_FLAGS }} \
+        cmake -S . -B ../_work/build/runtime ${{ env.BUILD_FLAGS }} \
         -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} \
         -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
         -DMACOS_BUNDLE=ON \
@@ -278,22 +303,22 @@ jobs:
 
     - name: "Build Cemu"
       run: |
-        cmake --build build
+        cmake --build ../_work/build/runtime
 
     - name: Prepare artifact
       run: |
-        mkdir bin/Cemu_app
-        mv bin/Cemu_release.app bin/Cemu_app/Cemu.app
-        mv bin/Cemu_app/Cemu.app/Contents/MacOS/Cemu_release bin/Cemu_app/Cemu.app/Contents/MacOS/Cemu
-        sed -i '' 's/Cemu_release/Cemu/g' bin/Cemu_app/Cemu.app/Contents/Info.plist
-        codesign --entitlements ${{github.workspace}}/src/resource/cemu.macos.entitlements --force --deep --preserve-metadata=entitlements,requirements,flags,runtime --sign - --timestamp --options runtime bin/Cemu_app/Cemu.app/Contents/MacOS/Cemu
-        ln -s /Applications bin/Cemu_app/Applications
-        hdiutil create ./bin/tmp.dmg -ov -volname "Cemu" -fs HFS+ -srcfolder "./bin/Cemu_app"
-        hdiutil convert ./bin/tmp.dmg -format UDZO -o bin/Cemu.dmg
-        rm bin/tmp.dmg
+        mkdir -p ../_work/staging/macos/Cemu_app ../_artifacts/portable
+        mv ../_work/build/runtime/bin/release/Cemu_release.app ../_work/staging/macos/Cemu_app/Cemu.app
+        mv ../_work/staging/macos/Cemu_app/Cemu.app/Contents/MacOS/Cemu_release ../_work/staging/macos/Cemu_app/Cemu.app/Contents/MacOS/Cemu
+        sed -i '' 's/Cemu_release/Cemu/g' ../_work/staging/macos/Cemu_app/Cemu.app/Contents/Info.plist
+        codesign --entitlements ${{github.workspace}}/src/resource/cemu.macos.entitlements --force --deep --preserve-metadata=entitlements,requirements,flags,runtime --sign - --timestamp --options runtime ../_work/staging/macos/Cemu_app/Cemu.app/Contents/MacOS/Cemu
+        ln -s /Applications ../_work/staging/macos/Cemu_app/Applications
+        hdiutil create ../_work/staging/macos/tmp.dmg -ov -volname "Cemu" -fs HFS+ -srcfolder "../_work/staging/macos/Cemu_app"
+        hdiutil convert ../_work/staging/macos/tmp.dmg -format UDZO -o ../_artifacts/portable/Cemu.dmg
+        rm ../_work/staging/macos/tmp.dmg
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: cemu-bin-macos-${{ matrix.arch }}
-        path: ./bin/Cemu.dmg
+        path: ../_artifacts/portable/Cemu.dmg
