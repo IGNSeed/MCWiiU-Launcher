@@ -64,6 +64,10 @@ add_subdirectory(util)
 add_subdirectory(imgui)
 add_subdirectory(resource)
 
+if(NOT CEMU_BUILD_LEGACY_EXECUTABLE)
+    return()
+endif()
+
 add_executable(CemuBin
 	main.cpp
 	mainLLE.cpp
@@ -92,7 +96,7 @@ endif()
 
 string(TIMESTAMP CURRENT_YEAR "%Y" UTC)
 
-set_property(TARGET CemuBin PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuBin)
 set_property(TARGET CemuBin PROPERTY WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
 set(OUTPUT_NAME "Cemu_$<LOWER_CASE:$<CONFIG>>")
 

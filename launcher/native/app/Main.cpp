@@ -20,6 +20,12 @@ coco::stray Start(saucer::application* app, int& exitCode)
     try
     {
         mcwiiu::MinecraftRuntime runtime;
+        if (!runtime.Initialize())
+        {
+            OutputDebugStringA("Launcher runtime initialization failed: ");
+            OutputDebugStringA(mcwiiu::RuntimeErrorName(runtime.GetError()).data());
+            OutputDebugStringA("\n");
+        }
         mcwiiu::LauncherBridge bridge(runtime);
         auto window = saucer::window::create(app);
         if (!window)

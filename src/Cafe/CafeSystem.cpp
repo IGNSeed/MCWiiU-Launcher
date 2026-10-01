@@ -78,6 +78,7 @@ std::string _pathToExecutable;
 std::string _pathToBaseExecutable;
 
 RPLModule* applicationRPX = nullptr;
+std::atomic_bool g_isGPUInitFinished = false;
 uint32 currentBaseApplicationHash = 0;
 uint32 currentUpdatedApplicationHash = 0;
 
@@ -603,46 +604,68 @@ namespace CafeSystem
 		iosu::boss::GetModule()
 	};
 
+	// Track completed launches so an interrupted initialization can unwind safely.
+	static size_t s_iosuModulesLaunched = 0;
+	static bool s_fsaInitialized = false;
+	static bool s_actInitialized = false;
+	static bool s_mcpInitialized = false;
+	static bool s_odmInitialized = false;
+
 	// initialize all subsystems which are persistent and don't depend on a game running
 	void Initialize()
 	{
 		if (s_initialized)
 			return;
 		s_initialized = true;
-		// init core systems
-		cemuLog_log(LogType::Force, "------- Init {} -------", BUILD_VERSION_WITH_NAME_STRING);
-		fsc_init();
-		memory_init();
-		cemuLog_log(LogType::Force, "Init Wii U memory space (base: 0x{:016x})", (size_t)memory_base);
-		PPCCore_init();
-		RPLLoader_InitState();
-		cemuLog_log(LogType::Force, "mlc01 path: {}", _pathToUtf8(ActiveSettings::GetMlcPath()));
-		_CheckForWine();
-		// CPU and RAM info
-		logCPUAndMemoryInfo();
-		logPlatformInfo();
-		cemuLog_log(LogType::Force, "Used CPU extensions: {}", g_CPUFeatures.GetCommaSeparatedExtensionList());
-		// misc systems
-		rplSymbolStorage_init();
-		// allocate memory for all SysAllocators
-		// must happen before COS module init, but also before iosu::kernel::Initialize()
-		SysAllocatorContainer::GetInstance().Initialize();
-		// init IOSU modules
-		for(auto& module : s_iosuModules)
-			module->SystemLaunch();
-		// init IOSU (deprecated manual init)
-		iosuCrypto_init();
-		iosu::fsa::Initialize();
-		iosuIoctl_init();
-		iosuAct_init_depr();
-		iosu::act::Initialize();
-		iosu::iosuMcp_init();
-		iosu::mcp::Init();
-		iosu::iosuAcp_init();
-		iosu::nim::Initialize();
-		iosu::odm::Initialize();
-		// init hardware register interfaces
-		HW_SI::Initialize();
+		try
+		{
+			// init core systems
+			cemuLog_log(LogType::Force, "------- Init {} -------", BUILD_VERSION_WITH_NAME_STRING);
+			fsc_init();
+			memory_init();
+			cemuLog_log(LogType::Force, "Init Wii U memory space (base: 0x{:016x})", (size_t)memory_base);
+			PPCCore_init();
+			RPLLoader_InitState();
+			cemuLog_log(LogType::Force, "mlc01 path: {}", _pathToUtf8(ActiveSettings::GetMlcPath()));
+			_CheckForWine();
+			// CPU and RAM info
+			logCPUAndMemoryInfo();
+			logPlatformInfo();
+			cemuLog_log(LogType::Force, "Used CPU extensions: {}", g_CPUFeatures.GetCommaSeparatedExtensionList());
+			// misc systems
+			rplSymbolStorage_init();
+			// allocate memory for all SysAllocators
+			// must happen before COS module init, but also before iosu::kernel::Initialize()
+			SysAllocatorContainer::GetInstance().Initialize();
+			// init IOSU modules
+			for(auto& module : s_iosuModules)
+			{
+				module->SystemLaunch();
+				++s_iosuModulesLaunched;
+			}
+			// init IOSU (deprecated manual init)
+			iosuCrypto_init();
+			iosu::fsa::Initialize();
+			s_fsaInitialized = true;
+			iosuIoctl_init();
+			iosuAct_init_depr();
+			iosu::act::Initialize();
+			s_actInitialized = true;
+			iosu::iosuMcp_init();
+			iosu::mcp::Init();
+			s_mcpInitialized = true;
+			iosu::iosuAcp_init();
+			iosu::nim::Initialize();
+			iosu::odm::Initialize();
+			s_odmInitialized = true;
+			// init hardware register interfaces
+			HW_SI::Initialize();
+		}
+		catch (...)
+		{
+			Shutdown();
+			throw;
+		}
 	}
 
 	void SetImplementation(SystemImplementation* impl)
@@ -657,13 +680,14 @@ namespace CafeSystem
         if (sSystemRunning)
             ShutdownTitle();
         // shutdown persistent subsystems (deprecated manual shutdown)
-		iosu::odm::Shutdown();
-		iosu::act::Stop();
-        iosu::mcp::Shutdown();
-        iosu::fsa::Shutdown();
+		if (s_odmInitialized) iosu::odm::Shutdown();
+		if (s_actInitialized) iosu::act::Stop();
+        if (s_mcpInitialized) iosu::mcp::Shutdown();
+        if (s_fsaInitialized) iosu::fsa::Shutdown();
+		s_odmInitialized = s_actInitialized = s_mcpInitialized = s_fsaInitialized = false;
 		// shutdown IOSU modules
-		for(auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
-			(*it)->SystemExit();
+		while (s_iosuModulesLaunched > 0)
+			s_iosuModules[--s_iosuModulesLaunched]->SystemExit();
         s_initialized = false;
     }
 

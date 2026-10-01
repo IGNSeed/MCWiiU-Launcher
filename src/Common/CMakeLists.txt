@@ -24,7 +24,7 @@ add_library(CemuCommon
   version.h
 )
 
-set_property(TARGET CemuCommon PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuCommon)
 
 if(WIN32)
 	target_sources(CemuCommon PRIVATE

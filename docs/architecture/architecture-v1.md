@@ -1,5 +1,8 @@
 # MCWiiU Launcher — Architecture v1
 
+Runtime Foundation builds on this historical baseline; see
+[Runtime Foundation](runtime-foundation.md) for the implemented persistent core lifecycle.
+
 ## Goals and product scope
 
 Build a small, reproducible Windows x64 application foundation for Minecraft:

@@ -26,7 +26,7 @@ if (ENABLE_METAL)
     target_compile_definitions(imguiImpl PRIVATE IMGUI_IMPL_METAL_CPP)
 endif ()
 
-set_property(TARGET imguiImpl PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(imguiImpl)
 
 cemu_use_precompiled_header(imguiImpl)
 
