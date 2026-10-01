@@ -1,4 +1,5 @@
 add_library(CemuUtil
+  helpers/Console.cpp
   boost/bluetooth.h
   bootSound/BootSoundReader.cpp
   bootSound/BootSoundReader.h
@@ -87,7 +88,7 @@ else()
 	target_sources(CemuUtil PRIVATE SystemInfo/SystemInfoStub.cpp)
 endif()
 
-set_property(TARGET CemuUtil PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuUtil)
 
 cemu_use_precompiled_header(CemuUtil)
 

@@ -1,34 +1,75 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 31, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 31,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "launcher-base",
       "hidden": true,
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "cacheVariables": {
         "MCWIIU_BUILD_LAUNCHER": "ON",
-        "CEMU_BUILD_RUNTIME": "OFF",
-        "ENABLE_VCPKG": "OFF",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../_work/staging/${presetName}"
+        "CEMU_BUILD_RUNTIME": "ON",
+        "ENABLE_VCPKG": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../_work/staging/${presetName}",
+        "CEMU_BUILD_LEGACY_EXECUTABLE": "OFF",
+        "ENABLE_WXWIDGETS": "OFF",
+        "ENABLE_VULKAN": "ON",
+        "ENABLE_OPENGL": "ON",
+        "ENABLE_DISCORD_RPC": "OFF",
+        "ENABLE_SDL": "OFF",
+        "ENABLE_LIBUSB": "OFF",
+        "ENABLE_HIDAPI": "OFF",
+        "ENABLE_CUBEB": "OFF",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets"
+      },
+      "environment": {
+        "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
+        "VCPKG_DOWNLOADS": "${sourceDir}/../_work/cache/vcpkg/downloads",
+        "VCPKG_DEFAULT_BINARY_CACHE": "${sourceDir}/../_work/cache/vcpkg/binaries"
       }
     },
-    { "name": "launcher-debug", "inherits": "launcher-base", "binaryDir": "${sourceDir}/../_work/build/debug" },
-    { "name": "launcher-development", "inherits": "launcher-base", "binaryDir": "${sourceDir}/../_work/build/relwithdebinfo" },
-    { "name": "launcher-release", "inherits": "launcher-base", "binaryDir": "${sourceDir}/../_work/build/release" },
+    {
+      "name": "launcher-debug",
+      "inherits": "launcher-base",
+      "binaryDir": "${sourceDir}/../_work/build/runtime-debug"
+    },
+    {
+      "name": "launcher-development",
+      "inherits": "launcher-base",
+      "binaryDir": "${sourceDir}/../_work/build/runtime-relwithdebinfo"
+    },
+    {
+      "name": "launcher-release",
+      "inherits": "launcher-base",
+      "binaryDir": "${sourceDir}/../_work/build/runtime-release"
+    },
     {
       "name": "cemu-development",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/../_work/build/cemu-relwithdebinfo",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "cacheVariables": {
         "CEMU_BUILD_RUNTIME": "ON",
         "MCWIIU_BUILD_LAUNCHER": "OFF",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../_work/staging/cemu-development"
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../_work/staging/cemu-development",
+        "CEMU_BUILD_LEGACY_EXECUTABLE": "ON"
       },
       "environment": {
         "VCPKG_FORCE_DOWNLOADED_BINARIES": "1",
@@ -38,9 +79,37 @@
     }
   ],
   "buildPresets": [
-    { "name": "launcher-debug", "configurePreset": "launcher-debug", "configuration": "Debug", "targets": ["MCWiiULauncher"] },
-    { "name": "launcher-development", "configurePreset": "launcher-development", "configuration": "RelWithDebInfo", "targets": ["MCWiiULauncher"] },
-    { "name": "launcher-release", "configurePreset": "launcher-release", "configuration": "Release", "targets": ["MCWiiULauncher"] },
-    { "name": "cemu-development", "configurePreset": "cemu-development", "configuration": "RelWithDebInfo", "targets": ["CemuBin"] }
+    {
+      "name": "launcher-debug",
+      "configurePreset": "launcher-debug",
+      "configuration": "Debug",
+      "targets": [
+        "MCWiiULauncher"
+      ]
+    },
+    {
+      "name": "launcher-development",
+      "configurePreset": "launcher-development",
+      "configuration": "RelWithDebInfo",
+      "targets": [
+        "MCWiiULauncher"
+      ]
+    },
+    {
+      "name": "launcher-release",
+      "configurePreset": "launcher-release",
+      "configuration": "Release",
+      "targets": [
+        "MCWiiULauncher"
+      ]
+    },
+    {
+      "name": "cemu-development",
+      "configurePreset": "cemu-development",
+      "configuration": "RelWithDebInfo",
+      "targets": [
+        "CemuBin"
+      ]
+    }
   ]
 }

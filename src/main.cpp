@@ -52,8 +52,6 @@ extern "C"
 }
 #endif
 
-std::atomic_bool g_isGPUInitFinished = false;
-
 std::wstring executablePath;
 
 // some implementations of _putenv dont copy the string and instead only store a pointer
@@ -169,32 +167,6 @@ void UnitTests()
 	CRCTest();
 }
 
-bool isConsoleConnected = false;
-void requireConsole()
-{
-    #if BOOST_OS_WINDOWS
-    if (isConsoleConnected)
-        return;
-
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD dwFileType = GetFileType(hOut);
-
-    if (dwFileType == FILE_TYPE_UNKNOWN || dwFileType == FILE_TYPE_CHAR)
-    {
-        if (AttachConsole(ATTACH_PARENT_PROCESS) != FALSE)
-        {
-            freopen("CONOUT$", "w", stdout);
-            freopen("CONOUT$", "w", stderr);
-            freopen("CONIN$", "r", stdin);
-            isConsoleConnected = true;
-        }
-    }
-    else
-    {
-        isConsoleConnected = true; 
-    }
-    #endif
-}
 
 void HandlePostUpdate()
 {

@@ -1,6 +1,6 @@
 add_library(CemuResource)
 
-set_property(TARGET CemuResource PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuResource)
 
 cemu_use_precompiled_header(CemuResource)
 

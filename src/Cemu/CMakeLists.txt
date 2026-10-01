@@ -1,4 +1,6 @@
 add_library(CemuComponents
+  Runtime/MLC.cpp
+  Runtime/MLC.h
   ExpressionParser/ExpressionParser.cpp
   ExpressionParser/ExpressionParser.h
   FileCache/FileCache.cpp
@@ -39,7 +41,7 @@ target_sources(CemuComponents PRIVATE
 		DiscordPresence/DiscordRPCLite.h)
 endif()
 
-set_property(TARGET CemuComponents PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuComponents)
 
 cemu_use_precompiled_header(CemuComponents)
 

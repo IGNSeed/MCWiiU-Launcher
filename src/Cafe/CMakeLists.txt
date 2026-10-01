@@ -626,7 +626,7 @@ if(CEMU_ARCHITECTURE MATCHES "(aarch64)|(AARCH64)|(arm64)|(ARM64)")
   target_link_libraries(CemuCafe PRIVATE xbyak_aarch64)
 endif()
 
-set_property(TARGET CemuCafe PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuCafe)
 
 cemu_use_precompiled_header(CemuCafe)
 
@@ -647,6 +647,7 @@ endif()
 
 target_link_libraries(CemuCafe PRIVATE
 	CemuCommon
+  CemuResource
   CemuGui
   ZArchive::zarchive
   imguiImpl
@@ -678,4 +679,7 @@ endif()
 
 if(WIN32)
 	target_link_libraries(CemuCafe PRIVATE iphlpapi)
+    if(ENABLE_OPENGL)
+        target_link_libraries(CemuCafe PRIVATE opengl32)
+    endif()
 endif()

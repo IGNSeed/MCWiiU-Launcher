@@ -11,20 +11,22 @@ jobs:
   build-launcher-windows:
     name: Launcher Windows x64 (${{ matrix.variant }})
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - variant: development
             configuration: RelWithDebInfo
-            directory: relwithdebinfo
+            directory: runtime-relwithdebinfo
           - variant: release
             configuration: Release
-            directory: release
+            directory: runtime-release
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
@@ -36,7 +38,13 @@ jobs:
       - name: Configure launcher
         run: cmake --preset launcher-${{ matrix.variant }}
       - name: Build launcher
-        run: cmake --build --preset launcher-${{ matrix.variant }} --parallel 2
+        shell: pwsh
+        run: |
+          cmake --build --preset launcher-${{ matrix.variant }} --parallel 2 2>&1 | Tee-Object -FilePath '../_work/launcher-build.log'
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed.' }
+          if (Select-String -LiteralPath '../_work/launcher-build.log' -Pattern 'LNK4098|LNK4286|LNK2038') {
+            throw 'Launcher CRT validation failed.'
+          }
       - name: Verify source tree cleanliness
         shell: pwsh
         run: |

@@ -2,8 +2,8 @@
 
 ## MCWiiU Launcher (Windows x64)
 
-Build the Architecture v1 shell with these presets. It does not yet launch
-Minecraft or initialize the Cemu runtime.
+Build the launcher with its in-process Cemu persistent core using these presets.
+The runtime reaches Ready without launching Minecraft or creating a game window.
 
 Prerequisites:
 
@@ -41,9 +41,17 @@ under `${sourceDir}/../_work`, outside the repository:
 
 | Preset | Configuration | Executable relative to the repository |
 | --- | --- | --- |
-| `launcher-debug` | Debug | `../_work/build/debug/bin/Debug/MCWiiU Launcher.exe` |
-| `launcher-development` | RelWithDebInfo | `../_work/build/relwithdebinfo/bin/RelWithDebInfo/MCWiiU Launcher.exe` |
-| `launcher-release` | Release | `../_work/build/release/bin/Release/MCWiiU Launcher.exe` |
+| `launcher-debug` | Debug | `../_work/build/runtime-debug/bin/Debug/MCWiiU Launcher.exe` |
+| `launcher-development` | RelWithDebInfo | `../_work/build/runtime-relwithdebinfo/bin/RelWithDebInfo/MCWiiU Launcher.exe` |
+| `launcher-release` | Release | `../_work/build/runtime-release/bin/Release/MCWiiU Launcher.exe` |
+
+Launcher presets enable reusable Cemu libraries, disable the legacy executable
+and wxWidgets, and use the project-owned `x64-windows-static-md` triplet (static
+libraries with dynamic CRT, /MD or /MDd). Legacy Cemu retains its separate /MT
+build. Use fresh `runtime-*` trees; Architecture v1 shell caches are preserved.
+The first integrated configure builds Cemu dependencies and takes substantially
+longer than the shell build. See [Runtime Foundation](docs/architecture/runtime-foundation.md)
+for initialization, dedicated LocalAppData paths and process lifetime limits.
 
 Debug and Development expose the DevTools button and binding; Release exposes
 neither. Saucer v8.0.5's WebView2 `set_dev_tools(true)` both enables tools and
@@ -92,6 +100,9 @@ To verify a new build tree while preserving an existing build:
 
 ```powershell
 cmake --preset cemu-development -B ../_work/build/cemu-validation
+$env:VCPKG_FORCE_DOWNLOADED_BINARIES = '1'
+$env:VCPKG_DOWNLOADS = [IO.Path]::GetFullPath('../_work/cache/vcpkg/downloads')
+$env:VCPKG_DEFAULT_BINARY_CACHE = [IO.Path]::GetFullPath('../_work/cache/vcpkg/binaries')
 cmake --build ../_work/build/cemu-validation --config RelWithDebInfo --target CemuBin
 ```
 
@@ -104,8 +115,13 @@ history at the pinned revision into the external checkout only. Versioned ports
 need this history to find the manifest's baseline. The source submodule and its
 revision are preserved.
 
-The independent Windows Cemu build reports CRT mixing warnings LNK4098/LNK4286.
-Align CRT selection and allocation ownership before future runtime integration.
+Build presets inherit their configure preset's vcpkg environment. A direct
+`cmake --build <directory>` command needs the same environment, as shown above,
+if automatic regeneration runs; this also avoids picking MSYS CMake from PATH.
+Launcher CRT validation rejects LNK4098/LNK4286/LNK2038. The separate legacy
+build retains /MT; fresh builds of both policies must remain compatible.
+Incremental builds can expose upstream shared-PCH PDB warnings (LNK4020);
+use a clean build to validate debug information after changing that environment.
 Build success does not establish gameplay compatibility.
 
 ## Continuous integration

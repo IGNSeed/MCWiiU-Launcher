@@ -33,7 +33,7 @@ add_library(CemuInput
 	emulated/ClassicController.h
 )
 
-set_property(TARGET CemuInput PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+cemu_set_msvc_runtime(CemuInput)
 
 cemu_use_precompiled_header(CemuInput)
 
@@ -47,6 +47,7 @@ if (ENABLE_LIBUSB)
 endif()
 
 if(WIN32)
+	target_link_libraries(CemuInput PRIVATE dinput8 dxguid)
 	# XInput
 	target_sources(CemuInput PRIVATE
 		api/XInput/XInputControllerProvider.cpp

@@ -8,7 +8,7 @@ LauncherBridge::LauncherBridge(const MinecraftRuntime& runtime) noexcept : runti
 
 AppInfo LauncherBridge::GetAppInfo() const
 {
-    return {"MCWiiU Launcher", "Architecture v1", MCWIIU_BUILD_CONFIGURATION,
+    return {"MCWiiU Launcher", "Runtime Foundation", MCWIIU_BUILD_CONFIGURATION,
         MCWIIU_DEVELOPMENT != 0, GetRuntimeState(), runtime_.IsIntegrated(), BridgeProtocolVersion};
 }
 
