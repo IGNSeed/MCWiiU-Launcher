@@ -112,6 +112,11 @@ main {
   min-width:0;
   flex-direction:column;
   overflow-y:auto;
+  scrollbar-width:none;
+}
+
+main::-webkit-scrollbar {
+  display:none;
 }
 
 .topbar {
