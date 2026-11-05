@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>MCWiiU Launcher</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar" aria-label="Launcher navigation">
+    <div class="brand">MCWiiU <span>Launcher</span></div>
+    <nav aria-label="Main navigation">
+      <button type="button" data-page="home" aria-current="page">Home</button>
+      <button type="button" data-page="settings">Settings</button>
+    </nav>
+    <div class="sidebar-note">Phase 0.3A<br>GUI prototype</div>
+  </aside>
+  <main>
+    <header class="topbar"><span id="page-label">Home</span><span class="status">GUI prototype</span></header>
+    <section id="home" aria-labelledby="game-title">
+      <div class="eyebrow">MCWiiU Launcher</div>
+      <h1 id="game-title">Minecraft<span>Wii U Edition</span></h1>
+      <div class="version">v560 専用</div>
+      <p class="intro">ゲームを始めるための、新しいホーム。</p>
+      <div class="launch-panel">
+        <div><h2>起動機能は準備中です</h2><p>現在は GUI のプロトタイプです。Cemu・ゲーム描画はまだ接続されていません。</p></div>
+        <button id="play" type="button" disabled aria-describedby="launch-note">Play</button>
+      </div>
+      <p id="launch-note" class="footnote">この画面からゲームは起動しません。</p>
+      <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
+    </section>
+    <section id="settings" aria-labelledby="settings-title" hidden>
+      <div class="eyebrow">Personalize</div>
+      <h1 id="settings-title">Settings</h1>
+      <p class="intro">ランチャー画面の表示を調整できます。</p>
+      <div class="setting-row"><div><h2>表示サイズ</h2><p>ランチャー内の文字と余白の大きさを変更します。</p></div>
+        <select id="interface-scale" aria-label="Interface scale"><option value="1">標準</option><option value="1.1">大きめ</option></select>
+      </div>
+      <p id="settings-note" class="footnote" role="status">表示設定はこのプロトタイプのブラウザープロファイルに保存されます。</p>
+      <div class="setting-row"><div><h2>ゲーム設定について</h2><p>Cemu の設定・セーブデータは変更しません。ゲームの設定機能は今後接続する予定です。</p></div></div>
+    </section>
+    <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
+  </main>
+</body>
+</html>
