@@ -445,7 +445,13 @@ namespace CafeSystem
 	std::optional<std::vector<std::string>> s_overrideArgs;
 	std::optional<sint32> s_foregroundReturnStatus;
 
-	bool sSystemRunning = false;
+	static std::mutex s_titleLifecycleMutex;
+	static uint64 s_titleGeneration = 0;
+	static bool s_titlePrepared = false;
+	static bool s_titleStarted = false;
+	static bool s_coreShutdownRequested = false;
+	static void ShutdownTitleLocked();
+	std::atomic_bool sSystemRunning{false};
 	TitleId sForegroundTitleId = 0;
 
 	GameInfo2 sGameInfo_ForegroundTitle;
@@ -649,23 +655,24 @@ namespace CafeSystem
 		s_implementation = impl;
 	}
 
-    void Shutdown()
-    {
-        cemu_assert_debug(s_initialized);
-        // if a title is running, shut it down
-        if (sSystemRunning)
-            ShutdownTitle();
-        // shutdown persistent subsystems (deprecated manual shutdown)
+	void Shutdown()
+	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (!s_initialized)
+			return;
+		s_coreShutdownRequested = true;
+		ShutdownTitleLocked();
+		// shutdown persistent subsystems (deprecated manual shutdown)
 		iosu::odm::Shutdown();
 		iosu::act::Stop();
-        iosu::mcp::Shutdown();
-        iosu::fsa::Shutdown();
+		iosu::mcp::Shutdown();
+		iosu::fsa::Shutdown();
 		// shutdown IOSU modules
-		for(auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
+		for (auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
 			(*it)->SystemExit();
 		cemu_assert_debug(!IOSUStaticData::HasAnyAllocations()); // check for leak
-        s_initialized = false;
-    }
+		s_initialized = false;
+	}
 
 	std::string GetInternalVirtualCodeFolder()
 	{
@@ -834,6 +841,10 @@ namespace CafeSystem
 
 	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId)
 	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (s_coreShutdownRequested)
+			return PREPARE_STATUS_CODE::INVALID_RPX;
+		++s_titleGeneration;
 		CafeTitleList::WaitForMandatoryScan();
 		sLaunchModeIsStandalone = false;
 		s_foregroundReturnStatus = std::nullopt;
@@ -856,11 +867,17 @@ namespace CafeSystem
 			return r;
 		InitVirtualMlcStorage();
 		MountExtras();
+		s_titlePrepared = true;
+		s_titleStarted = false;
 		return PREPARE_STATUS_CODE::SUCCESS;
 	}
 
 	PREPARE_STATUS_CODE PrepareForegroundTitleFromStandaloneRPX(const fs::path& path)
 	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (s_coreShutdownRequested)
+			return PREPARE_STATUS_CODE::INVALID_RPX;
+		++s_titleGeneration;
 		sLaunchModeIsStandalone = true;
 		cemuLog_log(LogType::Force, "Launching executable in standalone mode due to incorrect layout or missing meta files");
 		fs::path executablePath = path;
@@ -900,12 +917,19 @@ namespace CafeSystem
         PrepareExecutable();
 		InitVirtualMlcStorage();
 		MountExtras();
+		s_titlePrepared = true;
+		s_titleStarted = false;
 		return PREPARE_STATUS_CODE::SUCCESS;
 	}
 
-	void _LaunchTitleThread()
+	void _LaunchTitleThread(uint64 generation)
 	{
-		for(auto& module : s_iosuModules)
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (s_coreShutdownRequested || generation != s_titleGeneration || !s_titlePrepared)
+			return;
+		// 終了処理は、既存の初期化と scheduler 起動が完了してから進める。
+		s_titleStarted = true;
+		for (auto& module : s_iosuModules)
 			module->TitleStart();
 		cemu_initForGame();
 		// enter scheduler
@@ -918,11 +942,25 @@ namespace CafeSystem
 	void LaunchForegroundTitle()
 	{
 		PPCTimer_waitForInit();
-		// start system
-		sSystemRunning = true;
-		if (!WindowSystem::NotifyGameLoaded())
+		uint64 generation;
+		{
+			std::unique_lock lock(s_titleLifecycleMutex);
+			if (s_coreShutdownRequested || !s_titlePrepared)
+				return;
+			generation = s_titleGeneration;
+			sSystemRunning = true;
+		}
+		// GUI の完了待ちには lifecycle mutex を持ち込まない。
+		const bool uiReady = WindowSystem::NotifyGameLoaded();
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (s_coreShutdownRequested || generation != s_titleGeneration || !s_titlePrepared)
 			return;
-		std::thread t(_LaunchTitleThread);
+		if (!uiReady)
+		{
+			ShutdownTitleLocked();
+			return;
+		}
+		std::thread t(_LaunchTitleThread, generation);
 		t.detach();
 	}
 
@@ -1063,22 +1101,27 @@ namespace CafeSystem
         fsc_unmount("/internal/code/", FSC_PRIORITY_BASE);
 	}
 
-	void ShutdownTitle()
+	static void ShutdownTitleLocked()
 	{
-		if(!sSystemRunning)
+		if (!sSystemRunning && !s_titlePrepared)
 			return;
-		coreinit::OSSchedulerEnd();
-		Latte_Stop();
-		coreinit::IPCCloseAllHandles();
-		// reset Cafe OS userspace modules
-		snd_core::reset();
-		coreinit::OSAlarm_Shutdown();
-		GX2::_GX2DriverReset();
-		nn::save::ResetToDefaultState();
-		coreinit::__OSDeleteAllActivePPCThreads();
-		RPLLoader_UnloadAll();
-		for(auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
-			(*it)->TitleStop();
+		++s_titleGeneration;
+		// 取消時には TitleStart 前なので、実行開始後専用の解放を呼ばない。
+		if (s_titleStarted)
+		{
+			coreinit::OSSchedulerEnd();
+			Latte_Stop();
+			coreinit::IPCCloseAllHandles();
+			// reset Cafe OS userspace modules
+			snd_core::reset();
+			coreinit::OSAlarm_Shutdown();
+			GX2::_GX2DriverReset();
+			nn::save::ResetToDefaultState();
+			coreinit::__OSDeleteAllActivePPCThreads();
+			RPLLoader_UnloadAll();
+			for (auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
+				(*it)->TitleStop();
+		}
 		// reset Cemu subsystems
 		PPCRecompiler_Shutdown();
 		GraphicPack2::Reset();
@@ -1089,6 +1132,14 @@ namespace CafeSystem
 		DestroyMemorySpace();
 		LaunchSettings::ClearCosArgstr();
 		sSystemRunning = false;
+		s_titlePrepared = false;
+		s_titleStarted = false;
+	}
+
+	void ShutdownTitle()
+	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		ShutdownTitleLocked();
 	}
 
 	/* Virtual mlc storage */
