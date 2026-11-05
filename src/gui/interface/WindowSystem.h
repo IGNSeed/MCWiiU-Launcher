@@ -115,7 +115,8 @@ namespace WindowSystem
 
 	bool InputConfigWindowHasFocus();
 
-	void NotifyGameLoaded();
+	// GUI 反映の完了後に true。終了中などで取り消された場合は起動を続行しない。
+	bool NotifyGameLoaded();
 	void NotifyGameExited();
 
 	void RefreshGameList();

@@ -71,6 +71,8 @@ add_executable(CemuBin
 	mainLLE.cpp
 	Cemu/Startup.cpp
 	Cemu/Startup.h
+	Cemu/GameLaunch.cpp
+	Cemu/GameLaunch.h
 )
 
 cemu_use_precompiled_header(CemuBin)

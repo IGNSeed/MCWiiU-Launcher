@@ -13,6 +13,9 @@
 #include "wxgui/components/wxGameList.h"
 
 #include <future>
+#include <functional>
+#include <optional>
+#include "helpers/UiThreadRequest.h"
 #include "Cafe/HW/Espresso/Debugger/GDBStub.h"
 #include "Cafe/CafeSystem.h"
 
@@ -52,7 +55,7 @@ private:
 	INITIATED_BY m_initiatedBy;
 };
 
-class MainWindow : public wxFrame, public CafeSystem::SystemImplementation
+class MainWindow : public wxFrame
 {
 	friend class CemuApp;
 
@@ -135,6 +138,11 @@ public:
 	void OnGameLoaded();
 
 	void AsyncSetTitle(std::string_view windowTitle);
+	static void RequestWindowTitles(std::string windowTitle, std::optional<double> padFps = {});
+	static bool NotifyGameLoaded();
+	static void NotifyGameExited();
+	static void CafeRecreateCanvas();
+	static void CafePPCProcessExit();
 
 	void CreateCanvas();
 	void DestroyCanvas();
@@ -147,6 +155,15 @@ public:
 	static void RequestLaunchGame(fs::path filePath, wxLaunchGameEvent::INITIATED_BY initiatedBy);
 
 private:
+	static bool DispatchUiNotification(std::function<void(MainWindow&)> action, bool wait);
+	void StopUiNotifications(bool closing);
+	void ResumeUiNotifications();
+	void AdvanceUiNotificationGeneration();
+	bool m_acceptUiNotifications = false;
+	bool m_closing = false;
+	uint64 m_uiNotificationGeneration = 0;
+	std::vector<std::shared_ptr<UiThreadRequest>> m_pendingUiRequests;
+
 	bool FullscreenEnabled() const;
 	void RecreateMenu();
 	void UpdateChildWindowTitleRunningState();
@@ -156,13 +173,8 @@ private:
 
 	void OnTimer(wxTimerEvent& event);
 
-	// CafeSystem implementation
-	void CafeRecreateCanvas() override;
-	void CafePPCProcessExit() override;
-
 	void OnRequestRestart(wxCommandEvent& event);
-	void OnRequestRecreateCanvas(wxCommandEvent& event);
-	void OnRequestGameExit(wxCommandEvent& event);
+	void OnRequestGameExit();
 
 	wxRect GetDesktopRect();
 

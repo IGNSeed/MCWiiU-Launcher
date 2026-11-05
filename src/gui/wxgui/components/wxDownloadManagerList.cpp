@@ -228,7 +228,7 @@ void wxDownloadManagerList::OnClose(wxCloseEvent& event)
 	// wait until all tasks are complete
 	if (m_context_worker.valid())
 		m_context_worker.get();
-	g_mainFrame->RequestGameListRefresh(); // todo: add games instead of fully refreshing game list if a game is downloaded
+	MainWindow::RequestGameListRefresh(); // todo: add games instead of fully refreshing game list if a game is downloaded
 }
 
 void wxDownloadManagerList::OnColumnClick(wxListEvent& event)

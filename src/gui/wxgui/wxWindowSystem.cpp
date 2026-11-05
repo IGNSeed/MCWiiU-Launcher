@@ -33,6 +33,23 @@ WindowSystem::WindowInfo g_window_info{};
 std::shared_mutex g_mutex;
 MainWindow* g_mainFrame = nullptr;
 
+namespace
+{
+	// Core が保持する callback の寿命を、個々のウィンドウから切り離す。
+	class WxSystemImplementation final : public CafeSystem::SystemImplementation
+	{
+	  public:
+		void CafeRecreateCanvas() override
+		{
+			MainWindow::CafeRecreateCanvas();
+		}
+		void CafePPCProcessExit() override
+		{
+			MainWindow::CafePPCProcessExit();
+		}
+	};
+} // namespace
+
 #if BOOST_OS_WINDOWS
 void _wxLaunch()
 {
@@ -43,6 +60,8 @@ void _wxLaunch()
 
 void WindowSystem::Create()
 {
+	static WxSystemImplementation implementation;
+	CafeSystem::SetImplementation(&implementation);
 	SetThreadName("cemu");
 #if BOOST_OS_WINDOWS
 	// on Windows wxWidgets there is a bug where wxDirDialog->ShowModal will deadlock in Windows internals somehow
@@ -78,15 +97,13 @@ void WindowSystem::UpdateWindowTitles(bool isIdle, bool isLoading, double fps)
 
 	if (isIdle)
 	{
-		if (g_mainFrame)
-			g_mainFrame->AsyncSetTitle(windowText);
+		MainWindow::RequestWindowTitles(std::move(windowText));
 		return;
 	}
 	if (isLoading)
 	{
 		windowText.append(" - Loading...");
-		if (g_mainFrame)
-			g_mainFrame->AsyncSetTitle(windowText);
+		MainWindow::RequestWindowTitles(std::move(windowText));
 		return;
 	}
 
@@ -145,14 +162,7 @@ void WindowSystem::UpdateWindowTitles(bool isIdle, bool isLoading, double fps)
 	else
 		windowText.append(fmt::format(" [v{}]", titleVersion));
 
-	std::shared_lock lock(g_mutex);
-	if (g_mainFrame)
-	{
-		g_mainFrame->AsyncSetTitle(windowText);
-		auto* pad = g_mainFrame->GetPadView();
-		if (pad)
-			pad->AsyncSetTitle(fmt::format("{} - FPS: {:.02f}", _("GamePad View").utf8_string(), fps));
-	}
+	MainWindow::RequestWindowTitles(std::move(windowText), fps);
 }
 
 void WindowSystem::GetWindowSize(int& w, int& h)
@@ -315,30 +325,19 @@ bool WindowSystem::InputConfigWindowHasFocus()
 	return g_inputConfigWindowHasFocus;
 }
 
-void WindowSystem::NotifyGameLoaded()
+bool WindowSystem::NotifyGameLoaded()
 {
-	std::shared_lock lock(g_mutex);
-	if (g_mainFrame)
-	{
-		g_mainFrame->OnGameLoaded();
-		g_mainFrame->UpdateSettingsAfterGameLaunch();
-	}
+	return MainWindow::NotifyGameLoaded();
 }
 
 void WindowSystem::NotifyGameExited()
 {
-	std::shared_lock lock(g_mutex);
-	if (g_mainFrame)
-		g_mainFrame->RestoreSettingsAfterGameExited();
+	MainWindow::NotifyGameExited();
 }
 
 void WindowSystem::RefreshGameList()
 {
-	std::shared_lock lock(g_mutex);
-	if (g_mainFrame)
-	{
-		g_mainFrame->RequestGameListRefresh();
-	}
+	MainWindow::RequestGameListRefresh();
 }
 
 void WindowSystem::CaptureInput(const ControllerState& currentState, const ControllerState& lastState)

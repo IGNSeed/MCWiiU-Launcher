@@ -35,6 +35,7 @@
 #include "input/InputManager.h"
 #include "Cafe/TitleList/TitleList.h"
 #include "Cemu/DiscordPresence/DiscordPresence.h"
+#include "Cemu/GameLaunch.h"
 #include "util/ScreenSaver/ScreenSaver.h"
 #include "util/helpers/SystemException.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VsyncDriver.h"
@@ -162,8 +163,6 @@ enum
 wxDEFINE_EVENT(wxEVT_SET_WINDOW_TITLE, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_REQUEST_GAMELIST_REFRESH, wxCommandEvent);
 wxDEFINE_EVENT(wxEVT_LAUNCH_GAME, wxLaunchGameEvent);
-wxDEFINE_EVENT(wxEVT_REQUEST_RECREATE_CANVAS, wxCommandEvent);
-wxDEFINE_EVENT(wxEVT_REQUEST_GAME_EXIT, wxCommandEvent);
 
 wxBEGIN_EVENT_TABLE(MainWindow, wxFrame)
 EVT_TIMER(MAINFRAME_ID_TIMER1, MainWindow::OnTimer)
@@ -244,8 +243,6 @@ EVT_COMMAND(wxID_ANY, wxEVT_GAMELIST_BEGIN_UPDATE, MainWindow::OnGameListBeginUp
 EVT_COMMAND(wxID_ANY, wxEVT_GAMELIST_END_UPDATE, MainWindow::OnGameListEndUpdate)
 EVT_COMMAND(wxID_ANY, wxEVT_ACCOUNTLIST_REFRESH, MainWindow::OnAccountListRefresh)
 EVT_COMMAND(wxID_ANY, wxEVT_SET_WINDOW_TITLE, MainWindow::OnSetWindowTitle)
-EVT_COMMAND(wxID_ANY, wxEVT_REQUEST_RECREATE_CANVAS, MainWindow::OnRequestRecreateCanvas)
-EVT_COMMAND(wxID_ANY, wxEVT_REQUEST_GAME_EXIT, MainWindow::OnRequestGameExit)
 
 wxEND_EVENT_TABLE()
 
@@ -304,8 +301,10 @@ MainWindow::MainWindow()
 	wxApp::s_macPreferencesMenuItemId = MAINFRAME_MENU_ID_OPTIONS_MAC_SETTINGS;
 #endif
 	g_window_info.window_main = initHandleContextFromWxWidgetsWindow(this);
-	g_mainFrame = this;
-	CafeSystem::SetImplementation(this);
+	{
+		std::unique_lock lock(g_mutex);
+		g_mainFrame = this;
+	}
 
 	RecreateMenu();
 	SetClientSize(1280, 720);
@@ -381,10 +380,12 @@ MainWindow::MainWindow()
 
 	if (LaunchSettings::OpenDebuggerEnabled())
 		OpenPPCDebugger();
+	ResumeUiNotifications();
 }
 
 MainWindow::~MainWindow()
 {
+	StopUiNotifications(true);
 	if (m_padView)
 	{
 		m_padView->Destroy();
@@ -438,6 +439,12 @@ wxString MainWindow::GetInitialWindowTitle()
 
 void MainWindow::OnClose(wxCloseEvent& event)
 {
+	if (m_closing)
+	{
+		event.Skip();
+		return;
+	}
+	StopUiNotifications(true);
 	if (m_debugger_window)
 	{
 		m_debugger_window->CleanupForDestroy();
@@ -496,87 +503,66 @@ bool MainWindow::InstallUpdate(const fs::path& metaFilePath)
 
 bool MainWindow::FileLoad(const fs::path launchPath, wxLaunchGameEvent::INITIATED_BY initiatedBy)
 {
-	TitleInfo launchTitle{ launchPath };
-	if (launchTitle.IsValid())
+	wxASSERT(wxIsMainThread());
+	if (!m_acceptUiNotifications)
+		return false;
+
+	const auto preparation = GameLaunch::Prepare(launchPath);
+	if (preparation.error != GameLaunch::Error::None)
 	{
-		// the title might not be in the TitleList, so we add it as a temporary entry
-		CafeTitleList::AddTitleFromPath(launchPath);
-		// title is valid, launch from TitleId
-		TitleId baseTitleId;
-		if (!CafeTitleList::FindBaseTitleId(launchTitle.GetAppTitleId(), baseTitleId))
+		wxString message;
+		switch (preparation.error)
 		{
-			wxString t = _("Unable to launch game because the base files were not found.");
-			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
-			return false;
-		}
-		CafeSystem::PREPARE_STATUS_CODE r = CafeSystem::PrepareForegroundTitle(baseTitleId);
-		if (r == CafeSystem::PREPARE_STATUS_CODE::INVALID_RPX)
-		{
+		case GameLaunch::Error::MissingBaseTitle:
+			message = _("Unable to launch game because the base files were not found.");
+			break;
+		case GameLaunch::Error::InvalidExecutable:
 			cemu_assert_debug(false);
 			return false;
-		}
-		else if (r == CafeSystem::PREPARE_STATUS_CODE::UNABLE_TO_MOUNT)
-		{
-			wxString t = _("Unable to mount title.\nMake sure the configured game paths are still valid and refresh the game list.\n\nFile which failed to load:\n");
-			t.append(wxHelper::FromPath(launchPath));
-			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
-			return false;
-		}
-		else if (r != CafeSystem::PREPARE_STATUS_CODE::SUCCESS)
-		{
-			wxString t = _("Failed to launch game.");
-			t.append(wxHelper::FromPath(launchPath));
-			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
-			return false;
-		}
-	}
-	else //if (launchTitle.GetFormat() == TitleInfo::TitleDataFormat::INVALID_STRUCTURE )
-	{
-		// title is invalid, if it's an RPX/ELF we can launch it directly
-		// otherwise it's an error
-		CafeTitleFileType fileType = DetermineCafeSystemFileType(launchPath);
-		if (fileType == CafeTitleFileType::RPX || fileType == CafeTitleFileType::ELF)
-		{
-			CafeSystem::PREPARE_STATUS_CODE r = CafeSystem::PrepareForegroundTitleFromStandaloneRPX(launchPath);
-			if (r != CafeSystem::PREPARE_STATUS_CODE::SUCCESS)
+		case GameLaunch::Error::UnableToMount:
+			message = _("Unable to mount title.\nMake sure the configured game paths are still valid and refresh the game list.\n\nFile which failed to load:\n");
+			message.append(wxHelper::FromPath(launchPath));
+			break;
+		case GameLaunch::Error::PrepareFailed:
+			message = _("Failed to launch game.");
+			message.append(wxHelper::FromPath(launchPath));
+			break;
+		case GameLaunch::Error::StandalonePrepareFailed:
+			cemu_assert_debug(false);
+			message = _("Failed to launch executable. Path: ");
+			message.append(wxHelper::FromPath(launchPath));
+			break;
+		case GameLaunch::Error::InvalidPath:
+			if (initiatedBy == wxLaunchGameEvent::INITIATED_BY::GAME_LIST)
 			{
-				cemu_assert_debug(false); // todo
-				wxString t = _("Failed to launch executable. Path: ");
-				t.append(wxHelper::FromPath(launchPath));
-				wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
-				return false;
+				message = _("Unable to launch title.\nMake sure the configured game paths are still valid and refresh the game list.\n\nPath which failed to load:\n");
+				message.append(wxHelper::FromPath(launchPath));
 			}
-		}
-		else if (initiatedBy == wxLaunchGameEvent::INITIATED_BY::GAME_LIST)
-		{
-			wxString t = _("Unable to launch title.\nMake sure the configured game paths are still valid and refresh the game list.\n\nPath which failed to load:\n");
-			t.append(wxHelper::FromPath(launchPath));
-			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
+			else
+			{
+				message = _("Unable to launch game\nPath:\n");
+				message.append(wxHelper::FromPath(launchPath));
+				if (preparation.missingDiscKey)
+				{
+					message.append("\n\n");
+					message.append(_("Could not decrypt title. Make sure that keys.txt contains the correct disc key for this title."));
+				}
+				if (preparation.missingTitleTicket)
+				{
+					message.append("\n\n");
+					message.append(_("Could not decrypt title because title.tik is missing."));
+				}
+			}
+			break;
+		default:
 			return false;
 		}
-		else
-		{
-			wxString t = _("Unable to launch game\nPath:\n");
-			t.append(wxHelper::FromPath(launchPath));
-			if(launchTitle.GetInvalidReason() == TitleInfo::InvalidReason::NO_DISC_KEY)
-			{
-				t.append("\n\n");
-				t.append(_("Could not decrypt title. Make sure that keys.txt contains the correct disc key for this title."));
-			}
-			if(launchTitle.GetInvalidReason() == TitleInfo::InvalidReason::NO_TITLE_TIK)
-			{
-				t.append("\n\n");
-				t.append(_("Could not decrypt title because title.tik is missing."));
-			}
-			wxMessageBox(t, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
-			return false;
-		}
+		wxMessageBox(message, _("Error"), wxOK | wxCENTRE | wxICON_ERROR);
+		return false;
 	}
 
-	if(launchTitle.IsValid())
-		GetWxGUIConfig().AddRecentlyLaunchedFile(_pathToUtf8(launchTitle.GetPath()));
-	else
-		GetWxGUIConfig().AddRecentlyLaunchedFile(_pathToUtf8(launchPath));
+	GetWxGUIConfig().AddRecentlyLaunchedFile(_pathToUtf8(preparation.recentPath));
+	AdvanceUiNotificationGeneration();
 
 	wxWindowUpdateLocker lock(this);
 
@@ -626,7 +612,7 @@ bool MainWindow::FileLoad(const fs::path launchPath, wxLaunchGameEvent::INITIATE
 
 void MainWindow::OnLaunchFromFile(wxLaunchGameEvent& event)
 {
-	if (event.GetPath().empty())
+	if (!m_acceptUiNotifications || event.GetPath().empty())
 		return;
 	FileLoad(event.GetPath(), event.GetInitiatedBy());
 }
@@ -1454,12 +1440,14 @@ void MainWindow::OnAccountListRefresh(wxCommandEvent& event)
 
 void MainWindow::OnRequestGameListRefresh(wxCommandEvent& event)
 {
-	m_game_list->ReloadGameEntries();
+	if (m_acceptUiNotifications && m_game_list)
+		m_game_list->ReloadGameEntries();
 }
 
 void MainWindow::OnSetWindowTitle(wxCommandEvent& event)
 {
-	this->SetTitle(event.GetString());
+	if (m_acceptUiNotifications)
+		this->SetTitle(event.GetString());
 }
 
 void MainWindow::OnKeyUp(wxKeyEvent& event)
@@ -1585,9 +1573,7 @@ void MainWindow::OnGameLoaded()
 
 void MainWindow::AsyncSetTitle(std::string_view windowTitle)
 {
-	wxCommandEvent set_title_event(wxEVT_SET_WINDOW_TITLE);
-	set_title_event.SetString(wxString::FromUTF8(windowTitle));
-	g_mainFrame->QueueEvent(set_title_event.Clone());
+	RequestWindowTitles(std::string(windowTitle));
 }
 
 void MainWindow::CreateCanvas()
@@ -1773,6 +1759,7 @@ void MainWindow::SetFullScreen(bool state)
 
 void MainWindow::EndEmulation() // unfinished - memory leaks and crashes after repeated use (after 3x usually)
 {
+	StopUiNotifications(false);
 	CafeSystem::ShutdownTitle();
 	DestroyCanvas();
 	m_game_launched = false;
@@ -1797,6 +1784,7 @@ void MainWindow::EndEmulation() // unfinished - memory leaks and crashes after r
 	CreateGameListAndStatusBar();
 	DoLayout();
 	UpdateChildWindowTitleRunningState();
+	ResumeUiNotifications();
 }
 
 void MainWindow::SetMenuVisible(bool state)
@@ -2462,41 +2450,147 @@ void MainWindow::OnGraphicWindowOpen(wxTitleIdEvent& event)
 
 void MainWindow::RequestGameListRefresh()
 {
-	auto* evt = new wxCommandEvent(wxEVT_REQUEST_GAMELIST_REFRESH);
-	wxQueueEvent(g_mainFrame, evt);
+	std::shared_lock lock(g_mutex);
+	if (g_mainFrame && g_mainFrame->m_acceptUiNotifications)
+		wxQueueEvent(g_mainFrame, new wxCommandEvent(wxEVT_REQUEST_GAMELIST_REFRESH));
 }
 
 void MainWindow::RequestLaunchGame(fs::path filePath, wxLaunchGameEvent::INITIATED_BY initiatedBy)
 {
-	wxLaunchGameEvent evt(filePath, initiatedBy);
-	wxPostEvent(g_mainFrame, evt);
+	std::shared_lock lock(g_mutex);
+	// コンストラクター内の CLI 起動要求も、従来どおり event loop 開始後へ渡す。
+	if (g_mainFrame && !g_mainFrame->m_closing)
+		wxQueueEvent(g_mainFrame, new wxLaunchGameEvent(filePath, initiatedBy));
 }
 
-void MainWindow::OnRequestRecreateCanvas(wxCommandEvent& event)
+bool MainWindow::DispatchUiNotification(std::function<void(MainWindow&)> action, bool wait)
 {
-	CounterSemaphore* sem = (CounterSemaphore*)event.GetClientData();
-	DestroyCanvas();
-	CreateCanvas();
-	sem->increment();
+	if (wait && wxIsMainThread())
+	{
+		MainWindow* frame;
+		{
+			std::shared_lock lock(g_mutex);
+			frame = g_mainFrame;
+			if (!frame || !frame->m_acceptUiNotifications)
+				return false;
+		}
+		action(*frame);
+		return true;
+	}
+
+	auto request = wait ? std::make_shared<UiThreadRequest>() : nullptr;
+	{
+		std::unique_lock lock(g_mutex);
+		auto* frame = g_mainFrame;
+		if (!frame || !frame->m_acceptUiNotifications)
+			return false;
+		const auto generation = frame->m_uiNotificationGeneration;
+		if (request)
+			frame->m_pendingUiRequests.push_back(request);
+		frame->CallAfter([frame, generation, request, action = std::move(action)]() {
+			const bool execute = frame->m_acceptUiNotifications && generation == frame->m_uiNotificationGeneration && (!request || request->IsPending());
+			std::exception_ptr error;
+			try
+			{
+				if (execute)
+					action(*frame);
+			} catch (...)
+			{
+				error = std::current_exception();
+			}
+			if (request)
+			{
+				request->Complete(execute && !error);
+				std::unique_lock lock(g_mutex);
+				std::erase(frame->m_pendingUiRequests, request);
+			}
+			if (error)
+				std::rethrow_exception(error);
+		});
+	}
+	// g_mutex を解放してから待つ。GUI スレッドの同期経路は上で直接実行済み。
+	return request ? request->Wait() : true;
+}
+
+void MainWindow::AdvanceUiNotificationGeneration()
+{
+	wxASSERT(wxIsMainThread());
+	std::vector<std::shared_ptr<UiThreadRequest>> pending;
+	{
+		std::unique_lock lock(g_mutex);
+		++m_uiNotificationGeneration;
+		pending.swap(m_pendingUiRequests);
+	}
+	for (const auto& request : pending)
+		request->Complete(false);
+}
+
+void MainWindow::StopUiNotifications(bool closing)
+{
+	{
+		std::unique_lock lock(g_mutex);
+		m_closing = m_closing || closing;
+		m_acceptUiNotifications = false;
+	}
+	AdvanceUiNotificationGeneration();
+}
+
+void MainWindow::ResumeUiNotifications()
+{
+	std::unique_lock lock(g_mutex);
+	if (!m_closing)
+		m_acceptUiNotifications = true;
+}
+
+bool MainWindow::NotifyGameLoaded()
+{
+	return DispatchUiNotification([](MainWindow& frame) {
+		frame.OnGameLoaded();
+		frame.UpdateSettingsAfterGameLaunch();
+	},
+								  true);
+}
+
+void MainWindow::NotifyGameExited()
+{
+	DispatchUiNotification([](MainWindow& frame) { frame.RestoreSettingsAfterGameExited(); }, true);
+}
+
+void MainWindow::RequestWindowTitles(std::string windowTitle, std::optional<double> padFps)
+{
+	DispatchUiNotification([windowTitle = std::move(windowTitle), padFps](MainWindow& frame) {
+		frame.SetTitle(wxString::FromUTF8(windowTitle));
+		if (padFps && frame.m_padView)
+			frame.m_padView->SetTitle(wxString::FromUTF8(fmt::format("{} - FPS: {:.02f}", _("GamePad View").utf8_string(), *padFps)));
+	},
+						   false);
 }
 
 void MainWindow::CafeRecreateCanvas()
 {
-	CounterSemaphore sem;
-	auto* evt = new wxCommandEvent(wxEVT_REQUEST_RECREATE_CANVAS);
-	evt->SetClientData((void*)&sem);
-	wxQueueEvent(g_mainFrame, evt);
-	sem.decrementWithWait();
+	DispatchUiNotification([](MainWindow& frame) {
+		{
+			std::unique_lock lock(g_mutex);
+			++frame.m_uiNotificationGeneration;
+		}
+		frame.DestroyCanvas();
+		frame.CreateCanvas();
+	},
+						   true);
 }
 
 void MainWindow::CafePPCProcessExit()
 {
-	// this is called from the emulated PPC thread, so queue an event instead of handling it directly
-	wxQueueEvent(g_mainFrame, new wxCommandEvent(wxEVT_REQUEST_GAME_EXIT));
+	DispatchUiNotification([](MainWindow& frame) {
+		frame.OnRequestGameExit();
+	},
+						   false);
 }
 
-void MainWindow::OnRequestGameExit(wxCommandEvent& event)
+void MainWindow::OnRequestGameExit()
 {
+	if (!m_acceptUiNotifications || !m_game_launched)
+		return;
 	// if the title was launched via the command line we close Cemu and use the foreground title's exit status as Cemu's process return code (via CemuApp:OnExit)
 	// this is useful for homebrew testing setups that use Cemu via CLI
 	// otherwise the title was launched from the game list, so we just stop it and return to the game list instead of closing Cemu

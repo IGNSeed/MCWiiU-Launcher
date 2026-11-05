@@ -920,7 +920,8 @@ namespace CafeSystem
 		PPCTimer_waitForInit();
 		// start system
 		sSystemRunning = true;
-		WindowSystem::NotifyGameLoaded();
+		if (!WindowSystem::NotifyGameLoaded())
+			return;
 		std::thread t(_LaunchTitleThread);
 		t.detach();
 	}

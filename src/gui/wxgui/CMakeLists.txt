@@ -65,6 +65,7 @@ add_library(CemuWxGui STATIC
   helpers/wxCustomEvents.h
   helpers/wxHelpers.cpp
   helpers/wxHelpers.h
+  helpers/UiThreadRequest.h
   helpers/wxLogEvent.h
   helpers/wxWayland.cpp
   helpers/wxWayland.h
