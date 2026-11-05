@@ -14,6 +14,7 @@
 #include "input/api/SDL/SDLControllerProvider.h"
 #include "wxgui/helpers/wxHelpers.h"
 #include "Cemu/ncrypto/ncrypto.h"
+#include "Cemu/Startup.h"
 #include "wxgui/input/HotkeySettings.h"
 #include "wxgui/debugger/DebuggerWindow2.h"
 #include <wx/language.h>
@@ -44,7 +45,6 @@ extern std::shared_mutex g_mutex;
 
 // forward declarations from main.cpp
 void UnitTests();
-void CemuCommonInit();
 
 void HandlePostUpdate();
 // Translation strings to extract for gettext:

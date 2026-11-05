@@ -1,8 +1,7 @@
 #include "util/crypto/aes128.h"
 #include "WindowSystem.h"
 #include "Common/FileStream.h"
-
-void CemuCommonInit();
+#include "Cemu/Startup.h"
 
 typedef struct  
 {

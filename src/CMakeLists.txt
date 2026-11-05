@@ -69,6 +69,8 @@ add_subdirectory(resource)
 add_executable(CemuBin
 	main.cpp
 	mainLLE.cpp
+	Cemu/Startup.cpp
+	Cemu/Startup.h
 )
 
 cemu_use_precompiled_header(CemuBin)
