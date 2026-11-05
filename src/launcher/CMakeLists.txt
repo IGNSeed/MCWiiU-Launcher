@@ -24,10 +24,13 @@ FetchContent_Declare(saucer
 )
 FetchContent_MakeAvailable(saucer)
 
-add_executable(LauncherShell WIN32 main.cpp)
+add_executable(LauncherShell WIN32 main.cpp NativeGameHost.cpp NativeGameHost.h LauncherShell.manifest)
 target_compile_features(LauncherShell PRIVATE cxx_std_23)
 target_compile_options(LauncherShell PRIVATE /utf-8 /W4)
-target_link_libraries(LauncherShell PRIVATE saucer::saucer)
+target_compile_definitions(LauncherShell PRIVATE NOMINMAX)
+# stable native API が参照する既存 WebView2 SDK も引き継ぐ。
+saucer_add_module(LauncherShell)
+target_link_libraries(LauncherShell PRIVATE Comctl32)
 set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 target_link_libraries(LauncherShell PRIVATE saucer::embedded)

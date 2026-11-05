@@ -1,16 +1,22 @@
 #include <saucer/webview.hpp>
 #include <saucer/embedded/all.hpp>
+#include <saucer/modules/stable/webview2.hpp>
+
+#include "NativeGameHost.h"
 
 #include <Windows.h>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
 {
 	int s_startupExitCode = 0;
+	bool s_nativeHostDiagnostics = false;
+	bool s_failHostInitialization = false;
 
 	// 例外経路でも WebView2 の破棄より先に通知の参照を解除する。
 	struct WindowNotifications
@@ -36,6 +42,8 @@ namespace
 	void ReportStartupFailure()
 	{
 		s_startupExitCode = 1;
+		if (s_nativeHostDiagnostics)
+			return;
 		MessageBoxW(nullptr, L"LauncherShell could not start. Check the WebView2 Runtime and the application data directory.", L"MCWiiU Launcher", MB_OK | MB_ICONERROR);
 	}
 
@@ -82,6 +90,7 @@ namespace
 						   ? saucer::policy::allow
 						   : saucer::policy::block;
 			});
+			NativeGameHost gameHost(window->native().hwnd, webview.native().controller, s_nativeHostDiagnostics, s_failHostInitialization);
 			WindowNotifications notifications{*window, webview};
 			const auto updateWindowState = [&] {
 				if (!notifications.m_closing)
@@ -127,8 +136,16 @@ namespace
 	}
 } // namespace
 
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 {
+	const std::wstring_view arguments(commandLine);
+	if (arguments == L"--native-host-diagnostics" || arguments == L"--native-host-diagnostics-fail-after-create")
+	{
+		s_nativeHostDiagnostics = true;
+		s_failHostInitialization = arguments == L"--native-host-diagnostics-fail-after-create";
+	}
+	else if (!arguments.empty())
+		return 2;
 	try
 	{
 		auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
