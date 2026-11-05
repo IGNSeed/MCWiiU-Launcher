@@ -886,13 +886,23 @@ VulkanRenderer::VulkanRenderer() : Renderer(RendererAPI::Vulkan)
 
 VulkanRenderer::~VulkanRenderer()
 {
-	SubmitCommandBuffer();
+	// Canvas 準備後、GPU thread の Initialize 前に取り消される場合がある。
+	const bool hasCommandBuffer = m_state.currentCommandBuffer != VK_NULL_HANDLE;
+	if (hasCommandBuffer)
+		SubmitCommandBuffer();
+	else
+	{
+		RendererShaderVk::Shutdown();
+		PipelineCompiler::CompileThreadPool_Stop();
+	}
 	WaitDeviceIdle();
-	WaitCommandBufferFinished(GetCurrentCommandBufferId());
+	if (hasCommandBuffer)
+		WaitCommandBufferFinished(GetCurrentCommandBufferId());
 	// shut down pipeline save thread
 	m_destructionRequested = true;
 	m_pipeline_cache_semaphore.notify();
-	m_pipeline_cache_save_thread.join();
+	if (m_pipeline_cache_save_thread.joinable())
+		m_pipeline_cache_save_thread.join();
 
 	vkDestroyPipelineCache(m_logicalDevice, m_pipeline_cache, nullptr);
 
@@ -920,7 +930,8 @@ VulkanRenderer::~VulkanRenderer()
 	vkDestroyDescriptorSetLayout(m_logicalDevice, m_swapchainDescriptorSetLayout, nullptr);
 
 	// shut down imgui
-	ImGui_ImplVulkan_Shutdown();
+	if (hasCommandBuffer)
+		ImGui_ImplVulkan_Shutdown();
 
 	// delete null objects
 	DeleteNullObjects();
@@ -1830,7 +1841,8 @@ void VulkanRenderer::DeleteNullTexture(NullTexture& nullTex)
 	nullTex.view = VK_NULL_HANDLE;
 	vkDestroyImage(m_logicalDevice, nullTex.image, nullptr);
 	nullTex.image = VK_NULL_HANDLE;
-	memoryManager->imageMemoryFree(nullTex.allocation);
+	if (nullTex.allocation)
+		memoryManager->imageMemoryFree(nullTex.allocation);
 	nullTex.allocation = nullptr;
 }
 

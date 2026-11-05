@@ -2,10 +2,11 @@
 
 #include <Windows.h>
 #include <CommCtrl.h>
+#include <functional>
 
 struct ICoreWebView2Controller;
 
-// UI STA が所有する描画専用 HWND。Core / Vulkan の寿命はまだ接続しない。
+// UI STA が所有する描画専用 HWND。Renderer の停止後に破棄する。
 class NativeGameHost final
 {
 public:
@@ -20,6 +21,9 @@ public:
 	bool SetBounds(const RECT& bounds);
 	void SetVisible(bool visible);
 	bool Focus();
+	void SetGameLayout(bool enabled);
+	std::function<void()> stateChanged;
+	std::function<void(UINT, WPARAM, LPARAM)> input;
 
 private:
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -39,4 +43,5 @@ private:
 	bool m_diagnostics = false;
 	bool m_visible = false;
 	bool m_layoutFailed = false;
+	bool m_gameLayout = false;
 };

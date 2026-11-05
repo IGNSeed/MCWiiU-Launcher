@@ -138,6 +138,13 @@ bool NativeGameHost::Focus()
 	return GetFocus() == m_child;
 }
 
+void NativeGameHost::SetGameLayout(bool enabled)
+{
+	if (!OnUiThread()) return;
+	m_gameLayout = enabled;
+	UpdateLayout();
+}
+
 void NativeGameHost::UpdateLayout()
 {
 	if (!m_parent || !m_child)
@@ -159,9 +166,17 @@ void NativeGameHost::UpdateLayout()
 			client.bottom - height, client.right, client.bottom};
 		m_layoutFailed = !SetBounds(gameBounds) || m_layoutFailed;
 	}
+	else if (m_gameLayout && !IsIconic(m_parent) && client.right > 0 && client.bottom > 0)
+	{
+		const auto dpi = GetDpiForWindow(m_parent);
+		const RECT bounds{std::min(client.right, static_cast<LONG>(MulDiv(210, dpi, 96))),
+			std::min(client.bottom, static_cast<LONG>(MulDiv(48, dpi, 96))), client.right, client.bottom};
+		m_layoutFailed = !SetBounds(bounds);
+	}
 	if (!active || m_layoutFailed)
 		RestoreWebViewFocus();
 	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+	if (stateChanged) stateChanged();
 }
 
 LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
@@ -196,6 +211,10 @@ LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wPar
 		self->UpdateLayout();
 	if (message == WM_MOVE && self->m_diagnostics && self->m_controller)
 		self->m_controller->NotifyParentWindowPositionChanged();
+	if (message == WM_ACTIVATEAPP && !wParam && self->input)
+		self->input(WM_KILLFOCUS, 0, 0);
+	if (message == WM_ACTIVATEAPP && self->stateChanged)
+		self->stateChanged();
 	return result;
 }
 
@@ -219,19 +238,35 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		self->Focus();
 		return 0;
 	case WM_KEYDOWN:
-		if (wParam == VK_ESCAPE || wParam == VK_TAB)
+		if ((self->m_diagnostics && (wParam == VK_ESCAPE || wParam == VK_TAB)) || wParam == VK_F10)
+		{
 			self->RestoreWebViewFocus();
+			return 0;
+		}
+		if (self->input) self->input(message, wParam, lParam);
+		return 0;
+	case WM_KEYUP:
+	case WM_SYSKEYUP:
+		if (self->input) self->input(message, wParam, lParam);
 		return 0;
 	case WM_SYSKEYDOWN:
+		if (wParam == VK_F10 && !(lParam & (1LL << 29)))
+		{
+			self->RestoreWebViewFocus();
+			return 0;
+		}
 		if (wParam == VK_F4 && (lParam & (1LL << 29)))
 		{
 			PostMessageW(self->m_parent, WM_CLOSE, 0, 0);
 			return 0;
 		}
-		break;
+		if (self->input) self->input(message, wParam, lParam);
+		return 0;
 	case WM_SETFOCUS:
 	case WM_KILLFOCUS:
-		InvalidateRect(hwnd, nullptr, FALSE);
+	case WM_CANCELMODE:
+		if (self->input) self->input(message, wParam, lParam);
+		if (self->m_diagnostics) InvalidateRect(hwnd, nullptr, FALSE);
 		return 0;
 	case WM_ERASEBKGND:
 		return 1;
@@ -241,9 +276,9 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		const auto dc = BeginPaint(hwnd, &paint);
 		RECT client{};
 		GetClientRect(hwnd, &client);
-		FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
 		if (self->m_diagnostics)
 		{
+			FillRect(dc, &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
 			FrameRect(dc, &client, static_cast<HBRUSH>(GetStockObject(GetFocus() == hwnd ? WHITE_BRUSH : GRAY_BRUSH)));
 			SetBkMode(dc, TRANSPARENT);
 			SetTextColor(dc, RGB(210, 210, 210));

@@ -3,6 +3,9 @@
 #include <saucer/modules/stable/webview2.hpp>
 
 #include "NativeGameHost.h"
+#ifdef CEMU_NATIVE_HOST
+#include "CemuHost.h"
+#endif
 
 #include <Windows.h>
 #include <filesystem>
@@ -17,6 +20,8 @@ namespace
 	int s_startupExitCode = 0;
 	bool s_nativeHostDiagnostics = false;
 	bool s_failHostInitialization = false;
+	bool s_guiOnly = false;
+	bool s_launchImmediately = false;
 
 	// 例外経路でも WebView2 の破棄より先に通知の参照を解除する。
 	struct WindowNotifications
@@ -26,6 +31,7 @@ namespace
 		bool m_closing = false;
 		std::optional<size_t> m_maximizeListener;
 		std::optional<size_t> m_closedListener;
+		std::optional<size_t> m_closeListener;
 
 		~WindowNotifications()
 		{
@@ -34,6 +40,8 @@ namespace
 				m_window.off(saucer::window::event::maximize, *m_maximizeListener);
 			if (m_closedListener)
 				m_window.off(saucer::window::event::closed, *m_closedListener);
+			if (m_closeListener)
+				m_window.off(saucer::window::event::close, *m_closeListener);
 			m_webview.off(saucer::webview::event::message);
 			m_webview.off(saucer::webview::event::dom_ready);
 		}
@@ -91,6 +99,9 @@ namespace
 						   : saucer::policy::block;
 			});
 			NativeGameHost gameHost(window->native().hwnd, webview.native().controller, s_nativeHostDiagnostics, s_failHostInitialization);
+#ifdef CEMU_NATIVE_HOST
+			std::unique_ptr<CemuHost> core;
+#endif
 			WindowNotifications notifications{*window, webview};
 			const auto updateWindowState = [&] {
 				if (!notifications.m_closing)
@@ -100,7 +111,45 @@ namespace
 			};
 			notifications.m_maximizeListener = window->on<saucer::window::event::maximize>([updateWindowState](bool) { updateWindowState(); });
 			notifications.m_closedListener = window->on<saucer::window::event::closed>([&] { notifications.m_closing = true; });
-			webview.on<saucer::webview::event::dom_ready>(updateWindowState);
+#ifdef CEMU_NATIVE_HOST
+			const auto publishCore = [&](const std::string& json) {
+				if (!notifications.m_closing)
+					webview.execute("window.dispatchEvent(new CustomEvent('launcher-core-state', {detail:" + json + "}));");
+			};
+			if (!s_guiOnly && !s_nativeHostDiagnostics)
+			{
+				core = std::make_unique<CemuHost>(window->native().hwnd, gameHost.GetHandle(), CemuHost::Callbacks{
+					.post = [app](std::function<void()> callback) { app->post(std::move(callback)); },
+					.prepareCanvas = [&] {
+						gameHost.SetGameLayout(true);
+						gameHost.SetVisible(true);
+						gameHost.Focus();
+						return gameHost.IsRenderable();
+					},
+					.status = publishCore,
+					.stopped = [&] {
+						s_startupExitCode = core->HasFailed() ? 1 : 0;
+						window->close();
+						}
+					});
+				gameHost.stateChanged = [&] {
+					core->UpdateWindowState(gameHost.GetClientSize(), GetDpiForWindow(gameHost.GetHandle()),
+						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd);
+				};
+				gameHost.input = [&](UINT message, WPARAM key, LPARAM value) { core->InputMessage(message, key, value); };
+				notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
+					if (core->IsStopped()) return saucer::policy::allow;
+					core->RequestStop();
+					return saucer::policy::block;
+				});
+			}
+#endif
+			webview.on<saucer::webview::event::dom_ready>([&] {
+				updateWindowState();
+#ifdef CEMU_NATIVE_HOST
+				if (core) publishCore(core->StatusJson());
+#endif
+			});
 			webview.on<saucer::webview::event::message>([&](std::string_view message) {
 				const auto url = webview.url();
 				if (notifications.m_closing || url.scheme() != "saucer" || url.host() != "embedded" || url.path() != "/index.html")
@@ -113,6 +162,16 @@ namespace
 					window->set_maximized(!window->maximized());
 				else if (message == "window:close")
 					window->close();
+#ifdef CEMU_NATIVE_HOST
+				else if (core && message == "game:start")
+					core->LaunchGame();
+				else if (core && (message == "page:home" || message == "page:settings"))
+				{
+					const bool running = !core->IsStopped() && core->StatusJson().find("\"phase\":\"running\"") != std::string::npos;
+					gameHost.SetVisible(running && message == "page:home");
+					if (running && message == "page:home") gameHost.Focus();
+				}
+#endif
 				else if (message == "window:start-drag")
 				{
 					if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)
@@ -127,7 +186,14 @@ namespace
 			webview.serve("/index.html");
 			window->set_maximized(true);
 			window->show();
+#ifdef CEMU_NATIVE_HOST
+			if (core) core->Start(s_launchImmediately);
+#endif
 			co_await app->finish();
+#ifdef CEMU_NATIVE_HOST
+			gameHost.input = {};
+			gameHost.stateChanged = {};
+#endif
 		} catch (const std::exception&)
 		{
 			ReportStartupFailure();
@@ -144,13 +210,30 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		s_nativeHostDiagnostics = true;
 		s_failHostInitialization = arguments == L"--native-host-diagnostics-fail-after-create";
 	}
+	else if (arguments == L"--gui-only")
+		s_guiOnly = true;
+#ifdef CEMU_NATIVE_HOST
+	else if (arguments == L"--core-integration-test")
+		s_launchImmediately = true;
+	else if (arguments == L"--core-initialize-test")
+		s_launchImmediately = false;
+#endif
 	else if (!arguments.empty())
 		return 2;
 	try
 	{
-		auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
-		const auto result = application.run(Start);
-		return s_startupExitCode ? s_startupExitCode : result;
+		int result;
+		{
+			auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
+			result = application.run(Start);
+		}
+		const auto exitCode = s_startupExitCode ? s_startupExitCode : result;
+#ifdef CEMU_NATIVE_HOST
+		// CemuApp::OnExit と同じ終了契約。Core/GPU/Input と全 UI の明示破棄後に
+		// Cemu の process 寿命を持つ静的 thread の destructor を実行せず終了する。
+		if (!s_guiOnly && !s_nativeHostDiagnostics) ExitProcess(exitCode);
+#endif
+		return exitCode;
 	} catch (const std::exception&)
 	{
 		ReportStartupFailure();

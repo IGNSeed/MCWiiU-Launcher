@@ -11,6 +11,7 @@ navigation.forEach((button) => button.addEventListener("click", () => {
     else item.removeAttribute("aria-current");
   });
   document.getElementById("page-label").textContent = button.textContent;
+  windowCommand("page:" + selected);
 }));
 
 const scale = document.getElementById("interface-scale");
@@ -34,6 +35,17 @@ scale.addEventListener("change", (event) => {
 function windowCommand(command) {
   window.chrome?.webview?.postMessage(command);
 }
+document.getElementById("play").addEventListener("click", () => windowCommand("game:start"));
+window.addEventListener("launcher-core-state", (event) => {
+  const state = event.detail;
+  window.launcherCoreState = state;
+  document.querySelector(".status").textContent = state.phase === "running" ? "Vulkan · v560" : state.phase;
+  document.querySelector(".sidebar-note").textContent = "Minecraft · v560";
+  document.getElementById("play").disabled = state.phase !== "ready";
+  document.querySelector(".launch-panel h2").textContent = state.phase === "ready" ? "Minecraft を起動できます" : "Minecraft · " + state.phase;
+  document.querySelector(".launch-panel p").textContent = state.error || "保存済みのゲーム設定を使用します。";
+  document.getElementById("launch-note").textContent = "F10 でランチャーへフォーカスを戻します。Home でゲームへ戻ります。";
+});
 document.getElementById("window-minimize").addEventListener("click", () => windowCommand("window:minimize"));
 document.getElementById("window-maximize").addEventListener("click", () => windowCommand("window:toggle-maximize"));
 document.getElementById("window-close").addEventListener("click", () => windowCommand("window:close"));

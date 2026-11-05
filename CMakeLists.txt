@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.21.1)
 option(ENABLE_VCPKG "Enable the vcpkg package manager" ON)
 option(MACOS_BUNDLE "The executable when built on macOS will be created as an application bundle" OFF)
 option(ALLOW_PORTABLE "Allow Cemu to be run in portable mode" ON)
+option(ENABLE_NATIVE_LAUNCHER "Build the Windows native launcher alongside CemuBin" OFF)
 
 # used by CI script to set version:
 set(EMULATOR_VERSION_MAJOR "0" CACHE STRING "")
@@ -17,7 +18,11 @@ execute_process(
 		OUTPUT_VARIABLE GIT_HASH
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-add_definitions(-DEMULATOR_HASH=${GIT_HASH})
+set(CEMU_BUILD_REVISION "" CACHE STRING "Optional revision override for a reproducible local build")
+if(CEMU_BUILD_REVISION STREQUAL "")
+	set(CEMU_BUILD_REVISION "${GIT_HASH}")
+endif()
+add_definitions(-DEMULATOR_HASH=${CEMU_BUILD_REVISION})
 
 if (ENABLE_VCPKG)
 	# check if vcpkg is shallow and unshallow it if necessary
@@ -55,7 +60,14 @@ if (ENABLE_VCPKG)
 	endif()
 endif()
 
+# saucer 8 の PackageProject は既存 alias を再登録する。vcpkg の wrapper が
+# この policy を定義時に保持するため、toolchain 読込時だけ互換動作を選ぶ。
+cmake_policy(PUSH)
+if(ENABLE_NATIVE_LAUNCHER)
+	cmake_policy(SET CMP0107 OLD)
+endif()
 project(Cemu VERSION 2.0.0)
+cmake_policy(POP)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 

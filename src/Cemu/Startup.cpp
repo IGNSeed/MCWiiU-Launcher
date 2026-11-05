@@ -62,7 +62,7 @@ void reconfigureVkDrivers()
 #endif
 }
 
-void WindowsInitCwd()
+void WindowsInitCwd(const fs::path& workingDirectory)
 {
 	#if BOOST_OS_WINDOWS
 	executablePath.resize(4096);
@@ -71,13 +71,17 @@ void WindowsInitCwd()
 		executablePath.resize(i);
 	else
 		executablePath.clear();
-	SetCurrentDirectoryW(fs::path(executablePath).parent_path().c_str());
+	// Launcher の EXE とデータが別配置でも、明示した runtime から参照する。
+	if (workingDirectory.empty())
+		SetCurrentDirectoryW(fs::path(executablePath).parent_path().c_str());
+	else if (!SetCurrentDirectoryW(workingDirectory.c_str()))
+		throw std::runtime_error("Unable to select the emulator working directory");
 	// set high priority
 	SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 	#endif
 }
 
-void CemuCommonInit()
+void CemuCommonInit(const fs::path& workingDirectory)
 {
 	reconfigureGLDrivers();
 	reconfigureVkDrivers();
@@ -87,7 +91,7 @@ void CemuCommonInit()
 	// call this as early as possible because it measures frequency of RDTSC using an asynchronous thread over 3 seconds
 	PPCTimer_init();
 
-	WindowsInitCwd();
+	WindowsInitCwd(workingDirectory);
     ExceptionHandler_Init();
 	// read config
 	GetConfigHandle().Load();

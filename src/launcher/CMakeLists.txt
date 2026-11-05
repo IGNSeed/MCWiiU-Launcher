@@ -8,6 +8,10 @@ endif()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(TARGET CemuCafe)
+    # 既存 Core と vcpkg static の CRT を変えず、Launcher 側を合わせる。
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 set(LAUNCHER_DEPENDENCY_CACHE "${CMAKE_BINARY_DIR}/_dependencies" CACHE PATH "Launcher dependency cache")
 
 include(FetchContent)
@@ -23,6 +27,10 @@ FetchContent_Declare(saucer
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(saucer)
+if(TARGET CemuCafe)
+    # Core の lean Windows 定義は saucer の GDI+/COM header 前提に適用しない。
+    target_compile_options(saucer PRIVATE /UWIN32_LEAN_AND_MEAN)
+endif()
 
 add_executable(LauncherShell WIN32 main.cpp NativeGameHost.cpp NativeGameHost.h LauncherShell.manifest)
 target_compile_features(LauncherShell PRIVATE cxx_std_23)
@@ -34,6 +42,19 @@ target_link_libraries(LauncherShell PRIVATE Comctl32)
 set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 target_link_libraries(LauncherShell PRIVATE saucer::embedded)
+
+if(TARGET CemuCafe)
+    target_compile_options(LauncherShell PRIVATE /UWIN32_LEAN_AND_MEAN)
+    add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
+    set_target_properties(CemuNativeHost PROPERTIES CXX_STANDARD 20 CEMU_NATIVE_HOST TRUE)
+    cemu_use_precompiled_header(CemuNativeHost)
+    target_include_directories(CemuNativeHost PRIVATE ${RAPIDJSON_INCLUDE_DIRS})
+    target_link_libraries(CemuNativeHost PRIVATE CemuAudio CemuCafe CemuCommon CemuComponents CemuConfig CemuInput CemuUtil CemuGui CemuResource pugixml::pugixml OpenGL::GL Dbghelp)
+    set_target_properties(LauncherShell PROPERTIES CEMU_NATIVE_HOST TRUE)
+    target_compile_definitions(LauncherShell PRIVATE CEMU_NATIVE_HOST)
+    target_link_libraries(LauncherShell PRIVATE CemuNativeHost)
+    target_link_options(LauncherShell PRIVATE /DEBUG:FULL /OPT:REF /OPT:ICF /INCREMENTAL:NO)
+endif()
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/bin/licenses")
 configure_file("${saucer_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/bin/licenses/saucer-LICENSE" COPYONLY)

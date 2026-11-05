@@ -249,3 +249,7 @@ endif()
 if (BSD)
 	target_link_libraries(CemuBin PRIVATE execinfo SPIRV-Tools SPIRV-Tools-opt)
 endif()
+
+if(ENABLE_NATIVE_LAUNCHER)
+	add_subdirectory(launcher)
+endif()
