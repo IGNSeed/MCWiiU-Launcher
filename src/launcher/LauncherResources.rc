@@ -1,0 +1,3 @@
+#include "resource/resource.h"
+
+IDR_FONTAWESOME RCDATA "resource/fontawesome-webfont.ttf"

@@ -535,7 +535,11 @@ namespace WindowSystem
 	double GetPadDPIScale() { return s_windowInfo.pad_dpi_scale; }
 	bool IsPadWindowOpen() { return s_windowInfo.pad_open; }
 	bool IsFullScreen() { return s_windowInfo.is_fullscreen; }
-	bool InputConfigWindowHasFocus() { return false; } // Native Launcher は controller 設定 window を生成しない。
+	bool InputConfigWindowHasFocus()
+	{
+		// ゲーム以外が入力を所有する間は、既存の VPAD/KPAD 抑止経路を使う。
+		return !s_windowInfo.app_active;
+	}
 	bool IsKeyDown(uint32 key) { return s_windowInfo.get_keystate(key); }
 	bool IsKeyDown(PlatformKeyCodes key)
 	{

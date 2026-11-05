@@ -45,6 +45,8 @@ target_link_libraries(LauncherShell PRIVATE saucer::embedded)
 
 if(TARGET CemuCafe)
     target_compile_options(LauncherShell PRIVATE /UWIN32_LEAN_AND_MEAN)
+    target_sources(LauncherShell PRIVATE LauncherResources.rc)
+    target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}/..>")
     add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
     set_target_properties(CemuNativeHost PROPERTIES CXX_STANDARD 20 CEMU_NATIVE_HOST TRUE)
     cemu_use_precompiled_header(CemuNativeHost)
