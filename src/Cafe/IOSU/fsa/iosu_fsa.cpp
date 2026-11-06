@@ -30,10 +30,7 @@ namespace iosu
 				workingDirectory = std::string("/");
 			}
 
-			void ReleaseAndCleanup()
-			{
-				isAllocated = false;
-			}
+			void ReleaseAndCleanup();
 		};
 
 		std::array<FSAClient, 624> sFSAClientArray;
@@ -172,12 +169,13 @@ namespace iosu
 			struct _FSAHandleResource
 			{
 				bool isAllocated{false};
-				FSCVirtualFile* fscFile;
+				FSCVirtualFile* fscFile{};
+				FSAClient* owner{};
 				uint16 handleCheckValue;
 			};
 
 		public:
-			FSA_RESULT AllocateHandle(FSResHandle& handleOut, FSCVirtualFile* fscFile)
+			FSA_RESULT AllocateHandle(FSResHandle& handleOut, FSCVirtualFile* fscFile, FSAClient* owner)
 			{
 				for (size_t i = 0; i < m_handleTable.size(); i++)
 				{
@@ -188,6 +186,7 @@ namespace iosu
 					m_currentCounter++;
 					it.handleCheckValue = checkValue;
 					it.fscFile = fscFile;
+					it.owner = owner;
 					it.isAllocated = true;
 					uint32 handleVal = ((uint32)i << 16) | (uint32)checkValue;
 					handleOut = (FSResHandle)handleVal;
@@ -209,8 +208,25 @@ namespace iosu
 				if (it.handleCheckValue != checkValue)
 					return FSA_RESULT::INVALID_FILE_HANDLE;
 				it.fscFile = nullptr;
+				it.owner = nullptr;
 				it.isAllocated = false;
 				return FSA_RESULT::OK;
+			}
+
+			uint32 CloseAllForClient(FSAClient* owner)
+			{
+				uint32 count = 0;
+				for (auto& it : m_handleTable)
+				{
+					if (!it.isAllocated || it.owner != owner)
+						continue;
+					fsc_close(it.fscFile);
+					it.fscFile = nullptr;
+					it.owner = nullptr;
+					it.isAllocated = false;
+					++count;
+				}
+				return count;
 			}
 
 			FSCVirtualFile* GetByHandle(FSResHandle handle)
@@ -234,6 +250,16 @@ namespace iosu
 
 		_FSAHandleTable sFileHandleTable;
 		_FSAHandleTable sDirHandleTable;
+
+		void FSAClient::ReleaseAndCleanup()
+		{
+			// クライアント終了は FSA worker 内、または worker の join 後だけで実行する。
+			const uint32 files = sFileHandleTable.CloseAllForClient(this);
+			const uint32 directories = sDirHandleTable.CloseAllForClient(this);
+			if (files || directories)
+				cemuLog_log(LogType::Force, "FSA: Released remaining client resources (files={}, directories={})", files, directories);
+			isAllocated = false;
+		}
 
 		FSA_RESULT __FSAOpenFile(FSAClient* client, const char* path, const char* accessModifierStr, sint32* fileHandle)
 		{
@@ -291,7 +317,7 @@ namespace iosu
 			if (isAppend)
 				fsc_setFileSeek(fscFile, fsc_getFileSize(fscFile));
 			FSResHandle fsFileHandle;
-			FSA_RESULT r = sFileHandleTable.AllocateHandle(fsFileHandle, fscFile);
+			FSA_RESULT r = sFileHandleTable.AllocateHandle(fsFileHandle, fscFile, client);
 			if (r != FSA_RESULT::OK)
 			{
 				cemuLog_log(LogType::Force, "Exceeded maximum number of FSA file handles");
@@ -316,7 +342,7 @@ namespace iosu
 				return FSA_RESULT::NOT_DIR;
 			}
 			FSResHandle fsDirHandle;
-			FSA_RESULT r = sDirHandleTable.AllocateHandle(fsDirHandle, fscFile);
+			FSA_RESULT r = sDirHandleTable.AllocateHandle(fsDirHandle, fscFile, client);
 			if (r != FSA_RESULT::OK)
 			{
 				delete fscFile;
@@ -902,6 +928,8 @@ namespace iosu
 		{
 			IOS_SendMessage(sFSAIoMsgQueue, 0, 0);
 			sFSAIoThread.join();
+			for (auto& client : sFSAClientArray)
+				client.ReleaseAndCleanup();
 			IOS_DestroyMessageQueue(sFSAIoMsgQueue);
 			s_fsaStaticData.Deallocate();
 		}
