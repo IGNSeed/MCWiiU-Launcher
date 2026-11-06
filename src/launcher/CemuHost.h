@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 // UI への依存を callback に限定した、Core とタイトルセッションの所有者。
 class CemuHost final
@@ -39,6 +40,8 @@ public:
 	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
 	void InputMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	std::string StatusJson() const;
+	void SaveNativeSettings(std::string_view payload);
+	void RefreshSettingsInfo();
 
 private:
 	struct Impl;

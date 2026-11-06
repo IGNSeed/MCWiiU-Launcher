@@ -10,6 +10,7 @@ function showPage(selected) {
     else item.removeAttribute("aria-current");
   });
   document.getElementById("page-label").textContent = selected === "home" ? "Home" : "Settings";
+  document.querySelector("main").scrollTop = 0;
 }
 navigation.forEach((button) => button.addEventListener("click", () => {
   showPage(button.dataset.page);
@@ -132,7 +133,78 @@ window.addEventListener("launcher-core-state", (event) => {
   const titleStopping = phase === "title-stopping" || phase === "title-stopped";
   navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
   scale.disabled = closing || titleStopping || hasConfirmation;
+  updateNativeSettings(state);
 });
+
+const nativeGraphics = document.getElementById("native-graphics");
+const nativeFps = document.getElementById("native-fps");
+const nativeResolution = document.getElementById("native-resolution");
+const settingsRefresh = document.getElementById("settings-refresh");
+let nativeDirty = false;
+let nativeSaving = false;
+let lastNativeSettings = "";
+let requestedSettingsInfo = false;
+nativeGraphics.addEventListener("change", () => {
+  nativeDirty = true;
+  document.getElementById("native-settings-note").textContent = "未保存の変更があります。保存すると次回Playで適用されます。";
+});
+document.getElementById("native-save").addEventListener("click", () => {
+  if (nativeGraphics.disabled || window.launcherCoreState?.canEditNativeSettings !== true || nativeSaving) return;
+  const [width, height] = nativeResolution.value.split("x").map(Number);
+  const payload = { config_version: 1, native_vsync_frequency: Number(nativeFps.value), native_internal_width: width, native_internal_height: height };
+  nativeSaving = true;
+  nativeGraphics.disabled = true;
+  document.getElementById("native-settings-note").textContent = "保存しています。";
+  windowCommand("settings:save:" + JSON.stringify(payload));
+});
+settingsRefresh.addEventListener("click", () => windowCommand("settings:get"));
+function setInfo(id, entries) {
+  const list = document.getElementById(id);
+  list.replaceChildren();
+  entries.forEach(([label, value]) => {
+    const term = document.createElement("dt"), detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = String(value);
+    list.append(term, detail);
+  });
+}
+function updateNativeSettings(state) {
+  nativeGraphics.disabled = state.canEditNativeSettings !== true;
+  settingsRefresh.disabled = state.corePhase !== "ready" || !["ready", "running"].includes(state.phase) || state.stopRequested === true;
+  const settings = state.nativeSettings;
+  if (!settings) {
+    document.getElementById("native-settings-note").textContent = state.phase === "unavailable" ? "ゲーム設定は、ゲームを起動できるランチャーで変更できます。" : "ゲームの起動準備を待っています。";
+    return;
+  }
+  const signature = JSON.stringify(settings);
+  if (signature !== lastNativeSettings || nativeSaving || !nativeDirty || state.canEditNativeSettings !== true) {
+    nativeFps.value = String(settings.native_vsync_frequency);
+    nativeResolution.value = `${settings.native_internal_width}x${settings.native_internal_height}`;
+    nativeDirty = false;
+    lastNativeSettings = signature;
+  }
+  nativeSaving = false;
+  const notices = {
+    default: "FPS 1000・内部1920×1080を初期値として使用します。保存すると次回Playで適用されます。",
+    loaded: "保存済みの設定です。変更は次回Playで適用されます。",
+    saved: "設定を保存しました。次回Playで適用されます。",
+    "load-failed": "設定を読み込めなかったため、FPS 1000・内部1920×1080を使用します。",
+    "save-failed": "設定を保存できませんでした。保存済みの値を表示しています。",
+    invalid: "設定値が無効なため、保存しませんでした。",
+    "not-ready": "ゲーム停止後、準備完了になると変更できます。",
+  };
+  const note = nativeDirty ? "未保存の変更があります。保存すると次回Playで適用されます。" : notices[state.settingsNotice] || "ゲームの起動準備を待っています。";
+  document.getElementById("native-settings-note").textContent = state.canEditNativeSettings === true ? note : note + " ゲームの実行中・起動中・停止中は変更できません。";
+  const info = state.settingsInfo;
+  if (!info?.audioBackend && !settingsRefresh.disabled && !requestedSettingsInfo) {
+    requestedSettingsInfo = true;
+    windowCommand("settings:get");
+  }
+  if (info?.audioBackend) {
+    setInfo("audio-info", [["Audio Backend", info.audioBackend], ["TV出力デバイス", info.tvDevice], ["TV音量", info.tvVolume], ["GamePad出力デバイス", info.padDevice], ["GamePad音量", info.padVolume]]);
+    setInfo("controller-info", [["VPAD割当", info.vpadAssigned ? "割当済み" : "未割当"], ["Controller Profile", info.profile], ...(info.controllers || []).flatMap((device) => [["接続状態", device.connected ? "接続中" : "未接続"], ["Input API", device.api], ["デバイス名（保存済み）", device.name]])]);
+  }
+}
 window.addEventListener("launcher-session-ended", () => showPage("home"));
 window.addEventListener("launcher-show-home", () => showPage("home"));
 window.addEventListener("launcher-display-state", (event) => {

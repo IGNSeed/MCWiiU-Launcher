@@ -1,14 +1,19 @@
 #include "CemuHost.h"
+#include "NativeSettings.h"
 
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
 #include "Cafe/CafeSystem.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
+#include "Cafe/HW/Latte/Core/LatteTiming.h"
+#include "Cafe/HW/Latte/Core/MinecraftNativeResolution.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #include "config/ActiveSettings.h"
 #include "input/InputManager.h"
+#include "input/api/Controller.h"
+#include "audio/IAudioAPI.h"
 #include "WindowSystem.h"
 
 #include <pugixml.hpp>
@@ -36,6 +41,7 @@ namespace
 	PFN_vkCreateSwapchainKHR s_createSwapchain = nullptr;
 	PFN_vkDestroySwapchainKHR s_destroySwapchain = nullptr;
 	PFN_vkDestroySurfaceKHR s_destroySurface = nullptr;
+	PFN_vkCreateImage s_createImage = nullptr;
 
 	void Require(bool condition, const char* message)
 	{
@@ -94,6 +100,11 @@ namespace
 		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
 		std::string phase = "idle", error;
 		fs::path runtime;
+		NativeSettings nativeSettings;
+		std::string settingsNotice = "loading", settingsInfo = "{}";
+		std::mutex imageMutex;
+		std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, uint64_t> images;
+		std::atomic_uint32_t appliedVsync{0};
 		int controllerModifier = -1, controllerExit = -1;
 
 		HostState(HWND rootWindow, HWND gameWindow, CemuHost::Callbacks ui)
@@ -148,6 +159,10 @@ namespace
 		{
 			return corePhase == "ready" && phase == "running" && titlePhase == "running" && launch && !stop && !titleStop && !stopped && !failed;
 		}
+		bool CanEditSettingsLocked() const
+		{
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed;
+		}
 		void ClearStopConfirmationLocked()
 		{
 			confirmationId = confirmationSession = confirmationGeneration = 0;
@@ -168,7 +183,28 @@ namespace
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
+				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
+				writer.Key("nativeSettings");
+				const auto settings = nativeSettings.Json();
+				writer.RawValue(settings.data(), settings.size(), rapidjson::kObjectType);
+				writer.Key("settingsNotice"); writer.String(settingsNotice.c_str());
+				writer.Key("settingsInfo"); writer.RawValue(settingsInfo.data(), settingsInfo.size(), rapidjson::kObjectType);
 			}
+			writer.Key("appliedNativeVsync"); writer.Uint(appliedVsync);
+			writer.Key("nativeResolutionActive"); writer.Bool(MinecraftNativeResolution::IsActive());
+			writer.Key("images"); writer.StartArray();
+			{
+				std::lock_guard lock(imageMutex);
+				for (const auto& [key, count] : images)
+				{
+					const auto [width, height, format, usage] = key;
+					writer.StartObject();
+					writer.Key("width"); writer.Uint(width); writer.Key("height"); writer.Uint(height);
+					writer.Key("format"); writer.Uint(format); writer.Key("usage"); writer.Uint(usage);
+					writer.Key("count"); writer.Uint64(count); writer.EndObject();
+				}
+			}
+			writer.EndArray();
 			writer.Key("sessionId"); writer.Uint64(sessionId);
 			writer.Key("commonInitCount"); writer.Uint64(commonInitCount);
 			writer.Key("titleShutdownCount"); writer.Uint64(titleShutdownCount);
@@ -421,6 +457,18 @@ namespace
 		++s_vulkanHost->surfaceDestroys;
 		cemuLog_log(LogType::Force, "NativeHost Vulkan surface released on thread {}", GetCurrentThreadId());
 	}
+	VKAPI_ATTR VkResult VKAPI_CALL CreateImage(VkDevice device, const VkImageCreateInfo* info, const VkAllocationCallbacks* allocator, VkImage* image)
+	{
+		const auto result = s_createImage(device, info, allocator, image);
+		if (result == VK_SUCCESS)
+		{
+			std::lock_guard lock(s_vulkanHost->imageMutex);
+			const auto key = std::tuple{info->extent.width, info->extent.height, uint32_t(info->format), uint32_t(info->usage)};
+			if (s_vulkanHost->images.contains(key) || s_vulkanHost->images.size() < 64)
+				++s_vulkanHost->images[key];
+		}
+		return result;
+	}
 	void InstallVulkanTrace(HostState& state)
 	{
 		s_vulkanHost = &state;
@@ -429,6 +477,7 @@ namespace
 		s_createSwapchain = std::exchange(vkCreateSwapchainKHR, CreateSwapchain);
 		s_destroySwapchain = std::exchange(vkDestroySwapchainKHR, DestroySwapchain);
 		s_destroySurface = std::exchange(vkDestroySurfaceKHR, DestroySurface);
+		s_createImage = std::exchange(vkCreateImage, CreateImage);
 	}
 	void RemoveVulkanTrace()
 	{
@@ -438,6 +487,7 @@ namespace
 		vkCreateSwapchainKHR = s_createSwapchain;
 		vkDestroySwapchainKHR = s_destroySwapchain;
 		vkDestroySurfaceKHR = s_destroySurface;
+		vkCreateImage = s_createImage;
 		s_vulkanHost = nullptr;
 	}
 } // namespace
@@ -470,6 +520,12 @@ struct CemuHost::Impl
 			state->Phase("validating");
 			state->runtime = ValidateRuntime();
 			const auto portable = state->runtime / "portable";
+			const auto nativePath = portable / "launcher-native-settings.json";
+			if (fs::exists(nativePath)) NoReparsePoints(nativePath);
+			{
+				std::lock_guard lock(state->statusMutex);
+				state->nativeSettings = NativeSettings::Load(nativePath, state->settingsNotice);
+			}
 			std::set<fs::path> failedPaths;
 			ActiveSettings::SetPaths(true, ExecutablePath(), portable, portable, portable, state->runtime, failedPaths);
 			Require(failedPaths.empty(), "Isolated runtime is not writable");
@@ -484,7 +540,8 @@ struct CemuHost::Impl
 			CafeSystem::SetImplementation(state.get());
 			commonStarted = true;
 			++state->commonInitCount;
-			CemuCommonInit(state->runtime);
+			CemuCommonInit(state->runtime, false);
+			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
 			{ std::lock_guard lock(state->statusMutex); state->corePhase = "ready"; }
@@ -507,6 +564,17 @@ struct CemuHost::Impl
 					{
 						auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
 						Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
+						NativeSettings settings;
+						{
+							std::lock_guard lock(state->statusMutex);
+							settings = state->nativeSettings;
+						}
+						Require(MinecraftNativeResolution::Begin(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion(), settings.width, settings.height), "Invalid native resolution session");
+						if (settings.vsyncFrequency) LatteTiming_setCustomVsyncFrequency(settings.vsyncFrequency);
+						else LatteTiming_disableCustomVsyncFrequency();
+						state->appliedVsync = settings.vsyncFrequency;
+						{ std::lock_guard lock(state->imageMutex); state->images.clear(); }
+						cemuLog_log(LogType::Force, "NativeHost session settings: vsync={} internal={}x{}", settings.vsyncFrequency, settings.width, settings.height);
 						if (!state->stop && !state->titleStop)
 						{
 							state->Phase("vulkan");
@@ -514,6 +582,10 @@ struct CemuHost::Impl
 							Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
 							g_renderer = std::make_unique<VulkanRenderer>();
 							const auto renderer = VulkanRenderer::GetInstance();
+							const auto limits = renderer->GetPhysicalDevice();
+							VkPhysicalDeviceProperties properties{};
+							vkGetPhysicalDeviceProperties(limits, &properties);
+							Require(settings.width <= properties.limits.maxImageDimension2D && settings.height <= properties.limits.maxImageDimension2D, "Native resolution exceeds Vulkan image limits");
 							renderer->InitializeSurface(size, true);
 							const auto& chain = renderer->GetChainInfo(true);
 							const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
@@ -530,6 +602,14 @@ struct CemuHost::Impl
 							InstallVulkanTrace(*state);
 							g_isGPUInitFinished = false;
 							if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
+							if (CafeSystem::IsTitleRunning())
+							{
+								sint32 applied = 0;
+								const bool custom = LatteTiming_getCustomVsyncFrequency(applied);
+								Require(custom == (settings.vsyncFrequency != 0) && (!custom || applied == settings.vsyncFrequency), "Native VSync was changed during title initialization");
+								state->appliedVsync = custom ? applied : 0;
+								cemuLog_log(LogType::Force, "NativeHost verified LatteTiming after title initialization: custom={} frequency={}", custom, applied);
+							}
 							state->Phase("running");
 							std::unique_lock lock(state->workMutex);
 							state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
@@ -539,6 +619,9 @@ struct CemuHost::Impl
 					CafeSystem::ShutdownTitle();
 					Require(!CafeSystem::IsTitleRunning() && Latte_GetStopSignal(), "Title threads did not stop");
 					ReleaseRenderer();
+					MinecraftNativeResolution::End();
+					LatteTiming_disableCustomVsyncFrequency();
+					state->appliedVsync = 0;
 					Require(state->swapchainCreates == state->swapchainDestroys && state->surfaceCreates == state->surfaceDestroys, "Title Vulkan resources were not released");
 					++state->titleShutdownCount;
 					state->fps = 0;
@@ -572,6 +655,9 @@ struct CemuHost::Impl
 			// GPU 未開始の取消でも、既存 LatteThread_Exit と同じく destructor 中は
 			// g_renderer を有効に保つ。内部資源の解放がこの参照を利用する。
 			ReleaseRenderer();
+			MinecraftNativeResolution::End();
+			LatteTiming_disableCustomVsyncFrequency();
+			state->appliedVsync = 0;
 			InputManager::instance().Shutdown();
 			cemuLog_log(LogType::Force, "NativeHost input shutdown complete; presents={} acquires={} swapchainsReleased={} surfacesReleased={}",
 				state->presents.load(), state->acquires.load(), state->swapchainDestroys.load(), state->surfaceDestroys.load());
@@ -696,6 +782,87 @@ bool CemuHost::IsRunning() const
 bool CemuHost::IsTitleStopping() const { return m_impl->state->titleStop && m_impl->state->launch; }
 bool CemuHost::HasFailed() const { return m_impl->state->failed; }
 std::string CemuHost::StatusJson() const { return m_impl->state->Json(); }
+
+void CemuHost::SaveNativeSettings(std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	NativeSettings settings;
+	const bool valid = NativeSettings::Parse(payload, settings);
+	{
+		std::lock_guard workLock(state.workMutex);
+		std::lock_guard statusLock(state.statusMutex);
+		if (!state.CanEditSettingsLocked()) state.settingsNotice = "not-ready";
+		else if (!valid) state.settingsNotice = "invalid";
+		else
+		{
+			const auto path = state.runtime / "portable/launcher-native-settings.json";
+			const auto attributes = GetFileAttributesW(path.c_str());
+			if ((attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) || !settings.Save(path))
+				state.settingsNotice = "save-failed";
+			else
+			{
+				state.nativeSettings = settings;
+				state.settingsNotice = "saved";
+			}
+		}
+	}
+	state.Publish();
+}
+
+void CemuHost::RefreshSettingsInfo()
+{
+	auto& state = *m_impl->state;
+	{
+		std::lock_guard workLock(state.workMutex);
+		std::lock_guard statusLock(state.statusMutex);
+		if (state.corePhase != "ready" || (state.phase != "ready" && state.phase != "running") || state.stop || state.failed)
+			return;
+		rapidjson::StringBuffer buffer;
+		rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+		writer.StartObject();
+		const auto& config = GetConfig();
+		const std::array<const char*, 4> backends{"DirectSound", "XAudio2 2.7", "XAudio2", "Cubeb"};
+		writer.Key("audioBackend"); writer.String(config.audio_api >= 0 && config.audio_api < backends.size() ? backends[config.audio_api] : "Unknown");
+		const auto deviceName = [&](const std::wstring& identifier) {
+			if (identifier.empty()) return std::string("未選択");
+			if (identifier == L"default") return std::string("既定のデバイス");
+			return boost::nowide::narrow(identifier);
+		};
+		writer.Key("tvDevice"); writer.String(deviceName(config.tv_device).c_str());
+		writer.Key("padDevice"); writer.String(deviceName(config.pad_device).c_str());
+		writer.Key("tvVolume"); writer.Int(config.tv_volume);
+		writer.Key("padVolume"); writer.Int(config.pad_volume);
+		writer.Key("vpadAssigned");
+		const auto controller = InputManager::instance().get_vpad_controller(0);
+		writer.Bool(bool(controller));
+		writer.Key("profile"); writer.String(controller ? controller->get_profile_name().c_str() : "未割当");
+		writer.Key("controllers"); writer.StartArray();
+		if (controller)
+		{
+			pugi::xml_document profile;
+			profile.load_file((state.runtime / "portable/controllerProfiles/controller0.xml").c_str());
+			// 実効 mapping の参照だけを読み、provider や SDL を追加初期化しない。
+			std::set<std::shared_ptr<ControllerBase>> devices;
+			for (size_t mapping = 0; mapping <= controller->get_highest_mapping_id(); ++mapping)
+				if (auto device = controller->get_mapping_controller(mapping)) devices.insert(std::move(device));
+			for (const auto& device : devices)
+			{
+				writer.StartObject();
+				writer.Key("api"); writer.String(device->api_name().data(), static_cast<rapidjson::SizeType>(device->api_name().size()));
+				std::string name = "取得できません";
+				for (const auto& configured : profile.child("emulated_controller").children("controller"))
+					if (device->uuid() == configured.child_value("uuid") && device->api_name() == configured.child_value("api"))
+						name = configured.child_value("display_name");
+				writer.Key("name"); writer.String(name.c_str());
+				writer.Key("connected"); writer.Bool(device->is_connected());
+				writer.EndObject();
+			}
+		}
+		writer.EndArray(); writer.EndObject();
+		state.settingsInfo = buffer.GetString();
+	}
+	state.Publish();
+}
 void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused, bool fullscreen)
 {
 	const double scale = static_cast<double>(dpi) / 96;

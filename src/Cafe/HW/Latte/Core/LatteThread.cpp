@@ -1,6 +1,7 @@
 #include "Cafe/HW/Latte/ISA/RegDefines.h"
 #include "Cafe/OS/libs/gx2/GX2.h" // todo - remove dependency
 #include "Cafe/HW/Latte/Core/Latte.h"
+#include "Cafe/HW/Latte/Core/MinecraftNativeResolution.h"
 #include "Cafe/HW/Latte/Core/LatteDraw.h"
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LatteAsyncCommands.h"
@@ -176,7 +177,7 @@ int Latte_ThreadEntry()
 	// before doing anything with game specific shaders, we need to wait for graphic packs to finish loading
 	GraphicPack2::WaitUntilReady();
 	// if legacy packs are enabled we cannot use the colorbuffer resolution optimization
-	LatteGPUState.allowFramebufferSizeOptimization = true;
+	LatteGPUState.allowFramebufferSizeOptimization = !MinecraftNativeResolution::IsActive();
 	for(auto& pack : GraphicPack2::GetActiveGraphicPacks())
 	{
 		if(pack->AllowRendertargetSizeOptimization())

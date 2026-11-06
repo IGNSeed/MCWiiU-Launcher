@@ -4,6 +4,8 @@ add_library(CemuCafe
   Account/Account.h
   CafeSystem.cpp
   CafeSystem.h
+  HW/Latte/Core/MinecraftNativeResolution.cpp
+  HW/Latte/Core/MinecraftNativeResolution.h
   Filesystem/fsc.cpp
   Filesystem/fscDeviceHostFS.cpp
   Filesystem/fscDeviceHostFS.h

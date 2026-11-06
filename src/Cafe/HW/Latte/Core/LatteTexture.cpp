@@ -2,6 +2,7 @@
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
+#include "Cafe/HW/Latte/Core/MinecraftNativeResolution.h"
 
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/LatteAddrLib/LatteAddrLib.h"
@@ -1335,6 +1336,14 @@ LatteTexture::LatteTexture(Latte::E_DIM dim, MPTR physAddress, MPTR physMipAddre
 				this->overwriteInfo.anisotropicLevel = rule.overwrite_settings.anistropic_value;
 			}
 		}
+	}
+	uint32 effectiveNativeWidth, effectiveNativeHeight;
+	if (MinecraftNativeResolution::GetSize(width, height, static_cast<uint32>(format), effectiveNativeWidth, effectiveNativeHeight))
+	{
+		this->overwriteInfo.hasResolutionOverwrite = true;
+		this->overwriteInfo.width = effectiveNativeWidth;
+		this->overwriteInfo.height = effectiveNativeHeight;
+		this->overwriteInfo.depth = depth;
 	}
 	this->enableReadback = LatteTexture_ShouldEnableReadback(physAddress, format, tileMode, width, height, depth, mipLevels, isDepth);
 

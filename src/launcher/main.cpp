@@ -444,6 +444,10 @@ namespace
 #ifdef CEMU_NATIVE_HOST
 				else if (core && message == "game:start")
 					core->LaunchGame();
+				else if (core && message.starts_with("settings:save:"))
+					core->SaveNativeSettings(message.substr(std::string_view("settings:save:").size()));
+				else if (core && message == "settings:get")
+					core->RefreshSettingsInfo();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
 					core->StopGame();
 				else if (core && s_sessionDiagnostics && message == "game:diagnostic-display-failure")
@@ -467,6 +471,7 @@ namespace
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					display->m_settingsSelected = message == "page:settings";
+					if (display->m_settingsSelected) core->RefreshSettingsInfo();
 					display->m_launcherVisible = display->m_settingsSelected;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
 					const bool running = core->IsRunning();

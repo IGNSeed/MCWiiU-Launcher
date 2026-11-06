@@ -45,7 +45,7 @@
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="eyebrow">Personalize</div>
         <h1 id="settings-title">Settings</h1>
-        <p class="intro">ランチャー画面の表示を調整できます。</p>
+        <p class="intro">ゲームとランチャーの表示を調整できます。</p>
         <div class="setting-row"><div><h2>表示サイズ</h2><p>ランチャー内の文字と余白の大きさを変更します。</p></div>
           <fieldset id="interface-scale" class="scale-control">
             <legend class="visually-hidden">表示サイズ</legend>
@@ -54,7 +54,23 @@
           </fieldset>
         </div>
         <p id="settings-note" class="footnote" role="status">表示サイズは保存され、次回の起動時にも適用されます。</p>
-        <div class="setting-row"><div><h2>ゲーム設定について</h2><p>ゲームには、Cemu で保存したゲーム設定とグラフィックパックを使用します。</p></div></div>
+        <h2 class="settings-heading">Graphics</h2>
+        <fieldset id="native-graphics" disabled>
+          <legend class="visually-hidden">ゲームの描画設定</legend>
+          <div class="setting-row"><div><label for="native-fps">FPS上限</label><p>実際のFPSは、場面や描画負荷によって変わります。</p></div>
+            <select id="native-fps"><option value="0">Original</option><option>30</option><option>60</option><option>120</option><option>144</option><option>165</option><option>240</option><option>360</option><option>500</option><option>1000</option></select>
+          </div>
+          <div class="setting-row"><div><label for="native-resolution">内部解像度</label><p>ゲーム内の描画解像度です。ウィンドウの大きさは変わりません。</p></div>
+            <select id="native-resolution"><option value="0x0">Original</option><option value="640x360">640×360</option><option value="960x540">960×540</option><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option><option value="3200x1800">3200×1800</option><option value="3840x2160">3840×2160</option><option disabled>5120×2880（未対応）</option><option disabled>7680×4320（未対応）</option></select>
+          </div>
+          <button id="native-save" type="button">設定を保存</button>
+        </fieldset>
+        <p id="native-settings-note" class="footnote" role="status">ゲームの起動準備を待っています。</p>
+        <h2 class="settings-heading">Audio</h2>
+        <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
+        <h2 class="settings-heading">Controller</h2>
+        <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
+        <button id="settings-refresh" type="button" disabled>情報を更新</button>
       </section>
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>

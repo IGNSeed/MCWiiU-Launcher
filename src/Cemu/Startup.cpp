@@ -81,7 +81,7 @@ void WindowsInitCwd(const fs::path& workingDirectory)
 	#endif
 }
 
-void CemuCommonInit(const fs::path& workingDirectory)
+void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks)
 {
 	reconfigureGLDrivers();
 	reconfigureVkDrivers();
@@ -99,7 +99,7 @@ void CemuCommonInit(const fs::path& workingDirectory)
 		n_config.Load();
 	// parallelize expensive init code
 	std::future<int> futureInitAudioAPI = std::async(std::launch::async, []{ IAudioAPI::InitializeStatic(); IAudioInputAPI::InitializeStatic(); return 0; });
-	std::future<int> futureInitGraphicPacks = std::async(std::launch::async, []{ GraphicPack2::LoadAll(); return 0; });
+	std::future<int> futureInitGraphicPacks = std::async(std::launch::async, [loadGraphicPacks]{ if (loadGraphicPacks) GraphicPack2::LoadAll(); return 0; });
 	InputManager::instance().load();
 	futureInitAudioAPI.wait();
 	futureInitGraphicPacks.wait();

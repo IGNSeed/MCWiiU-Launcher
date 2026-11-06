@@ -418,3 +418,21 @@ footer {
 #stop-confirmation p { color:#b4b4bd; line-height:1.8; }
 .dialog-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:12px; margin-top:24px; }
 .dialog-actions button { padding:10px 16px; }
+
+.settings-heading { margin:32px 0 8px; font-size:1.15rem; }
+#native-graphics { border:0; padding:0; margin:0; min-width:0; }
+#native-graphics label { font-weight:600; }
+#native-graphics select {
+  color:#f1f1f2;
+  background:#131317;
+  border:1px solid #777781;
+  border-radius:3px;
+  padding:10px 12px;
+  font:inherit;
+  min-width:180px;
+  max-width:100%;
+}
+#native-save,#settings-refresh { padding:10px 16px; margin-top:16px; }
+.settings-info { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr); gap:12px 24px; font-size:.875rem; }
+.settings-info dt { color:#b4b4bd; }
+.settings-info dd { margin:0; overflow-wrap:anywhere; }
