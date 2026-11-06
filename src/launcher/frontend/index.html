@@ -24,20 +24,20 @@
         <button type="button" data-page="home" aria-current="page">Home</button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
-      <div class="sidebar-note">GUI prototype</div>
+      <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main>
-      <header class="topbar"><span id="page-label">Home</span><span class="status">GUI prototype</span></header>
+      <header class="topbar"><span id="page-label">Home</span><span class="status" role="status">準備中</span></header>
       <section id="home" aria-labelledby="game-title">
         <div class="eyebrow">MCWiiU Launcher</div>
         <h1 id="game-title">Minecraft<span>Wii U Edition</span></h1>
         <div class="version">v560 専用</div>
         <p class="intro">ゲームを始めるための、新しいホーム。</p>
         <div class="launch-panel">
-          <div><h2>起動機能は準備中です</h2><p>現在は GUI のプロトタイプです。Cemu・ゲーム描画はまだ接続されていません。</p></div>
+          <div><h2>ゲームを準備しています</h2><p>起動状態を確認しています。</p></div>
           <button id="play" type="button" disabled aria-describedby="launch-note">Play</button>
         </div>
-        <p id="launch-note" class="footnote">この画面からゲームは起動しません。</p>
+        <p id="launch-note" class="footnote">F10：ランチャー画面へ戻る · F11：ゲームのフルスクリーン表示・解除</p>
         <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
@@ -51,8 +51,8 @@
             <label><input type="radio" name="interface-scale" value="1.1"><span>大きめ</span></label>
           </fieldset>
         </div>
-        <p id="settings-note" class="footnote" role="status">表示設定はこのプロトタイプのブラウザープロファイルに保存されます。</p>
-        <div class="setting-row"><div><h2>ゲーム設定について</h2><p>Cemu の設定・セーブデータは変更しません。ゲームの設定機能は今後接続する予定です。</p></div></div>
+        <p id="settings-note" class="footnote" role="status">表示サイズは保存され、次回の起動時にも適用されます。</p>
+        <div class="setting-row"><div><h2>ゲーム設定について</h2><p>ゲームには、Cemu で保存したゲーム設定とグラフィックパックを使用します。</p></div></div>
       </section>
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>

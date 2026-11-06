@@ -147,7 +147,9 @@ namespace
 				std::lock_guard lock(statusMutex);
 				writer.Key("phase"); writer.String(phase.c_str());
 				writer.Key("error"); writer.String(error.c_str());
+				writer.Key("canLaunch"); writer.Bool(phase == "ready" && !launch && !stop && !stopped && !failed);
 			}
+			writer.Key("stopRequested"); writer.Bool(stop);
 			writer.Key("stopped"); writer.Bool(stopped);
 			writer.Key("failed"); writer.Bool(failed);
 			writer.Key("fps"); writer.Double(fps);
@@ -498,8 +500,14 @@ void CemuHost::Start(bool launchImmediately)
 }
 void CemuHost::LaunchGame()
 {
-	{ std::lock_guard lock(m_impl->state->statusMutex); if (m_impl->state->phase != "ready" || m_impl->state->stop) return; }
-	{ std::lock_guard lock(m_impl->state->workMutex); m_impl->state->launch = true; }
+	{
+		std::lock_guard workLock(m_impl->state->workMutex);
+		std::lock_guard statusLock(m_impl->state->statusMutex);
+		if (m_impl->state->phase != "ready" || m_impl->state->stop || m_impl->state->launch) return;
+		m_impl->state->launch = true;
+		m_impl->state->phase = "preparing";
+	}
+	m_impl->state->Publish();
 	m_impl->state->wake.notify_all();
 }
 void CemuHost::RequestStop() { m_impl->state->Stop(); }

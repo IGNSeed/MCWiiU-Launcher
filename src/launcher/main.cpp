@@ -94,8 +94,10 @@ namespace
 			bool success = true;
 			if (enabled)
 			{
+				MONITORINFO monitor{sizeof(MONITORINFO)};
+				success = GetMonitorInfoW(MonitorFromWindow(m_window.native().hwnd, MONITOR_DEFAULTTONEAREST), &monitor) != FALSE;
 				BOOL visible = FALSE;
-				success = SUCCEEDED(controller->get_IsVisible(&visible));
+				success = SUCCEEDED(controller->get_IsVisible(&visible)) && success;
 				m_webViewWasVisible = visible != FALSE;
 				m_restoreGameFocus = GetFocus() == m_host.GetHandle();
 				// saucer は style 更新後に最大化状態と通常配置を失うため、この場合だけ補完する。
@@ -112,11 +114,19 @@ namespace
 					m_mode = Mode::GameFullscreen;
 					success = m_host.SetFullscreenLayout(true);
 					m_window.set_fullscreen(true);
-					m_host.SetVisible(true);
-					MONITORINFO monitor{sizeof(MONITORINFO)};
 					RECT root{};
-					success = GetMonitorInfoW(MonitorFromWindow(m_window.native().hwnd, MONITOR_DEFAULTTONEAREST), &monitor) &&
-						GetWindowRect(m_window.native().hwnd, &root) && EqualRect(&root, &monitor.rcMonitor) &&
+					success = GetWindowRect(m_window.native().hwnd, &root) && success;
+					// saucer 8.0.5 はモニター原点の x/y を逆転する。異なる DPI への
+					// 移動で再計算された寸法も含め、元の物理モニター矩形だけを補完する。
+					for (unsigned attempt = 0; success && !EqualRect(&root, &monitor.rcMonitor) && attempt < 2; ++attempt)
+					{
+						success = SetWindowPos(m_window.native().hwnd, nullptr, monitor.rcMonitor.left, monitor.rcMonitor.top,
+							monitor.rcMonitor.right - monitor.rcMonitor.left, monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+							SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED) != FALSE;
+						success = GetWindowRect(m_window.native().hwnd, &root) && success;
+					}
+					m_host.SetVisible(true);
+					success = EqualRect(&root, &monitor.rcMonitor) &&
 						success && m_host.Focus();
 				}
 			}
@@ -276,6 +286,7 @@ namespace
 					display->m_stopping = true;
 					if (core->IsStopped()) return saucer::policy::allow;
 					core->RequestStop();
+					publishCore(core->StatusJson());
 					return saucer::policy::block;
 				});
 			}
@@ -306,6 +317,10 @@ namespace
 				updateWindowState();
 #ifdef CEMU_NATIVE_HOST
 				if (core) publishCore(core->StatusJson());
+				else
+#endif
+					webview.execute("window.dispatchEvent(new CustomEvent('launcher-core-state', {detail:{phase:'unavailable',canLaunch:false}}));");
+#ifdef CEMU_NATIVE_HOST
 				if (display) display->Publish();
 #endif
 			});
@@ -313,6 +328,10 @@ namespace
 				const auto url = webview.url();
 				if (notifications.m_closing || url.scheme() != "saucer" || url.host() != "embedded" || url.path() != "/index.html")
 					return saucer::status::unhandled;
+#ifdef CEMU_NATIVE_HOST
+				if (display && display->m_stopping && message != "window:close")
+					return saucer::status::handled;
+#endif
 
 				// 埋め込みページからの完全一致するウィンドウ操作だけを受け付ける。
 				if (message == "window:minimize")
