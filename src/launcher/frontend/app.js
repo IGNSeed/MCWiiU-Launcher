@@ -2,16 +2,18 @@
 
 const pages = ["home", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
-navigation.forEach((button) => button.addEventListener("click", () => {
-  const selected = button.dataset.page;
+function showPage(selected) {
   if (!pages.includes(selected)) return;
   pages.forEach((page) => { document.getElementById(page).hidden = page !== selected; });
   navigation.forEach((item) => {
-    if (item === button) item.setAttribute("aria-current", "page");
+    if (item.dataset.page === selected) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
-  document.getElementById("page-label").textContent = button.textContent;
-  windowCommand("page:" + selected);
+  document.getElementById("page-label").textContent = selected === "home" ? "Home" : "Settings";
+}
+navigation.forEach((button) => button.addEventListener("click", () => {
+  showPage(button.dataset.page);
+  windowCommand("page:" + button.dataset.page);
 }));
 
 const scale = document.getElementById("interface-scale");
@@ -42,6 +44,44 @@ play.addEventListener("click", () => {
   windowCommand("game:start");
 });
 const stopGame = document.getElementById("stop-game");
+const stopDialog = document.getElementById("stop-confirmation");
+const stopCancel = document.getElementById("stop-cancel");
+const stopConfirm = document.getElementById("stop-confirm");
+let stopConfirmation = null;
+let stopRequestPending = false;
+let stopConfirmPending = false;
+let restoreStopFocus = false;
+function validId(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+function cancelStop() {
+  if (!stopConfirmation || stopConfirmPending) return;
+  const { sessionId, confirmationId } = stopConfirmation;
+  stopConfirmation = null;
+  restoreStopFocus = true;
+  stopDialog.close();
+  windowCommand(`game:stop-cancel:${sessionId}:${confirmationId}`);
+}
+stopGame.addEventListener("click", () => {
+  const state = window.launcherCoreState;
+  if (stopGame.disabled || state?.canStopGame !== true || !validId(state.sessionId)) return;
+  stopRequestPending = true;
+  stopGame.disabled = true;
+  windowCommand(`game:stop-request:${state.sessionId}`);
+});
+stopCancel.addEventListener("click", cancelStop);
+stopDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelStop();
+});
+stopConfirm.addEventListener("click", () => {
+  const state = window.launcherCoreState;
+  if (!stopConfirmation || stopConfirmPending || state?.canStopGame !== true ||
+      state.sessionId !== stopConfirmation.sessionId || state.stopConfirmationId !== stopConfirmation.confirmationId) return;
+  stopConfirmPending = true;
+  stopConfirm.disabled = stopCancel.disabled = true;
+  windowCommand(`game:stop-confirm:${stopConfirmation.sessionId}:${stopConfirmation.confirmationId}`);
+});
 const coreLabels = {
   idle: ["準備中", "ゲームを準備しています", "起動状態を確認しています。"],
   validating: ["準備中", "ゲームを準備しています", "ゲームデータと設定を確認しています。"],
@@ -67,14 +107,34 @@ window.addEventListener("launcher-core-state", (event) => {
   play.disabled = state.canLaunch !== true;
   document.querySelector(".launch-panel h2").textContent = heading;
   document.querySelector(".launch-panel p").textContent = description;
-  stopGame.disabled = true;
+  const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
+    state.stopConfirmationSessionId === state.sessionId;
+  stopRequestPending = false;
+  if (hasConfirmation) {
+    if (!stopConfirmation || stopConfirmation.confirmationId !== state.stopConfirmationId || stopConfirmation.sessionId !== state.sessionId) {
+      stopConfirmation = { sessionId: state.sessionId, confirmationId: state.stopConfirmationId };
+      stopConfirmPending = false;
+      stopConfirm.disabled = stopCancel.disabled = false;
+      if (!stopDialog.open) stopDialog.showModal();
+      stopCancel.focus();
+    }
+  } else {
+    const wasOpen = stopDialog.open;
+    stopConfirmation = null;
+    stopConfirmPending = false;
+    if (wasOpen) stopDialog.close();
+    stopGame.disabled = state.canStopGame !== true;
+    if ((wasOpen || restoreStopFocus) && !stopGame.disabled) stopGame.focus();
+    restoreStopFocus = false;
+  }
+  stopGame.disabled = state.canStopGame !== true || hasConfirmation || stopRequestPending;
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
-  navigation.forEach((button) => { button.disabled = closing; });
-  scale.disabled = closing;
+  const titleStopping = phase === "title-stopping" || phase === "title-stopped";
+  navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
+  scale.disabled = closing || titleStopping || hasConfirmation;
 });
-window.addEventListener("launcher-session-ended", () => {
-  document.querySelector('[data-page="home"]').click();
-});
+window.addEventListener("launcher-session-ended", () => showPage("home"));
+window.addEventListener("launcher-show-home", () => showPage("home"));
 window.addEventListener("launcher-display-state", (event) => {
   window.launcherDisplayState = event.detail;
 });

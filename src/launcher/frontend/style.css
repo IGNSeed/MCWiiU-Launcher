@@ -395,3 +395,26 @@ footer {
     padding:20px 28px;
   }
 }
+
+#stop-game {
+  margin-top:16px;
+  padding:10px 16px;
+}
+
+#stop-confirmation {
+  width:520px;
+  max-width:calc(100vw - 48px);
+  max-height:calc(100vh - 48px);
+  overflow:auto;
+  padding:28px;
+  border:1px solid #777781;
+  border-radius:5px;
+  color:#f1f1f2;
+  background:#101012;
+}
+
+#stop-confirmation::backdrop { background:#000b; }
+#stop-confirmation h2 { margin:0 0 16px; font-size:1.25rem; }
+#stop-confirmation p { color:#b4b4bd; line-height:1.8; }
+.dialog-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:12px; margin-top:24px; }
+.dialog-actions button { padding:10px 16px; }

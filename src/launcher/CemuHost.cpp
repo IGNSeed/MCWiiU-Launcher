@@ -83,6 +83,7 @@ namespace
 		std::vector<std::shared_ptr<UiRequest>> requests;
 		bool accepting = true, acceptingTitle = true;
 		uint64 generation = 1;
+		uint64 confirmationCounter = 0, confirmationId = 0, confirmationSession = 0, confirmationGeneration = 0;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
 		std::atomic_bool titleStop{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
@@ -143,6 +144,14 @@ namespace
 			return request ? request->result.get() : true;
 		}
 
+		bool CanStopGameLocked() const
+		{
+			return corePhase == "ready" && phase == "running" && titlePhase == "running" && launch && !stop && !titleStop && !stopped && !failed;
+		}
+		void ClearStopConfirmationLocked()
+		{
+			confirmationId = confirmationSession = confirmationGeneration = 0;
+		}
 		std::string Json()
 		{
 			rapidjson::StringBuffer buffer;
@@ -156,6 +165,9 @@ namespace
 				writer.Key("titlePhase"); writer.String(titlePhase.c_str());
 				writer.Key("stopReason"); writer.String(stopReason.c_str());
 				writer.Key("canLaunch"); writer.Bool(phase == "ready" && !launch && !stop && !stopped && !failed);
+				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
+				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
+				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
 			}
 			writer.Key("sessionId"); writer.Uint64(sessionId);
 			writer.Key("commonInitCount"); writer.Uint64(commonInitCount);
@@ -224,12 +236,20 @@ namespace
 			s_windowInfo.set_keystatesup();
 			s_windowInfo.app_active = false;
 		}
-		void StopTitle(std::string reason)
+		bool StopTitle(std::string reason, uint64 expectedSession = 0, uint64 expectedConfirmation = 0)
 		{
 			{
 				std::lock_guard workLock(workMutex);
 				std::lock_guard statusLock(statusMutex);
-				if (stop || !launch || titleStop) return;
+				if (stop || !launch || titleStop) return false;
+				if (expectedSession)
+				{
+					std::lock_guard uiLock(uiMutex);
+					if (!CanStopGameLocked() || sessionId != expectedSession || !expectedConfirmation ||
+						confirmationId != expectedConfirmation || confirmationSession != expectedSession || confirmationGeneration != generation)
+						return false;
+				}
+				ClearStopConfirmationLocked();
 				titleStop = true;
 				titlePhase = "stopping";
 				phase = "title-stopping";
@@ -238,6 +258,7 @@ namespace
 			}
 			Publish();
 			wake.notify_all();
+			return true;
 		}
 		void Stop()
 		{
@@ -245,6 +266,7 @@ namespace
 				std::lock_guard workLock(workMutex);
 				std::lock_guard statusLock(statusMutex);
 				stop = true;
+				ClearStopConfirmationLocked();
 				corePhase = "stopping";
 				if (launch) titlePhase = "stopping";
 			}
@@ -613,6 +635,7 @@ void CemuHost::LaunchGame()
 		if (m_impl->state->phase != "ready" || m_impl->state->stop || m_impl->state->launch || m_impl->state->failed) return;
 		m_impl->state->launch = true;
 		m_impl->state->titleStop = false;
+		m_impl->state->ClearStopConfirmationLocked();
 		++m_impl->state->sessionId;
 		m_impl->state->titlePhase = "preparing";
 		m_impl->state->stopReason.clear();
@@ -623,6 +646,45 @@ void CemuHost::LaunchGame()
 	m_impl->state->wake.notify_all();
 }
 void CemuHost::StopGame() { m_impl->state->StopTitle("emulator-stop"); }
+bool CemuHost::BeginStopGameConfirmation(uint64_t sessionId)
+{
+	bool accepted = false;
+	{
+		std::lock_guard workLock(m_impl->state->workMutex);
+		std::lock_guard statusLock(m_impl->state->statusMutex);
+		std::lock_guard uiLock(m_impl->state->uiMutex);
+		if (m_impl->state->CanStopGameLocked() && sessionId == m_impl->state->sessionId && !m_impl->state->confirmationId)
+		{
+			m_impl->state->confirmationId = ++m_impl->state->confirmationCounter;
+			m_impl->state->confirmationSession = sessionId;
+			m_impl->state->confirmationGeneration = m_impl->state->generation;
+			accepted = true;
+		}
+	}
+	m_impl->state->Publish();
+	return accepted;
+}
+void CemuHost::CancelStopGameConfirmation(uint64_t sessionId, uint64_t confirmationId)
+{
+	{
+		std::lock_guard workLock(m_impl->state->workMutex);
+		std::lock_guard statusLock(m_impl->state->statusMutex);
+		if (confirmationId && m_impl->state->confirmationId == confirmationId && m_impl->state->confirmationSession == sessionId)
+			m_impl->state->ClearStopConfirmationLocked();
+	}
+	m_impl->state->Publish();
+}
+bool CemuHost::ConfirmStopGame(uint64_t sessionId, uint64_t confirmationId)
+{
+	const bool accepted = sessionId && confirmationId && m_impl->state->StopTitle("user-confirmed-stop", sessionId, confirmationId);
+	if (!accepted) m_impl->state->Publish();
+	return accepted;
+}
+bool CemuHost::HasStopGameConfirmation() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	return m_impl->state->confirmationId != 0 && m_impl->state->CanStopGameLocked();
+}
 void CemuHost::RequestStop() { m_impl->state->Stop(); }
 void CemuHost::ReportDisplayFailure() { m_impl->state->Fail("Unable to switch launcher display mode"); }
 bool CemuHost::IsStopped() const { return m_impl->state->stopped; }
@@ -631,6 +693,7 @@ bool CemuHost::IsRunning() const
 	std::lock_guard lock(m_impl->state->statusMutex);
 	return m_impl->state->phase == "running" && !m_impl->state->stop;
 }
+bool CemuHost::IsTitleStopping() const { return m_impl->state->titleStop && m_impl->state->launch; }
 bool CemuHost::HasFailed() const { return m_impl->state->failed; }
 std::string CemuHost::StatusJson() const { return m_impl->state->Json(); }
 void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused, bool fullscreen)

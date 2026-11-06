@@ -9,6 +9,8 @@
 
 #include <Windows.h>
 #include <wrl.h>
+#include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -54,6 +56,23 @@ namespace
 	};
 
 #ifdef CEMU_NATIVE_HOST
+	std::optional<uint64_t> ParseStopId(std::string_view value)
+	{
+		uint64_t id = 0;
+		const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), id);
+		if (value.empty() || error != std::errc{} || end != value.data() + value.size() || !id) return std::nullopt;
+		return id;
+	}
+	std::optional<std::pair<uint64_t, uint64_t>> ParseStopConfirmation(std::string_view value)
+	{
+		const auto separator = value.find(':');
+		if (separator == std::string_view::npos) return std::nullopt;
+		const auto session = ParseStopId(value.substr(0, separator));
+		const auto confirmation = ParseStopId(value.substr(separator + 1));
+		if (!session || !confirmation) return std::nullopt;
+		return std::pair{*session, *confirmation};
+	}
+
 	// UI STA 内だけで表示状態を確定する。配置の保存・復元は saucer に任せる。
 	struct GameDisplayState
 	{
@@ -65,6 +84,7 @@ namespace
 		Mode m_mode = Mode::LauncherWindowed;
 		bool m_transitioning = false, m_stopping = false, m_settingsSelected = false;
 		bool m_webViewWasVisible = true, m_restoreGameFocus = false;
+		bool m_launcherVisible = false, m_stopConfirmation = false, m_boundsSyncPending = false;
 		std::optional<WINDOWPLACEMENT> m_maximizedPlacement;
 
 		bool IsFullscreen() const { return m_mode == Mode::GameFullscreen; }
@@ -86,7 +106,7 @@ namespace
 
 		bool SetFullscreen(bool enabled, bool launcherFocus = false)
 		{
-			if (m_transitioning || m_stopping || !m_core.IsRunning()) return false;
+			if (m_transitioning || m_stopping || m_stopConfirmation || !m_core.IsRunning()) return false;
 			if (enabled == IsFullscreen()) return true;
 			m_transitioning = true;
 			auto* controller = m_webview.native().controller;
@@ -137,12 +157,12 @@ namespace
 				m_window.set_fullscreen(false);
 				if (m_maximizedPlacement) success = SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement) && success;
 				m_mode = Mode::LauncherWindowed;
-				m_host.SetVisible(!m_settingsSelected);
+				m_host.SetVisible(!m_settingsSelected && !m_launcherVisible);
 				RECT client{};
 				success = GetClientRect(m_window.native().hwnd, &client) && success;
 				if (success) success = SUCCEEDED(controller->put_Bounds(client));
 				if (success) success = SUCCEEDED(controller->put_IsVisible(m_webViewWasVisible));
-				if (success && !launcherFocus && m_restoreGameFocus && !m_settingsSelected)
+				if (success && !launcherFocus && m_restoreGameFocus && !m_settingsSelected && !m_launcherVisible)
 					success = m_host.Focus();
 				else if (success && m_webViewWasVisible)
 					success = SUCCEEDED(controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
@@ -155,7 +175,7 @@ namespace
 					m_window.set_fullscreen(false);
 					if (m_maximizedPlacement) SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement);
 					m_mode = Mode::LauncherWindowed;
-					m_host.SetVisible(!m_settingsSelected);
+					m_host.SetVisible(!m_settingsSelected && !m_launcherVisible);
 					RECT client{};
 					if (GetClientRect(m_window.native().hwnd, &client)) controller->put_Bounds(client);
 					controller->put_IsVisible(m_webViewWasVisible);
@@ -169,6 +189,45 @@ namespace
 			if (m_host.stateChanged) m_host.stateChanged();
 			Publish();
 			return true;
+		}
+
+		void SyncWebViewBounds()
+		{
+			if (m_transitioning || m_stopping || IsFullscreen() || IsIconic(m_window.native().hwnd) || !IsWindowVisible(m_window.native().hwnd)) return;
+			RECT client{}, bounds{};
+			BOOL visible = FALSE;
+			auto* controller = m_webview.native().controller;
+			if (!GetClientRect(m_window.native().hwnd, &client) || FAILED(controller->get_Bounds(&bounds)))
+			{
+				Fail();
+				return;
+			}
+			// 最小化中の小さな Bounds が残った場合だけ、実 client の物理寸法へ戻す。
+			if (client.right > 0 && client.bottom > 0 && !EqualRect(&client, &bounds) && FAILED(controller->put_Bounds(client)))
+			{
+				Fail();
+				return;
+			}
+			// 最大化への復帰では saucer の minimize(false) 通知がない場合がある。
+			if (FAILED(controller->get_IsVisible(&visible)) || (!visible && FAILED(controller->put_IsVisible(TRUE))))
+				Fail();
+		}
+
+		void ShowLauncherHome()
+		{
+			if (m_stopping) return;
+			if (IsFullscreen() && !SetFullscreen(false, true)) return;
+			m_launcherVisible = true;
+			m_settingsSelected = false;
+			m_core.InputMessage(WM_CANCELMODE, 0, 0);
+			m_host.SetVisible(false);
+			m_webview.execute("window.dispatchEvent(new Event('launcher-show-home'));");
+			if (FAILED(m_webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC))) Fail();
+		}
+		void SetStopConfirmation(bool active)
+		{
+			if (active && !m_stopConfirmation) ShowLauncherHome();
+			m_stopConfirmation = active;
 		}
 
 		bool ReturnHome()
@@ -185,6 +244,7 @@ namespace
 				m_mode = Mode::LauncherWindowed;
 			}
 			m_settingsSelected = false;
+			m_launcherVisible = true;
 			m_host.SetVisible(false);
 			m_host.SetGameLayout(false);
 			auto* controller = m_webview.native().controller;
@@ -203,15 +263,11 @@ namespace
 
 		void Shortcut(UINT key)
 		{
-			if (m_stopping || m_transitioning || !m_core.IsRunning()) return;
+			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning()) return;
 			if (key == VK_F11)
 				SetFullscreen(!IsFullscreen());
 			else if (key == VK_F10)
-			{
-				if (IsFullscreen() && !SetFullscreen(false, true)) return;
-				m_core.InputMessage(WM_CANCELMODE, 0, 0);
-				if (FAILED(m_webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC))) Fail();
-			}
+				ShowLauncherHome();
 		}
 	};
 #endif
@@ -291,12 +347,14 @@ namespace
 				core = std::make_unique<CemuHost>(window->native().hwnd, gameHost.GetHandle(), CemuHost::Callbacks{
 					.post = [app](std::function<void()> callback) { app->post(std::move(callback)); },
 					.prepareCanvas = [&] {
+						if (display) { display->m_launcherVisible = false; display->m_settingsSelected = false; }
 						gameHost.SetGameLayout(true);
 						gameHost.SetVisible(true);
 						gameHost.Focus();
 						return gameHost.IsRenderable();
 					},
 					.status = [&](std::string json) {
+						if (display) display->SetStopConfirmation(core->HasStopGameConfirmation());
 						publishCore(json);
 						if (gameHost.stateChanged) gameHost.stateChanged();
 					},
@@ -307,6 +365,14 @@ namespace
 						}
 					});
 				gameHost.stateChanged = [&] {
+					if (display && !display->m_boundsSyncPending)
+					{
+						display->m_boundsSyncPending = true;
+						app->post([&] {
+							display->m_boundsSyncPending = false;
+							if (!notifications.m_closing) display->SyncWebViewBounds();
+						});
+					}
 					if (display && !display->m_transitioning && core->IsRunning() && gameHost.HasLayoutFailed()) display->Fail();
 					core->UpdateWindowState(gameHost.GetClientSize(), GetDpiForWindow(gameHost.GetHandle()),
 						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd &&
@@ -380,10 +446,28 @@ namespace
 					core->LaunchGame();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
 					core->StopGame();
+				else if (core && s_sessionDiagnostics && message == "game:diagnostic-display-failure")
+					display->Fail();
+				else if (core && message.starts_with("game:stop-request:"))
+				{
+					if (const auto session = ParseStopId(message.substr(std::string_view("game:stop-request:").size())))
+						core->BeginStopGameConfirmation(*session);
+				}
+				else if (core && (message.starts_with("game:stop-confirm:") || message.starts_with("game:stop-cancel:")))
+				{
+					const bool confirm = message.starts_with("game:stop-confirm:");
+					const auto prefix = confirm ? std::string_view("game:stop-confirm:") : std::string_view("game:stop-cancel:");
+					if (const auto ids = ParseStopConfirmation(message.substr(prefix.size())))
+					{
+						if (confirm) core->ConfirmStopGame(ids->first, ids->second);
+						else core->CancelStopGameConfirmation(ids->first, ids->second);
+					}
+				}
 				else if (core && (message == "page:home" || message == "page:settings"))
 				{
-					if (display->m_stopping) return saucer::status::handled;
+					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					display->m_settingsSelected = message == "page:settings";
+					display->m_launcherVisible = display->m_settingsSelected;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
 					const bool running = core->IsRunning();
 					gameHost.SetVisible(running && !display->m_settingsSelected);

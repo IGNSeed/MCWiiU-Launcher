@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -25,10 +26,15 @@ public:
 	void Start(bool launchImmediately);
 	void LaunchGame();
 	void StopGame();
+	bool BeginStopGameConfirmation(uint64_t sessionId);
+	void CancelStopGameConfirmation(uint64_t sessionId, uint64_t confirmationId);
+	bool ConfirmStopGame(uint64_t sessionId, uint64_t confirmationId);
+	bool HasStopGameConfirmation() const;
 	void RequestStop();
 	void ReportDisplayFailure();
 	bool IsStopped() const;
 	bool IsRunning() const;
+	bool IsTitleStopping() const;
 	bool HasFailed() const;
 	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
 	void InputMessage(UINT message, WPARAM wParam, LPARAM lParam);

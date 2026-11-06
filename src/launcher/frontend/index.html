@@ -38,7 +38,7 @@
           <button id="play" type="button" disabled aria-describedby="launch-note">Play</button>
         </div>
         <button id="stop-game" type="button" disabled aria-describedby="stop-note">ゲームを終了</button>
-        <p id="stop-note" class="footnote">Minecraft 内でセーブしてタイトルへ戻ってから使用します。保存完了の自動確認ができないため、現在は診断用の操作です。</p>
+        <p id="stop-note" class="footnote">ゲームを停止する前に、Minecraft 内でセーブしてタイトル画面へ戻ってください。</p>
         <p id="launch-note" class="footnote">F10：ランチャー画面へ戻る · F11：ゲームのフルスクリーン表示・解除</p>
         <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
       </section>
@@ -59,5 +59,13 @@
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>
   </div>
+  <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
+    <h2 id="stop-confirmation-title">Minecraft を終了しますか？</h2>
+    <p id="stop-confirmation-description">この操作ではゲームの進行状況を保存しません。<br>保存していない変更は失われる可能性があります。<br>先に Minecraft 内で「Exit and save」を実行してください。</p>
+    <div class="dialog-actions">
+      <button id="stop-cancel" type="button" autofocus>キャンセル</button>
+      <button id="stop-confirm" type="button">ゲームを停止する</button>
+    </div>
+  </dialog>
 </body>
 </html>
