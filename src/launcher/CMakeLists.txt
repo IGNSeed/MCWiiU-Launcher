@@ -32,13 +32,13 @@ if(TARGET CemuCafe)
     target_compile_options(saucer PRIVATE /UWIN32_LEAN_AND_MEAN)
 endif()
 
-add_executable(LauncherShell WIN32 main.cpp NativeGameHost.cpp NativeGameHost.h LauncherShell.manifest)
+add_executable(LauncherShell WIN32 main.cpp NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
 target_compile_features(LauncherShell PRIVATE cxx_std_23)
 target_compile_options(LauncherShell PRIVATE /utf-8 /W4)
-target_compile_definitions(LauncherShell PRIVATE NOMINMAX)
+target_compile_definitions(LauncherShell PRIVATE NOMINMAX LAUNCHER_VERSION="${PROJECT_VERSION}")
 # stable native API が参照する既存 WebView2 SDK も引き継ぐ。
 saucer_add_module(LauncherShell)
-target_link_libraries(LauncherShell PRIVATE Comctl32)
+target_link_libraries(LauncherShell PRIVATE Comctl32 glaze::glaze)
 set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。

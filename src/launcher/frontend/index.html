@@ -43,34 +43,71 @@
         <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
-        <div class="eyebrow">Personalize</div>
         <h1 id="settings-title">Settings</h1>
-        <p class="intro">ゲームとランチャーの表示を調整できます。</p>
-        <div class="setting-row"><div><h2>表示サイズ</h2><p>ランチャー内の文字と余白の大きさを変更します。</p></div>
-          <fieldset id="interface-scale" class="scale-control">
-            <legend class="visually-hidden">表示サイズ</legend>
-            <label><input type="radio" name="interface-scale" value="1" checked><span>標準</span></label>
-            <label><input type="radio" name="interface-scale" value="1.1"><span>大きめ</span></label>
-          </fieldset>
+        <div class="settings-tabs" role="tablist" aria-label="Settings">
+          <button id="tab-general" type="button" role="tab" aria-selected="true" aria-controls="panel-general" data-tab="general" tabindex="0">General</button>
+          <button id="tab-input" type="button" role="tab" aria-selected="false" aria-controls="panel-input" data-tab="input" tabindex="-1">Input</button>
+          <button id="tab-graphics" type="button" role="tab" aria-selected="false" aria-controls="panel-graphics" data-tab="graphics" tabindex="-1">Graphics</button>
+          <button id="tab-audio" type="button" role="tab" aria-selected="false" aria-controls="panel-audio" data-tab="audio" tabindex="-1">Audio</button>
+          <button id="tab-overlay" type="button" role="tab" aria-selected="false" aria-controls="panel-overlay" data-tab="overlay" tabindex="-1">Overlay</button>
+          <button id="tab-account" type="button" role="tab" aria-selected="false" aria-controls="panel-account" data-tab="account" tabindex="-1">Account</button>
         </div>
-        <p id="settings-note" class="footnote" role="status">表示サイズは保存され、次回の起動時にも適用されます。</p>
-        <h2 class="settings-heading">Graphics</h2>
-        <fieldset id="native-graphics" disabled>
-          <legend class="visually-hidden">ゲームの描画設定</legend>
-          <div class="setting-row"><div><label for="native-fps">FPS上限</label><p>実際のFPSは、場面や描画負荷によって変わります。</p></div>
-            <select id="native-fps"><option value="0">Original</option><option>30</option><option>60</option><option>120</option><option>144</option><option>165</option><option>240</option><option>360</option><option>500</option><option>1000</option></select>
+        <div class="settings-content">
+          <div id="panel-general" role="tabpanel" aria-labelledby="tab-general">
+            <h2 class="settings-heading">Updates</h2>
+            <p class="footnote">将来の更新機能の設定です。現在は設定の保存のみ対応し、更新の確認・ダウンロード・インストールは行いません。</p>
+            <fieldset id="update-preferences" disabled>
+              <legend class="visually-hidden">更新の設定</legend>
+              <label class="checkbox-row"><input id="automatic-updates" type="checkbox">Enable Automatic Updates</label>
+              <label class="checkbox-row"><input id="check-on-startup" type="checkbox">Check for Updates on Startup</label>
+              <label class="checkbox-row"><input id="preview-updates" type="checkbox">Receive Preview Updates</label>
+            </fieldset>
+            <p id="preferences-note" class="footnote" role="status">設定を読み込んでいます。</p>
+            <h2 class="settings-heading">Launcher Information</h2>
+            <dl class="settings-info"><dt>Launcher Version</dt><dd id="launcher-version">取得待ち</dd><dt>Minecraft</dt><dd>Wii U Edition · v560</dd><dt>Core</dt><dd id="core-information">準備中</dd></dl>
           </div>
-          <div class="setting-row"><div><label for="native-resolution">内部解像度</label><p>ゲーム内の描画解像度です。ウィンドウの大きさは変わりません。</p></div>
-            <select id="native-resolution"><option value="0x0">Original</option><option value="640x360">640×360</option><option value="960x540">960×540</option><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option><option value="3200x1800">3200×1800</option><option value="3840x2160">3840×2160</option><option disabled>5120×2880（未対応）</option><option disabled>7680×4320（未対応）</option></select>
+          <div id="panel-input" role="tabpanel" aria-labelledby="tab-input" hidden>
+            <h2 class="settings-heading">Controller</h2>
+            <dl class="settings-info"><dt>Emulated Controller</dt><dd>Wii U GamePad（固定）</dd><dt>Input API</dt><dd>SDLController（固定）</dd></dl>
+            <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
+            <button class="settings-refresh" type="button" disabled>情報を更新</button>
+            <p class="footnote">コントローラー選択・Profile 切替・ボタン割当・スティック調整・入力テストは今後対応予定です。</p>
           </div>
-          <button id="native-save" type="button">設定を保存</button>
-        </fieldset>
-        <p id="native-settings-note" class="footnote" role="status">ゲームの起動準備を待っています。</p>
-        <h2 class="settings-heading">Audio</h2>
-        <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-        <h2 class="settings-heading">Controller</h2>
-        <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-        <button id="settings-refresh" type="button" disabled>情報を更新</button>
+          <div id="panel-graphics" role="tabpanel" aria-labelledby="tab-graphics" hidden>
+            <h2 class="settings-heading">Native Graphics</h2>
+            <fieldset id="native-graphics" disabled>
+              <legend class="visually-hidden">ゲームの描画設定</legend>
+              <div class="setting-row"><div><label for="native-fps">FPS上限</label><p>実際のFPSは、場面や描画負荷によって変わります。</p></div>
+                <div class="fps-control">
+                  <div class="fps-values"><input id="native-fps-slider" type="range" min="30" max="1000" step="1" value="1000" aria-label="FPS上限スライダー"><input id="native-fps" type="text" inputmode="numeric" pattern="[0-9]{2,4}" maxlength="4" value="1000" aria-label="FPS上限（30〜1000の整数）" aria-describedby="fps-error"></div>
+                  <label class="checkbox-row"><input id="native-fps-original" type="checkbox">Original</label>
+                  <p id="fps-error" role="alert"></p>
+                </div>
+              </div>
+              <div class="setting-row"><div><label for="native-resolution">内部解像度</label><p>ゲーム内の描画解像度です。ウィンドウの大きさは変わりません。</p></div>
+                <select id="native-resolution"><option value="0x0">Original</option><option value="640x360">640×360</option><option value="960x540">960×540</option><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option><option value="3200x1800">3200×1800</option><option value="3840x2160">3840×2160</option></select>
+              </div>
+            </fieldset>
+            <p id="native-settings-note" class="footnote" role="status">ゲームの起動準備を待っています。</p>
+            <h2 class="settings-heading">Graphics Options</h2>
+            <dl class="settings-info"><dt>Graphics API</dt><dd>Vulkan（固定） · OpenGL は今後対応予定</dd><dt>Graphics Device / VSync</dt><dd>変更機能は今後対応予定</dd><dt>Async Shader Compile</dt><dd>変更機能は今後対応予定</dd><dt>Upscale / Downscale Filter</dt><dd>変更機能は今後対応予定</dd><dt>Fullscreen Scaling</dt><dd>変更機能は今後対応予定</dd></dl>
+          </div>
+          <div id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
+            <h2 class="settings-heading">Audio</h2>
+            <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
+            <button class="settings-refresh" type="button" disabled>情報を更新</button>
+            <p class="footnote">Audio API・出力デバイス・音量・Microphone の変更は今後対応予定です。</p>
+          </div>
+          <div id="panel-overlay" role="tabpanel" aria-labelledby="tab-overlay" hidden>
+            <h2 class="settings-heading">Overlay</h2>
+            <p class="footnote">Cemu Overlay の FPS・Draw Calls・CPU・RAM・VRAM 表示、色・サイズ・位置、各種通知の設定は今後対応予定です。現在の設定は維持されます。</p>
+          </div>
+          <div id="panel-account" role="tabpanel" aria-labelledby="tab-account" hidden>
+            <h2 class="settings-heading">Account</h2>
+            <p class="footnote">アカウント情報は非表示です。プロフィール表示・切替・Mii・ローカルユーザー管理・Dumpling インポートは今後対応予定です。</p>
+            <p class="footnote">現在は Offline 専用です。Pretendo / Custom 接続は今後対応予定です。</p>
+          </div>
+        </div>
       </section>
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>

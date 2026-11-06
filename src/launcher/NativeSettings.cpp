@@ -22,8 +22,7 @@ bool NativeSettings::Parse(std::string_view json, NativeSettings& settings)
 	if (doc["config_version"].GetUint() != 1)
 		return false;
 	const auto fps = doc["native_vsync_frequency"].GetUint();
-	constexpr std::array<uint32_t, 10> frequencies{0, 30, 60, 120, 144, 165, 240, 360, 500, 1000};
-	if (std::find(frequencies.begin(), frequencies.end(), fps) == frequencies.end())
+	if (fps != 0 && (fps < 30 || fps > 1000))
 		return false;
 	const auto width = doc["native_internal_width"].GetUint(), height = doc["native_internal_height"].GetUint();
 	constexpr std::array<std::pair<uint32_t, uint32_t>, 9> sizes{{{0, 0}, {640, 360}, {960, 540}, {1280, 720},

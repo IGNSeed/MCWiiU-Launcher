@@ -27,6 +27,9 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 
 	try
 	{
+		INITCOMMONCONTROLSEX controls{sizeof(INITCOMMONCONTROLSEX), ICC_WIN95_CLASSES};
+		if (!InitCommonControlsEx(&controls))
+			throw std::runtime_error("Unable to initialize game controls");
 		WNDCLASSEXW windowClass{sizeof(WNDCLASSEXW)};
 		windowClass.lpfnWndProc = ChildProc;
 		windowClass.hInstance = m_instance;
@@ -41,6 +44,27 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 0, 0, parent, nullptr, m_instance, this);
 		if (!m_child)
 			throw std::runtime_error("Unable to create native game host");
+		m_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
+			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_child, nullptr, m_instance, nullptr);
+		if (!m_tooltip) throw std::runtime_error("Unable to create game control tooltips");
+		const wchar_t* labels[]{L"Launcherへ戻る (F10)", L"フルスクリーン (F11)"};
+		for (unsigned index = 0; index < 2; ++index)
+		{
+			// Vulkan の非redirect描画面上でも GDI 記号が見えるよう、この小領域だけに描画面を持たせる。
+			m_controls[index] = CreateWindowExW(WS_EX_LAYERED, L"BUTTON", labels[index], WS_CHILD | BS_OWNERDRAW | BS_NOTIFY,
+				0, 0, 0, 0, m_child, reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + index)), m_instance, nullptr);
+			if (!m_controls[index] || !SetLayeredWindowAttributes(m_controls[index], 0, 245, LWA_ALPHA) ||
+				!SetWindowSubclass(m_controls[index], ControlProc, s_subclassId, reinterpret_cast<DWORD_PTR>(this)))
+				throw std::runtime_error("Unable to create game controls");
+			// 既存 manifest の Common Controls v5 でも受け付ける構造体サイズ。
+			TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
+			tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+			tool.hwnd = m_child;
+			tool.uId = reinterpret_cast<UINT_PTR>(m_controls[index]);
+			tool.lpszText = const_cast<wchar_t*>(labels[index]);
+			if (!SendMessageW(m_tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)))
+				throw std::runtime_error("Unable to attach game control tooltips");
+		}
 		if (diagnostics && !SetLayeredWindowAttributes(m_child, 0, 255, LWA_ALPHA))
 			throw std::runtime_error("Unable to initialize diagnostic painting");
 		m_subclassed = SetWindowSubclass(parent, ParentProc, s_subclassId, reinterpret_cast<DWORD_PTR>(this)) != FALSE;
@@ -74,6 +98,8 @@ void NativeGameHost::Release()
 	if (m_subclassed)
 		RemoveWindowSubclass(m_parent, ParentProc, s_subclassId);
 	m_subclassed = false;
+	if (m_tooltip) DestroyWindow(m_tooltip);
+	m_tooltip = nullptr;
 	if (m_child)
 		DestroyWindow(m_child);
 	if (m_diagnostics && m_parent && m_controller)
@@ -153,6 +179,32 @@ bool NativeGameHost::SetFullscreenLayout(bool enabled)
 	return !m_layoutFailed;
 }
 
+void NativeGameHost::SetControlsVisible(bool visible)
+{
+	if (!OnUiThread()) return;
+	m_controlsVisible = visible;
+	UpdateControls();
+}
+
+void NativeGameHost::UpdateControls()
+{
+	if (!m_child) return;
+	const bool visible = m_controlsVisible && m_gameLayout && !m_fullscreenLayout && IsRenderable();
+	const auto dpi = GetDpiForWindow(m_child);
+	const auto size = MulDiv(32, dpi, 96), gap = MulDiv(6, dpi, 96), margin = MulDiv(12, dpi, 96);
+	const auto client = GetClientSize();
+	for (unsigned index = 0; index < 2; ++index)
+	{
+		if (!m_controls[index]) continue;
+		if (visible)
+			SetWindowPos(m_controls[index], HWND_TOP, client.cx - margin - size * (2 - index) - gap * (1 - index),
+				margin, size, size, SWP_NOACTIVATE);
+		if (bool(GetWindowLongPtrW(m_controls[index], GWL_STYLE) & WS_VISIBLE) != visible)
+			ShowWindow(m_controls[index], visible ? SW_SHOWNA : SW_HIDE);
+	}
+	if (!visible && m_tooltip) SendMessageW(m_tooltip, TTM_POP, 0, 0);
+}
+
 void NativeGameHost::UpdateLayout()
 {
 	if (!m_parent || !m_child)
@@ -191,7 +243,27 @@ void NativeGameHost::UpdateLayout()
 	if (!active || m_layoutFailed)
 		RestoreWebViewFocus();
 	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+	UpdateControls();
 	if (stateChanged) stateChanged();
+}
+
+LRESULT CALLBACK NativeGameHost::ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
+{
+	auto* self = reinterpret_cast<NativeGameHost*>(data);
+	if (message == WM_MOUSEMOVE && self->m_hoveredControl != hwnd)
+	{
+		self->m_hoveredControl = hwnd;
+		TRACKMOUSEEVENT track{sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
+		TrackMouseEvent(&track);
+		InvalidateRect(hwnd, nullptr, FALSE);
+	}
+	if (message == WM_MOUSELEAVE)
+	{
+		if (self->m_hoveredControl == hwnd) self->m_hoveredControl = nullptr;
+		InvalidateRect(hwnd, nullptr, FALSE);
+	}
+	if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, ControlProc, id);
+	return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
@@ -248,6 +320,53 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		return DefWindowProcW(hwnd, message, wParam, lParam);
 	switch (message)
 	{
+	case WM_COMMAND:
+		if (HIWORD(wParam) == BN_CLICKED && (reinterpret_cast<HWND>(lParam) == self->m_controls[0] || reinterpret_cast<HWND>(lParam) == self->m_controls[1]))
+		{
+			if (self->m_controlsVisible && !self->m_fullscreenLayout && self->IsRenderable())
+			{
+				// キー操作と同じ game focus を保存し、F11 解除後も入力を復帰する。
+				self->Focus();
+				if (self->input) self->input(WM_CANCELMODE, 0, 0);
+				if (self->shortcut) self->shortcut(reinterpret_cast<HWND>(lParam) == self->m_controls[0] ? VK_F10 : VK_F11);
+			}
+			return 0;
+		}
+		break;
+	case WM_DRAWITEM:
+	{
+		const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+		if (item->hwndItem != self->m_controls[0] && item->hwndItem != self->m_controls[1]) break;
+		// stock object と DC 内の色だけを使い、再Playごとの GDI allocation を避ける。
+		const auto saved = SaveDC(item->hDC);
+		SetDCBrushColor(item->hDC, self->m_hoveredControl == item->hwndItem ? RGB(65, 65, 72) : RGB(24, 24, 28));
+		SetDCPenColor(item->hDC, RGB(190, 190, 198));
+		SelectObject(item->hDC, GetStockObject(DC_BRUSH));
+		SelectObject(item->hDC, GetStockObject(DC_PEN));
+		const auto r = item->rcItem;
+		const auto unit = std::max<LONG>(1, (r.right - r.left) / 8);
+		RoundRect(item->hDC, r.left, r.top, r.right, r.bottom, unit, unit);
+		const auto x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+		if (item->hwndItem == self->m_controls[0])
+		{
+			SetDCBrushColor(item->hDC, RGB(235, 235, 240));
+			RECT left{x - unit, y - unit * 2, x, y + unit * 2}, right{x + unit, y - unit * 2, x + unit * 2, y + unit * 2};
+			FillRect(item->hDC, &left, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+			FillRect(item->hDC, &right, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		}
+		else
+		{
+			for (const int dx : {-1, 1}) for (const int dy : {-1, 1})
+			{
+				MoveToEx(item->hDC, x + dx * unit, y + dy * unit * 2, nullptr);
+				LineTo(item->hDC, x + dx * unit * 2, y + dy * unit * 2);
+				LineTo(item->hDC, x + dx * unit * 2, y + dy * unit);
+			}
+		}
+		if (item->itemState & ODS_FOCUS) DrawFocusRect(item->hDC, &item->rcItem);
+		RestoreDC(item->hDC, saved);
+		return TRUE;
+	}
 	case WM_NCDESTROY:
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
 		self->m_child = nullptr;

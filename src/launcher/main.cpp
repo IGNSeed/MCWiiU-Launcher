@@ -3,6 +3,7 @@
 #include <saucer/modules/stable/webview2.hpp>
 
 #include "NativeGameHost.h"
+#include "LauncherPreferences.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
 #endif
@@ -27,12 +28,24 @@ namespace
 	bool s_launchImmediately = false;
 	bool s_sessionDiagnostics = false;
 
+	std::optional<std::pair<uint64_t, std::string_view>> ParseSaveRequest(std::string_view message)
+	{
+		const auto separator = message.find(':');
+		if (separator == std::string_view::npos) return std::nullopt;
+		uint64_t id = 0;
+		const auto [end, error] = std::from_chars(message.data(), message.data() + separator, id);
+		if (error != std::errc{} || end != message.data() + separator || !id || id > 9007199254740991ULL)
+			return std::nullopt;
+		return std::pair{id, message.substr(separator + 1)};
+	}
+
 	// 例外経路でも WebView2 の破棄より先に通知の参照を解除する。
 	struct WindowNotifications
 	{
 		saucer::window& m_window;
 		saucer::webview& m_webview;
 		bool m_closing = false;
+		bool m_frontendReady = false, m_closeRequested = false, m_closeApproved = false;
 		std::optional<size_t> m_maximizeListener;
 		std::optional<size_t> m_closedListener;
 		std::optional<size_t> m_closeListener;
@@ -324,6 +337,13 @@ namespace
 						   : saucer::policy::block;
 			});
 			NativeGameHost gameHost(window->native().hwnd, webview.native().controller, s_nativeHostDiagnostics, s_failHostInitialization);
+			const auto preferencesPath = UserDataPath() / "launcher-preferences.json";
+			std::string preferencesNotice;
+			auto preferences = LauncherPreferences::Load(preferencesPath, preferencesNotice);
+			const auto publishPreferences = [&] {
+				webview.execute("window.dispatchEvent(new CustomEvent('launcher-preferences', {detail:{values:" + preferences.Json() +
+					",notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
+			};
 #ifdef CEMU_NATIVE_HOST
 			std::unique_ptr<CemuHost> core;
 			std::unique_ptr<GameDisplayState> display;
@@ -365,6 +385,8 @@ namespace
 						}
 					});
 				gameHost.stateChanged = [&] {
+					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
+						!display->m_stopConfirmation && !display->m_settingsSelected && !display->m_launcherVisible && core->IsRunning());
 					if (display && !display->m_boundsSyncPending)
 					{
 						display->m_boundsSyncPending = true;
@@ -383,15 +405,32 @@ namespace
 				gameHost.input = [&](UINT message, WPARAM key, LPARAM value) { core->InputMessage(message, key, value); };
 				display = std::make_unique<GameDisplayState>(*window, webview, gameHost, *core);
 				gameHost.shortcut = [&](UINT key) { app->post([&, key] { display->Shortcut(key); }); };
-				notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
-					display->m_stopping = true;
-					if (core->IsStopped()) return saucer::policy::allow;
-					core->RequestStop();
-					publishCore(core->StatusJson());
-					return saucer::policy::block;
-				});
 			}
 #endif
+			notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
+				// Alt+F4 も、WebView 内の未送信の保存要求が完了してから閉じる。
+				if (notifications.m_frontendReady && !notifications.m_closeApproved)
+				{
+					if (!notifications.m_closeRequested)
+						webview.execute("window.dispatchEvent(new Event('launcher-close-request'));");
+					notifications.m_closeRequested = true;
+					return saucer::policy::block;
+				}
+#ifdef CEMU_NATIVE_HOST
+				if (display)
+				{
+					display->m_stopping = true;
+					gameHost.SetControlsVisible(false);
+					if (!core->IsStopped())
+					{
+						core->RequestStop();
+						publishCore(core->StatusJson());
+						return saucer::policy::block;
+					}
+				}
+#endif
+				return saucer::policy::allow;
+			});
 			// WebView2 側だけで捕捉し、JS と二重配送しない。COM event 内では遷移しない。
 			notifications.m_controller = webview.native().controller;
 			EventRegistrationToken acceleratorToken{};
@@ -415,7 +454,9 @@ namespace
 				throw std::runtime_error("Unable to register launcher fullscreen shortcut");
 			notifications.m_acceleratorListener = acceleratorToken;
 			webview.on<saucer::webview::event::dom_ready>([&] {
+				notifications.m_frontendReady = true;
 				updateWindowState();
+				publishPreferences();
 #ifdef CEMU_NATIVE_HOST
 				if (core) publishCore(core->StatusJson());
 				else
@@ -430,7 +471,8 @@ namespace
 				if (notifications.m_closing || url.scheme() != "saucer" || url.host() != "embedded" || url.path() != "/index.html")
 					return saucer::status::unhandled;
 #ifdef CEMU_NATIVE_HOST
-				if (display && display->m_stopping && message != "window:close")
+				if (display && display->m_stopping && message != "window:close" && message != "window:close-confirmed" &&
+					!message.starts_with("settings:save:") && !message.starts_with("preferences:save:"))
 					return saucer::status::handled;
 #endif
 
@@ -441,11 +483,38 @@ namespace
 					window->set_maximized(!window->maximized());
 				else if (message == "window:close")
 					window->close();
+				else if (message == "window:close-confirmed" && notifications.m_closeRequested)
+				{
+					notifications.m_closeApproved = true;
+					window->close();
+				}
+				else if (message.starts_with("preferences:save:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("preferences:save:").size())))
+					{
+						LauncherPreferences edited;
+						if (!LauncherPreferences::Parse(request->second, edited)) preferencesNotice = "invalid";
+						else if (edited == preferences) preferencesNotice = "saved";
+						else if (!edited.Save(preferencesPath)) preferencesNotice = "save-failed";
+						else { preferences = edited; preferencesNotice = "saved"; }
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-settings-result', {detail:{scope:'preferences',requestId:" +
+							std::to_string(request->first) + ",values:" + preferences.Json() + ",notice:'" + preferencesNotice + "'}}));");
+					}
+				}
 #ifdef CEMU_NATIVE_HOST
 				else if (core && message == "game:start")
 					core->LaunchGame();
 				else if (core && message.starts_with("settings:save:"))
-					core->SaveNativeSettings(message.substr(std::string_view("settings:save:").size()));
+				{
+					const auto payload = message.substr(std::string_view("settings:save:").size());
+					if (const auto request = ParseSaveRequest(payload))
+					{
+						core->SaveNativeSettings(request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-settings-result', {detail:{scope:'native',requestId:" +
+							std::to_string(request->first) + ",state:" + core->StatusJson() + "}}));");
+					}
+					else core->SaveNativeSettings(payload);
+				}
 				else if (core && message == "settings:get")
 					core->RefreshSettingsInfo();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
@@ -502,8 +571,9 @@ namespace
 			gameHost.stateChanged = {};
 			gameHost.shortcut = {};
 #endif
-		} catch (const std::exception&)
+		} catch (const std::exception& error)
 		{
+			OutputDebugStringA(error.what());
 			ReportStartupFailure();
 			app->quit();
 		}
@@ -544,8 +614,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		if (!s_guiOnly && !s_nativeHostDiagnostics) ExitProcess(exitCode);
 #endif
 		return exitCode;
-	} catch (const std::exception&)
+	} catch (const std::exception& error)
 	{
+		OutputDebugStringA(error.what());
 		ReportStartupFailure();
 		return 1;
 	}

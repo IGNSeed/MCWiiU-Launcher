@@ -17,24 +17,6 @@ navigation.forEach((button) => button.addEventListener("click", () => {
   windowCommand("page:" + button.dataset.page);
 }));
 
-const scale = document.getElementById("interface-scale");
-const scaleOptions = scale.querySelectorAll("input");
-const allowedScales = ["1", "1.1"];
-function applyScale(value) {
-  const accepted = allowedScales.includes(value) ? value : "1";
-  scaleOptions.forEach((option) => { option.checked = option.value === accepted; });
-  document.documentElement.style.setProperty("--scale", accepted);
-}
-try { applyScale(localStorage.getItem("interface-scale")); }
-catch { applyScale("1"); }
-scale.addEventListener("change", (event) => {
-  const value = event.target.value;
-  if (!allowedScales.includes(value)) return;
-  applyScale(value);
-  try { localStorage.setItem("interface-scale", value); }
-  catch { document.getElementById("settings-note").textContent = "表示サイズは変更しました。保存領域が利用できないため、今回は保存されません。"; }
-});
-
 function windowCommand(command) {
   window.chrome?.webview?.postMessage(command);
 }
@@ -97,7 +79,7 @@ const coreLabels = {
   stopped: ["終了", "ゲームを終了しました", "ランチャーを閉じています。"],
   failed: ["起動失敗", "ゲームを起動できませんでした", "ゲームデータと保存済みの設定を確認してください。"],
   "relaunch-failed": ["再起動失敗", "再起動失敗", "ランチャーを閉じてから、もう一度起動してください。"],
-  unavailable: ["起動機能なし", "この画面ではゲームを起動できません", "ランチャーの表示設定を変更できます。"],
+  unavailable: ["起動機能なし", "この画面ではゲームを起動できません", "ランチャーの設定と情報を確認できます。"],
 };
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
@@ -105,7 +87,7 @@ window.addEventListener("launcher-core-state", (event) => {
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status, heading, description] = coreLabels[phase] || coreLabels.idle;
   document.querySelector(".status").textContent = status;
-  play.disabled = state.canLaunch !== true;
+  play.disabled = state.canLaunch !== true || settingsBusy() || closeAfterSaves;
   document.querySelector(".launch-panel h2").textContent = heading;
   document.querySelector(".launch-panel p").textContent = description;
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
@@ -132,32 +114,178 @@ window.addEventListener("launcher-core-state", (event) => {
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
   const titleStopping = phase === "title-stopping" || phase === "title-stopped";
   navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
-  scale.disabled = closing || titleStopping || hasConfirmation;
+  document.getElementById("update-preferences").disabled = !confirmed.preferences || closing || titleStopping || hasConfirmation || closeAfterSaves;
+  document.querySelectorAll("[data-tab]").forEach((tab) => { tab.disabled = closing || titleStopping || hasConfirmation || closeAfterSaves; });
+  document.getElementById("core-information").textContent = status;
   updateNativeSettings(state);
+});
+
+const tabs = Array.from(document.querySelectorAll("[data-tab]"));
+let selectedTab = "general";
+function showTab(name) {
+  if (!tabs.some((tab) => tab.dataset.tab === name)) return;
+  selectedTab = name;
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.tab === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+  });
+  document.querySelector(".settings-content").scrollTop = 0;
+}
+tabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => showTab(tab.dataset.tab));
+  tab.addEventListener("keydown", (event) => {
+    let next;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    if (event.key === "ArrowLeft") next = (index + tabs.length - 1) % tabs.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    showTab(tabs[next].dataset.tab);
+    tabs[next].focus();
+  });
 });
 
 const nativeGraphics = document.getElementById("native-graphics");
 const nativeFps = document.getElementById("native-fps");
+const fpsSlider = document.getElementById("native-fps-slider");
+const fpsOriginal = document.getElementById("native-fps-original");
+const fpsError = document.getElementById("fps-error");
 const nativeResolution = document.getElementById("native-resolution");
-const settingsRefresh = document.getElementById("settings-refresh");
-let nativeDirty = false;
-let nativeSaving = false;
-let lastNativeSettings = "";
+const preferenceInputs = ["automatic-updates", "check-on-startup", "preview-updates"].map((id) => document.getElementById(id));
+const confirmed = { native: null, preferences: null };
+const desired = { native: null, preferences: null };
+const saveQueue = [];
+let pendingSave = null;
+let saveSequence = 0;
+let closeAfterSaves = false;
+let lastFps = 1000;
+let editingFps = false;
 let requestedSettingsInfo = false;
-nativeGraphics.addEventListener("change", () => {
-  nativeDirty = true;
-  document.getElementById("native-settings-note").textContent = "未保存の変更があります。保存すると次回Playで適用されます。";
+function settingsBusy() { return pendingSave !== null || saveQueue.length > 0; }
+function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function draft(scope) { return desired[scope] || confirmed[scope]; }
+function updatePlay() {
+  play.disabled = window.launcherCoreState?.canLaunch !== true || settingsBusy() || closeAfterSaves;
+}
+function note(scope, text) {
+  document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note").textContent = text;
+}
+function enqueueSave(scope, values) {
+  if (!confirmed[scope]) return;
+  desired[scope] = values;
+  if (!saveQueue.includes(scope)) saveQueue.push(scope);
+  drainSaves();
+}
+function drainSaves() {
+  if (pendingSave) return;
+  while (saveQueue.length) {
+    const scope = saveQueue.shift();
+    const values = desired[scope];
+    if (same(values, confirmed[scope])) { desired[scope] = null; continue; }
+    pendingSave = { scope, values, requestId: ++saveSequence };
+    note(scope, "保存しています。保存完了まで Play は利用できません。");
+    updatePlay();
+    windowCommand((scope === "native" ? "settings:save:" : "preferences:save:") + pendingSave.requestId + ":" + JSON.stringify(values));
+    return;
+  }
+  updatePlay();
+  if (closeAfterSaves) windowCommand("window:close-confirmed");
+}
+function renderNative(force = false) {
+  const values = draft("native");
+  if (!values) return;
+  const original = values.native_vsync_frequency === 0;
+  fpsOriginal.checked = original;
+  fpsSlider.disabled = nativeFps.disabled = original;
+  if (force || !editingFps) {
+    nativeFps.value = fpsSlider.value = String(original ? lastFps : values.native_vsync_frequency);
+  }
+  nativeResolution.value = `${values.native_internal_width}x${values.native_internal_height}`;
+}
+function renderPreferences() {
+  const values = draft("preferences");
+  if (!values) return;
+  preferenceInputs.forEach((input, index) => { input.checked = values[["automatic_updates", "check_on_startup", "preview_updates"][index]]; });
+}
+function saveFps(value) {
+  if (nativeGraphics.disabled || !confirmed.native) return;
+  fpsError.textContent = "";
+  editingFps = false;
+  const values = { ...draft("native"), native_vsync_frequency: value };
+  enqueueSave("native", values);
+  renderNative(true);
+}
+function validFps(value) { return /^[0-9]{2,4}$/.test(value) && Number(value) >= 30 && Number(value) <= 1000; }
+function commitFps() {
+  if (!editingFps) return;
+  if (validFps(nativeFps.value)) saveFps(Number(nativeFps.value));
+  else {
+    editingFps = false;
+    fpsError.textContent = "30〜1000の整数を入力してください。最後に保存された有効値へ戻しました。";
+    const saved = confirmed.native?.native_vsync_frequency || lastFps;
+    nativeFps.value = fpsSlider.value = String(saved);
+  }
+}
+nativeFps.addEventListener("input", () => {
+  editingFps = true;
+  if (validFps(nativeFps.value)) fpsSlider.value = nativeFps.value;
 });
-document.getElementById("native-save").addEventListener("click", () => {
-  if (nativeGraphics.disabled || window.launcherCoreState?.canEditNativeSettings !== true || nativeSaving) return;
+nativeFps.addEventListener("paste", (event) => {
+  const text = event.clipboardData?.getData("text") || "";
+  if (!/^[0-9]{1,4}$/.test(text)) {
+    event.preventDefault();
+    fpsError.textContent = "4桁以内の整数を入力してください。";
+  }
+});
+nativeFps.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); commitFps(); }
+});
+nativeFps.addEventListener("blur", commitFps);
+fpsSlider.addEventListener("input", () => { editingFps = true; nativeFps.value = fpsSlider.value; fpsError.textContent = ""; });
+fpsSlider.addEventListener("change", () => saveFps(Number(fpsSlider.value)));
+fpsOriginal.addEventListener("change", () => saveFps(fpsOriginal.checked ? 0 : lastFps));
+nativeResolution.addEventListener("change", () => {
+  if (nativeGraphics.disabled || !confirmed.native) return;
   const [width, height] = nativeResolution.value.split("x").map(Number);
-  const payload = { config_version: 1, native_vsync_frequency: Number(nativeFps.value), native_internal_width: width, native_internal_height: height };
-  nativeSaving = true;
-  nativeGraphics.disabled = true;
-  document.getElementById("native-settings-note").textContent = "保存しています。";
-  windowCommand("settings:save:" + JSON.stringify(payload));
+  enqueueSave("native", { ...draft("native"), native_internal_width: width, native_internal_height: height });
 });
-settingsRefresh.addEventListener("click", () => windowCommand("settings:get"));
+preferenceInputs.forEach((input) => input.addEventListener("change", () => {
+  enqueueSave("preferences", { config_version: 1, automatic_updates: preferenceInputs[0].checked, check_on_startup: preferenceInputs[1].checked, preview_updates: preferenceInputs[2].checked });
+}));
+window.addEventListener("launcher-preferences", (event) => {
+  confirmed.preferences = event.detail.values;
+  document.getElementById("launcher-version").textContent = event.detail.version;
+  document.getElementById("update-preferences").disabled = false;
+  renderPreferences();
+  note("preferences", event.detail.notice === "load-failed" ? "設定を読み込めなかったため、更新設定はすべて OFF を使用します。" : "設定は変更時に自動保存されます。更新処理はまだ行いません。");
+});
+window.addEventListener("launcher-settings-result", (event) => {
+  const result = event.detail;
+  if (!pendingSave || result.requestId !== pendingSave.requestId || result.scope !== pendingSave.scope) return;
+  const scope = result.scope;
+  const values = scope === "native" ? result.state.nativeSettings : result.values;
+  const notice = scope === "native" ? result.state.settingsNotice : result.notice;
+  confirmed[scope] = values;
+  if (scope === "native" && values.native_vsync_frequency) lastFps = values.native_vsync_frequency;
+  const newer = saveQueue.includes(scope);
+  if (!newer) desired[scope] = null;
+  pendingSave = null;
+  note(scope, notice === "saved" ? (scope === "native" ? "設定を保存しました。次回Playで適用されます。" : "更新設定を保存しました。更新処理はまだ行いません。") : "設定を保存できませんでした。保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  if (scope === "native") renderNative(); else renderPreferences();
+  drainSaves();
+});
+window.addEventListener("launcher-close-request", () => {
+  commitFps();
+  closeAfterSaves = true;
+  nativeGraphics.disabled = document.getElementById("update-preferences").disabled = true;
+  navigation.forEach((button) => { button.disabled = true; });
+  tabs.forEach((tab) => { tab.disabled = true; });
+  play.disabled = true;
+  drainSaves();
+});
 function setInfo(id, entries) {
   const list = document.getElementById(id);
   list.replaceChildren();
@@ -169,42 +297,36 @@ function setInfo(id, entries) {
   });
 }
 function updateNativeSettings(state) {
-  nativeGraphics.disabled = state.canEditNativeSettings !== true;
-  settingsRefresh.disabled = state.corePhase !== "ready" || !["ready", "running"].includes(state.phase) || state.stopRequested === true;
-  const settings = state.nativeSettings;
-  if (!settings) {
-    document.getElementById("native-settings-note").textContent = state.phase === "unavailable" ? "ゲーム設定は、ゲームを起動できるランチャーで変更できます。" : "ゲームの起動準備を待っています。";
+  nativeGraphics.disabled = state.canEditNativeSettings !== true || closeAfterSaves;
+  document.querySelectorAll(".settings-refresh").forEach((button) => {
+    button.disabled = state.corePhase !== "ready" || !["ready", "running"].includes(state.phase) || state.stopRequested === true || closeAfterSaves;
+  });
+  if (!state.nativeSettings) {
+    note("native", state.phase === "unavailable" ? "Core がないためゲーム設定は利用できません。" : "ゲームの起動準備を待っています。");
+    setInfo("audio-info", [["現在の設定", "Core の情報は利用できません。"]]);
+    setInfo("controller-info", [["接続状態", "Core の情報は利用できません。"]]);
     return;
   }
-  const signature = JSON.stringify(settings);
-  if (signature !== lastNativeSettings || nativeSaving || !nativeDirty || state.canEditNativeSettings !== true) {
-    nativeFps.value = String(settings.native_vsync_frequency);
-    nativeResolution.value = `${settings.native_internal_width}x${settings.native_internal_height}`;
-    nativeDirty = false;
-    lastNativeSettings = signature;
+  confirmed.native = state.nativeSettings;
+  if (state.nativeSettings.native_vsync_frequency) lastFps = state.nativeSettings.native_vsync_frequency;
+  if (state.canEditNativeSettings !== true) editingFps = false;
+  renderNative();
+  if (!pendingSave && !saveQueue.includes("native")) {
+    const notices = { default: "FPS 1000・内部1920×1080を初期値として使用します。変更時に自動保存します。", loaded: "保存済みの設定です。変更は次回Playで適用されます。", saved: "設定を保存しました。次回Playで適用されます。", "load-failed": "設定を読み込めなかったため、FPS 1000・内部1920×1080を使用します。", "save-failed": "設定を保存できませんでした。保存済みの値を表示しています。", invalid: "設定値が無効なため、保存しませんでした。", "not-ready": "ゲーム停止後、準備完了になると変更できます。" };
+    note("native", (notices[state.settingsNotice] || "ゲームの起動準備を待っています。") + (state.canEditNativeSettings === true ? "" : " ゲームの実行中・起動中・停止中は変更できません。"));
   }
-  nativeSaving = false;
-  const notices = {
-    default: "FPS 1000・内部1920×1080を初期値として使用します。保存すると次回Playで適用されます。",
-    loaded: "保存済みの設定です。変更は次回Playで適用されます。",
-    saved: "設定を保存しました。次回Playで適用されます。",
-    "load-failed": "設定を読み込めなかったため、FPS 1000・内部1920×1080を使用します。",
-    "save-failed": "設定を保存できませんでした。保存済みの値を表示しています。",
-    invalid: "設定値が無効なため、保存しませんでした。",
-    "not-ready": "ゲーム停止後、準備完了になると変更できます。",
-  };
-  const note = nativeDirty ? "未保存の変更があります。保存すると次回Playで適用されます。" : notices[state.settingsNotice] || "ゲームの起動準備を待っています。";
-  document.getElementById("native-settings-note").textContent = state.canEditNativeSettings === true ? note : note + " ゲームの実行中・起動中・停止中は変更できません。";
   const info = state.settingsInfo;
-  if (!info?.audioBackend && !settingsRefresh.disabled && !requestedSettingsInfo) {
+  if (!info?.audioBackend && state.corePhase === "ready" && ["ready", "running"].includes(state.phase) && !requestedSettingsInfo) {
     requestedSettingsInfo = true;
     windowCommand("settings:get");
   }
   if (info?.audioBackend) {
-    setInfo("audio-info", [["Audio Backend", info.audioBackend], ["TV出力デバイス", info.tvDevice], ["TV音量", info.tvVolume], ["GamePad出力デバイス", info.padDevice], ["GamePad音量", info.padVolume]]);
-    setInfo("controller-info", [["VPAD割当", info.vpadAssigned ? "割当済み" : "未割当"], ["Controller Profile", info.profile], ...(info.controllers || []).flatMap((device) => [["接続状態", device.connected ? "接続中" : "未接続"], ["Input API", device.api], ["デバイス名（保存済み）", device.name]])]);
+    setInfo("audio-info", [["Audio Backend", info.audioBackend], ["TV Output Device", info.tvDevice], ["TV Volume", info.tvVolume], ["GamePad Output Device", info.padDevice], ["GamePad Volume", info.padVolume]]);
+    const connected = (info.controllers || []).filter((device) => device.connected && device.api === "SDLController");
+    setInfo("controller-info", [["接続状態", connected.length ? "接続中" : "未接続"], ["接続中のコントローラー", connected.map((device) => device.name).join(" / ") || "なし"], ["VPAD割当", info.vpadAssigned ? "割当済み" : "未割当"], ["Controller Profile", info.profile]]);
   }
 }
+document.querySelectorAll(".settings-refresh").forEach((button) => button.addEventListener("click", () => windowCommand("settings:get")));
 window.addEventListener("launcher-session-ended", () => showPage("home"));
 window.addEventListener("launcher-show-home", () => showPage("home"));
 window.addEventListener("launcher-display-state", (event) => {

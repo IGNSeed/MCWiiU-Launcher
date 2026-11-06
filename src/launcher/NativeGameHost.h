@@ -24,6 +24,7 @@ public:
 	bool Focus();
 	void SetGameLayout(bool enabled);
 	bool SetFullscreenLayout(bool enabled);
+	void SetControlsVisible(bool visible);
 	std::function<void()> stateChanged;
 	std::function<void(UINT, WPARAM, LPARAM)> input;
 	std::function<void(UINT)> shortcut;
@@ -31,13 +32,19 @@ public:
 private:
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
+	static LRESULT CALLBACK ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
 	void UpdateLayout();
+	void UpdateControls();
 	void Release();
 	bool OnUiThread() const;
 	void RestoreWebViewFocus();
 
 	HWND m_parent = nullptr;
 	HWND m_child = nullptr;
+	HWND m_controls[2]{};
+	HWND m_tooltip = nullptr;
+	bool m_controlsVisible = false;
+	HWND m_hoveredControl = nullptr;
 	HINSTANCE m_instance = nullptr;
 	ICoreWebView2Controller* m_controller = nullptr; // WebView2 より先に破棄する借用参照。
 	DWORD m_thread = 0;
