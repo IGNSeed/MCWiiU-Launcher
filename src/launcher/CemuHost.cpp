@@ -85,6 +85,7 @@ namespace
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
 		std::atomic_uint64_t presents{0}, acquires{0}, swapchainCreates{0}, swapchainDestroys{0}, surfaceDestroys{0}, gameListRevision{0};
 		std::atomic<double> fps{0};
+		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
 		std::string phase = "idle", error;
 		fs::path runtime;
 		int controllerModifier = -1, controllerExit = -1;
@@ -155,6 +156,8 @@ namespace
 			writer.Key("swapchainCreates"); writer.Uint64(swapchainCreates);
 			writer.Key("swapchainDestroys"); writer.Uint64(swapchainDestroys);
 			writer.Key("surfaceDestroys"); writer.Uint64(surfaceDestroys);
+			writer.Key("swapchainWidth"); writer.Uint(swapchainWidth);
+			writer.Key("swapchainHeight"); writer.Uint(swapchainHeight);
 			writer.Key("gameListRevision"); writer.Uint64(gameListRevision);
 			writer.Key("width"); writer.Int(s_windowInfo.phys_width);
 			writer.Key("height"); writer.Int(s_windowInfo.phys_height);
@@ -312,8 +315,14 @@ namespace
 	VKAPI_ATTR VkResult VKAPI_CALL CreateSwapchain(VkDevice device, const VkSwapchainCreateInfoKHR* info, const VkAllocationCallbacks* allocator, VkSwapchainKHR* chain)
 	{
 		const auto result = s_createSwapchain(device, info, allocator, chain);
-		if (result == VK_SUCCESS) ++s_vulkanHost->swapchainCreates;
-		cemuLog_log(LogType::Force, "NativeHost swapchain create: {}x{} result={}", info->imageExtent.width, info->imageExtent.height, result);
+		if (result == VK_SUCCESS)
+		{
+			++s_vulkanHost->swapchainCreates;
+			s_vulkanHost->swapchainWidth = info->imageExtent.width;
+			s_vulkanHost->swapchainHeight = info->imageExtent.height;
+		}
+		cemuLog_log(LogType::Force, "NativeHost swapchain create: {}x{} result={} device=0x{:x} surface=0x{:x}",
+			info->imageExtent.width, info->imageExtent.height, result, reinterpret_cast<uintptr_t>(device), reinterpret_cast<uintptr_t>(info->surface));
 		return result;
 	}
 	VKAPI_ATTR void VKAPI_CALL DestroySwapchain(VkDevice device, VkSwapchainKHR chain, const VkAllocationCallbacks* allocator)
@@ -402,9 +411,11 @@ struct CemuHost::Impl
 					const auto& chain = renderer->GetChainInfo(true);
 					const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
 					Require(families.IsComplete() && chain.m_swapchain && chain.m_surface, "Native Vulkan swapchain is incomplete");
-					cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={}",
-						reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily);
+					cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={} device=0x{:x}",
+						reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily, reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice()));
 					state->swapchainCreates = 1;
+					state->swapchainWidth = chain.getExtent().width;
+					state->swapchainHeight = chain.getExtent().height;
 					InstallVulkanTrace(*state);
 					g_isGPUInitFinished = false;
 					CafeSystem::LaunchForegroundTitle();
@@ -492,10 +503,16 @@ void CemuHost::LaunchGame()
 	m_impl->state->wake.notify_all();
 }
 void CemuHost::RequestStop() { m_impl->state->Stop(); }
+void CemuHost::ReportDisplayFailure() { m_impl->state->Fail("Unable to switch launcher display mode"); }
 bool CemuHost::IsStopped() const { return m_impl->state->stopped; }
+bool CemuHost::IsRunning() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	return m_impl->state->phase == "running" && !m_impl->state->stop;
+}
 bool CemuHost::HasFailed() const { return m_impl->state->failed; }
 std::string CemuHost::StatusJson() const { return m_impl->state->Json(); }
-void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused)
+void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused, bool fullscreen)
 {
 	const double scale = static_cast<double>(dpi) / 96;
 	if (size.cx > 0 && size.cy > 0)
@@ -506,6 +523,7 @@ void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused
 		s_windowInfo.height = static_cast<int>(size.cy / scale);
 	}
 	s_windowInfo.dpi_scale = scale;
+	s_windowInfo.is_fullscreen = fullscreen;
 	s_windowInfo.app_active = visible && focused && !m_impl->state->stop;
 	if (!s_windowInfo.app_active) s_windowInfo.set_keystatesup();
 }

@@ -24,9 +24,11 @@ public:
 	void Start(bool launchImmediately);
 	void LaunchGame();
 	void RequestStop();
+	void ReportDisplayFailure();
 	bool IsStopped() const;
+	bool IsRunning() const;
 	bool HasFailed() const;
-	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused);
+	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
 	void InputMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	std::string StatusJson() const;
 

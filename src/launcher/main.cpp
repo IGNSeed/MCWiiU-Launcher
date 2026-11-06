@@ -8,6 +8,7 @@
 #endif
 
 #include <Windows.h>
+#include <wrl.h>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -32,10 +33,14 @@ namespace
 		std::optional<size_t> m_maximizeListener;
 		std::optional<size_t> m_closedListener;
 		std::optional<size_t> m_closeListener;
+		ICoreWebView2Controller* m_controller = nullptr;
+		std::optional<EventRegistrationToken> m_acceleratorListener;
 
 		~WindowNotifications()
 		{
 			m_closing = true;
+			if (m_acceleratorListener)
+				m_controller->remove_AcceleratorKeyPressed(*m_acceleratorListener);
 			if (m_maximizeListener)
 				m_window.off(saucer::window::event::maximize, *m_maximizeListener);
 			if (m_closedListener)
@@ -46,6 +51,129 @@ namespace
 			m_webview.off(saucer::webview::event::dom_ready);
 		}
 	};
+
+#ifdef CEMU_NATIVE_HOST
+	// UI STA 内だけで表示状態を確定する。配置の保存・復元は saucer に任せる。
+	struct GameDisplayState
+	{
+		enum class Mode { LauncherWindowed, GameFullscreen };
+		saucer::window& m_window;
+		saucer::webview& m_webview;
+		NativeGameHost& m_host;
+		CemuHost& m_core;
+		Mode m_mode = Mode::LauncherWindowed;
+		bool m_transitioning = false, m_stopping = false, m_settingsSelected = false;
+		bool m_webViewWasVisible = true, m_restoreGameFocus = false;
+		std::optional<WINDOWPLACEMENT> m_maximizedPlacement;
+
+		bool IsFullscreen() const { return m_mode == Mode::GameFullscreen; }
+
+		void Publish()
+		{
+			BOOL visible = FALSE;
+			m_webview.native().controller->get_IsVisible(&visible);
+			m_webview.execute(std::string("window.dispatchEvent(new CustomEvent('launcher-display-state', {detail:{mode:'") +
+				(IsFullscreen() ? "GameFullscreen" : "LauncherWindowed") + "',webViewVisible:" + (visible ? "true" : "false") + "}}));");
+		}
+
+		void Fail()
+		{
+			OutputDebugStringW(L"MCWiiU Launcher: display transition failed; stopping Core before destroying UI\n");
+			m_stopping = true;
+			m_core.ReportDisplayFailure();
+		}
+
+		bool SetFullscreen(bool enabled, bool launcherFocus = false)
+		{
+			if (m_transitioning || m_stopping || !m_core.IsRunning()) return false;
+			if (enabled == IsFullscreen()) return true;
+			m_transitioning = true;
+			auto* controller = m_webview.native().controller;
+			// held key と VPAD/KPAD gate を閉じてから表示・フォーカスを変更する。
+			m_core.InputMessage(WM_CANCELMODE, 0, 0);
+			bool success = true;
+			if (enabled)
+			{
+				BOOL visible = FALSE;
+				success = SUCCEEDED(controller->get_IsVisible(&visible));
+				m_webViewWasVisible = visible != FALSE;
+				m_restoreGameFocus = GetFocus() == m_host.GetHandle();
+				// saucer は style 更新後に最大化状態と通常配置を失うため、この場合だけ補完する。
+				m_maximizedPlacement.reset();
+				if (m_window.maximized())
+				{
+					WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+					success = GetWindowPlacement(m_window.native().hwnd, &placement) && success;
+					if (success) m_maximizedPlacement = placement;
+				}
+				if (success) success = SUCCEEDED(controller->put_IsVisible(FALSE));
+				if (success)
+				{
+					m_mode = Mode::GameFullscreen;
+					success = m_host.SetFullscreenLayout(true);
+					m_window.set_fullscreen(true);
+					m_host.SetVisible(true);
+					MONITORINFO monitor{sizeof(MONITORINFO)};
+					RECT root{};
+					success = GetMonitorInfoW(MonitorFromWindow(m_window.native().hwnd, MONITOR_DEFAULTTONEAREST), &monitor) &&
+						GetWindowRect(m_window.native().hwnd, &root) && EqualRect(&root, &monitor.rcMonitor) &&
+						success && m_host.Focus();
+				}
+			}
+			else
+			{
+				success = m_host.SetFullscreenLayout(false);
+				m_window.set_fullscreen(false);
+				if (m_maximizedPlacement) success = SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement) && success;
+				m_mode = Mode::LauncherWindowed;
+				m_host.SetVisible(!m_settingsSelected);
+				RECT client{};
+				success = GetClientRect(m_window.native().hwnd, &client) && success;
+				if (success) success = SUCCEEDED(controller->put_Bounds(client));
+				if (success) success = SUCCEEDED(controller->put_IsVisible(m_webViewWasVisible));
+				if (success && !launcherFocus && m_restoreGameFocus && !m_settingsSelected)
+					success = m_host.Focus();
+				else if (success && m_webViewWasVisible)
+					success = SUCCEEDED(controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+			}
+			if (!success)
+			{
+				if (enabled && IsFullscreen())
+				{
+					m_host.SetFullscreenLayout(false);
+					m_window.set_fullscreen(false);
+					if (m_maximizedPlacement) SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement);
+					m_mode = Mode::LauncherWindowed;
+					m_host.SetVisible(!m_settingsSelected);
+					RECT client{};
+					if (GetClientRect(m_window.native().hwnd, &client)) controller->put_Bounds(client);
+					controller->put_IsVisible(m_webViewWasVisible);
+				}
+				// 失敗後の再操作は止め、既存の非同期 Core/GPU 停止を優先する。
+				Fail();
+				m_transitioning = false;
+				return false;
+			}
+			m_transitioning = false;
+			if (m_host.stateChanged) m_host.stateChanged();
+			Publish();
+			return true;
+		}
+
+		void Shortcut(UINT key)
+		{
+			if (m_stopping || m_transitioning || !m_core.IsRunning()) return;
+			if (key == VK_F11)
+				SetFullscreen(!IsFullscreen());
+			else if (key == VK_F10)
+			{
+				if (IsFullscreen() && !SetFullscreen(false, true)) return;
+				m_core.InputMessage(WM_CANCELMODE, 0, 0);
+				if (FAILED(m_webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC))) Fail();
+			}
+		}
+	};
+#endif
 
 	void ReportStartupFailure()
 	{
@@ -101,6 +229,7 @@ namespace
 			NativeGameHost gameHost(window->native().hwnd, webview.native().controller, s_nativeHostDiagnostics, s_failHostInitialization);
 #ifdef CEMU_NATIVE_HOST
 			std::unique_ptr<CemuHost> core;
+			std::unique_ptr<GameDisplayState> display;
 #endif
 			WindowNotifications notifications{*window, webview};
 			const auto updateWindowState = [&] {
@@ -133,21 +262,51 @@ namespace
 						}
 					});
 				gameHost.stateChanged = [&] {
+					if (display && !display->m_transitioning && core->IsRunning() && gameHost.HasLayoutFailed()) display->Fail();
 					core->UpdateWindowState(gameHost.GetClientSize(), GetDpiForWindow(gameHost.GetHandle()),
-						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd);
+						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd &&
+							!(display && display->m_transitioning),
+						display && display->IsFullscreen());
+					if (display && !display->m_transitioning && !notifications.m_closing) display->Publish();
 				};
 				gameHost.input = [&](UINT message, WPARAM key, LPARAM value) { core->InputMessage(message, key, value); };
+				display = std::make_unique<GameDisplayState>(*window, webview, gameHost, *core);
+				gameHost.shortcut = [&](UINT key) { app->post([&, key] { display->Shortcut(key); }); };
 				notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
+					display->m_stopping = true;
 					if (core->IsStopped()) return saucer::policy::allow;
 					core->RequestStop();
 					return saucer::policy::block;
 				});
 			}
 #endif
+			// WebView2 側だけで捕捉し、JS と二重配送しない。COM event 内では遷移しない。
+			notifications.m_controller = webview.native().controller;
+			EventRegistrationToken acceleratorToken{};
+			const auto accelerator = Microsoft::WRL::Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
+				[&](ICoreWebView2Controller*, ICoreWebView2AcceleratorKeyPressedEventArgs* args) -> HRESULT {
+					UINT key = 0;
+					COREWEBVIEW2_KEY_EVENT_KIND kind{};
+					COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
+					if (FAILED(args->get_VirtualKey(&key)) || key != VK_F11) return S_OK;
+					args->put_Handled(TRUE);
+					if (SUCCEEDED(args->get_KeyEventKind(&kind)) && SUCCEEDED(args->get_PhysicalKeyStatus(&physical)) &&
+						(kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) && !physical.WasKeyDown)
+					{
+#ifdef CEMU_NATIVE_HOST
+						if (display && !notifications.m_closing) app->post([&] { display->Shortcut(VK_F11); });
+#endif
+					}
+					return S_OK;
+				});
+			if (FAILED(notifications.m_controller->add_AcceleratorKeyPressed(accelerator.Get(), &acceleratorToken)))
+				throw std::runtime_error("Unable to register launcher fullscreen shortcut");
+			notifications.m_acceleratorListener = acceleratorToken;
 			webview.on<saucer::webview::event::dom_ready>([&] {
 				updateWindowState();
 #ifdef CEMU_NATIVE_HOST
 				if (core) publishCore(core->StatusJson());
+				if (display) display->Publish();
 #endif
 			});
 			webview.on<saucer::webview::event::message>([&](std::string_view message) {
@@ -167,9 +326,12 @@ namespace
 					core->LaunchGame();
 				else if (core && (message == "page:home" || message == "page:settings"))
 				{
-					const bool running = !core->IsStopped() && core->StatusJson().find("\"phase\":\"running\"") != std::string::npos;
-					gameHost.SetVisible(running && message == "page:home");
-					if (running && message == "page:home") gameHost.Focus();
+					if (display->m_stopping) return saucer::status::handled;
+					display->m_settingsSelected = message == "page:settings";
+					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
+					const bool running = core->IsRunning();
+					gameHost.SetVisible(running && !display->m_settingsSelected);
+					if (running && !display->m_settingsSelected) gameHost.Focus();
 				}
 #endif
 				else if (message == "window:start-drag")
@@ -193,6 +355,7 @@ namespace
 #ifdef CEMU_NATIVE_HOST
 			gameHost.input = {};
 			gameHost.stateChanged = {};
+			gameHost.shortcut = {};
 #endif
 		} catch (const std::exception&)
 		{

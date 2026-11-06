@@ -145,6 +145,14 @@ void NativeGameHost::SetGameLayout(bool enabled)
 	UpdateLayout();
 }
 
+bool NativeGameHost::SetFullscreenLayout(bool enabled)
+{
+	if (!OnUiThread()) return false;
+	m_fullscreenLayout = enabled;
+	UpdateLayout();
+	return !m_layoutFailed;
+}
+
 void NativeGameHost::UpdateLayout()
 {
 	if (!m_parent || !m_child)
@@ -153,6 +161,13 @@ void NativeGameHost::UpdateLayout()
 	if (!GetClientRect(m_parent, &client))
 		return;
 	const bool active = m_visible && !IsIconic(m_parent) && IsWindowVisible(m_parent);
+	// saucer は最小化解除時に Controller を再表示するため、その後で抑止する。
+	if (m_fullscreenLayout && FAILED(m_controller->put_IsVisible(FALSE)))
+	{
+		m_layoutFailed = true;
+		if (stateChanged) stateChanged();
+		return;
+	}
 	if (m_diagnostics)
 	{
 		const auto dpi = GetDpiForWindow(m_parent);
@@ -169,8 +184,8 @@ void NativeGameHost::UpdateLayout()
 	else if (m_gameLayout && !IsIconic(m_parent) && client.right > 0 && client.bottom > 0)
 	{
 		const auto dpi = GetDpiForWindow(m_parent);
-		const RECT bounds{std::min(client.right, static_cast<LONG>(MulDiv(210, dpi, 96))),
-			std::min(client.bottom, static_cast<LONG>(MulDiv(48, dpi, 96))), client.right, client.bottom};
+		const RECT bounds{m_fullscreenLayout ? 0 : std::min(client.right, static_cast<LONG>(MulDiv(210, dpi, 96))),
+			m_fullscreenLayout ? 0 : std::min(client.bottom, static_cast<LONG>(MulDiv(48, dpi, 96))), client.right, client.bottom};
 		m_layoutFailed = !SetBounds(bounds);
 	}
 	if (!active || m_layoutFailed)
@@ -182,6 +197,9 @@ void NativeGameHost::UpdateLayout()
 LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
 {
 	auto* self = reinterpret_cast<NativeGameHost*>(data);
+	// saucer partial decoration の Windows 11 用上端1pxを全画面時だけ除く。
+	if (message == WM_NCCALCSIZE && wParam && self->m_fullscreenLayout)
+		return 0;
 	if (message == WM_NCDESTROY)
 	{
 		RemoveWindowSubclass(hwnd, ParentProc, id);
@@ -238,19 +256,18 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		self->Focus();
 		return 0;
 	case WM_KEYDOWN:
-		if ((self->m_diagnostics && (wParam == VK_ESCAPE || wParam == VK_TAB)) || wParam == VK_F10)
+	case WM_SYSKEYDOWN:
+		if (wParam == VK_F11 || (wParam == VK_F10 && !(lParam & (1LL << 29))))
 		{
-			self->RestoreWebViewFocus();
+			// 両側の down/up を消費し、フォーカス変更後のリピートも再配送しない。
+			if (!(lParam & (1LL << 30)))
+			{
+				if (self->shortcut) self->shortcut(static_cast<UINT>(wParam));
+				else if (wParam == VK_F10) self->RestoreWebViewFocus();
+			}
 			return 0;
 		}
-		if (self->input) self->input(message, wParam, lParam);
-		return 0;
-	case WM_KEYUP:
-	case WM_SYSKEYUP:
-		if (self->input) self->input(message, wParam, lParam);
-		return 0;
-	case WM_SYSKEYDOWN:
-		if (wParam == VK_F10 && !(lParam & (1LL << 29)))
+		if (self->m_diagnostics && (wParam == VK_ESCAPE || wParam == VK_TAB))
 		{
 			self->RestoreWebViewFocus();
 			return 0;
@@ -260,6 +277,11 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 			PostMessageW(self->m_parent, WM_CLOSE, 0, 0);
 			return 0;
 		}
+		if (self->input) self->input(message, wParam, lParam);
+		return message == WM_SYSKEYDOWN ? DefWindowProcW(hwnd, message, wParam, lParam) : 0;
+	case WM_KEYUP:
+	case WM_SYSKEYUP:
+		if (wParam == VK_F10 || wParam == VK_F11) return 0;
 		if (self->input) self->input(message, wParam, lParam);
 		return 0;
 	case WM_SETFOCUS:

@@ -18,12 +18,15 @@ public:
 	HWND GetHandle() const { return m_child; }
 	SIZE GetClientSize() const;
 	bool IsRenderable() const;
+	bool HasLayoutFailed() const { return m_layoutFailed; }
 	bool SetBounds(const RECT& bounds);
 	void SetVisible(bool visible);
 	bool Focus();
 	void SetGameLayout(bool enabled);
+	bool SetFullscreenLayout(bool enabled);
 	std::function<void()> stateChanged;
 	std::function<void(UINT, WPARAM, LPARAM)> input;
+	std::function<void(UINT)> shortcut;
 
 private:
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -44,4 +47,5 @@ private:
 	bool m_visible = false;
 	bool m_layoutFailed = false;
 	bool m_gameLayout = false;
+	bool m_fullscreenLayout = false;
 };

@@ -44,7 +44,10 @@ window.addEventListener("launcher-core-state", (event) => {
   document.getElementById("play").disabled = state.phase !== "ready";
   document.querySelector(".launch-panel h2").textContent = state.phase === "ready" ? "Minecraft を起動できます" : "Minecraft · " + state.phase;
   document.querySelector(".launch-panel p").textContent = state.error || "保存済みのゲーム設定を使用します。";
-  document.getElementById("launch-note").textContent = "F10 でランチャーへフォーカスを戻します。Home でゲームへ戻ります。";
+  document.getElementById("launch-note").textContent = "F11 でゲームを全画面表示します。F10 でランチャーへ戻ります。Home でゲームへ戻ります。";
+});
+window.addEventListener("launcher-display-state", (event) => {
+  window.launcherDisplayState = event.detail;
 });
 document.getElementById("window-minimize").addEventListener("click", () => windowCommand("window:minimize"));
 document.getElementById("window-maximize").addEventListener("click", () => windowCommand("window:toggle-maximize"));
