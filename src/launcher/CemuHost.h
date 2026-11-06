@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-// UI への依存を callback に限定した、一回起動・一回終了の Core 所有者。
+// UI への依存を callback に限定した、Core とタイトルセッションの所有者。
 class CemuHost final
 {
 public:
@@ -14,6 +14,7 @@ public:
 		std::function<void(std::function<void()>)> post;
 		std::function<bool()> prepareCanvas;
 		std::function<void(std::string)> status;
+		std::function<bool()> titleStopped;
 		std::function<void()> stopped;
 	};
 
@@ -23,6 +24,7 @@ public:
 	CemuHost& operator=(const CemuHost&) = delete;
 	void Start(bool launchImmediately);
 	void LaunchGame();
+	void StopGame();
 	void RequestStop();
 	void ReportDisplayFailure();
 	bool IsStopped() const;

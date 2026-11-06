@@ -51,6 +51,7 @@ struct
 	std::atomic_bool workerThreadStopSignal{false};
 	// function storage
 	RangeStore<PPCRecFunction_t*, uint32, 7703, 0x2000> functionStorage;
+	std::vector<std::unique_ptr<PPCRecFunction_t>> compiledFunctions;
 }s_ppcRecompilerState;
 
 void ATTR_MS_ABI (*PPCRecompiler_enterRecompilerCode)(uint64 codeMem, uint64 ppcInterpreterInstance);
@@ -240,12 +241,14 @@ PPCRecFunction_t* PPCRecompiler_recompileFunction(PPCFunctionBoundaryTracker::PP
 	bool x64GenerationSuccess = PPCRecompiler_generateX64Code(ppcRecFunc, &ppcImlGenContext);
 	if (x64GenerationSuccess == false)
 	{
+		delete ppcRecFunc;
 		return nullptr;
 	}
 #elif defined(__aarch64__)
 	bool aarch64GenerationSuccess = PPCRecompiler_generateAArch64Code(ppcRecFunc, &ppcImlGenContext);
 	if (aarch64GenerationSuccess == false)
 	{
+		delete ppcRecFunc;
 		return nullptr;
 	}
 #endif
@@ -366,6 +369,8 @@ bool PPCRecompiler_makeRecompiledFunctionActive(uint32 initialEntryPoint, PPCFun
 {
 	// update jump table
 	s_ppcRecompilerState.recompilerSpinlock.lock();
+	// 無効化された関数も PPC 実行が終わるまでは保持し、タイトル停止時にまとめて解放する。
+	s_ppcRecompilerState.compiledFunctions.emplace_back(ppcRecFunc);
 
 	// check if the initial entrypoint is still flagged for recompilation
 	// its possible that the range has been invalidated during the time it took to translate the function
@@ -719,6 +724,7 @@ void PPCRecompiler_Shutdown()
     s_ppcRecompilerState.invalidationRanges.clear();
     // clean range store
     s_ppcRecompilerState.functionStorage.clear();
+	s_ppcRecompilerState.compiledFunctions.clear();
     // clean up memory
     uint32 numBlocks = PPCRecompiler_GetNumAddressSpaceBlocks();
     for(uint32 i=0; i<numBlocks; i++)
@@ -731,6 +737,14 @@ void PPCRecompiler_Shutdown()
         // mark as unmapped
         ppcRecompiler_reservedBlockMask[i] = false;
     }
+#ifdef ARCH_X86_64
+	PPCRecompilerX64FreeExecutableMemory();
+#endif
+	if (ppcRecompilerInstanceData)
+	{
+		MemMapper::FreeReservation(ppcRecompilerInstanceData, sizeof(PPCRecompilerInstanceData_t));
+		ppcRecompilerInstanceData = nullptr;
+	}
 	s_ppcRecompilerState.recompilerEnableCount = 0;
 	s_ppcRecompilerState.initialized = false;
 }

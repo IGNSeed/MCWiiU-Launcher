@@ -3,6 +3,7 @@
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
@@ -80,9 +81,13 @@ namespace
 		std::mutex uiMutex, statusMutex, workMutex;
 		std::condition_variable wake;
 		std::vector<std::shared_ptr<UiRequest>> requests;
-		bool accepting = true;
+		bool accepting = true, acceptingTitle = true;
 		uint64 generation = 1;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
+		std::atomic_bool titleStop{false};
+		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
+		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
+		std::string corePhase = "initializing", titlePhase = "idle", stopReason;
 		std::atomic_uint64_t presents{0}, acquires{0}, swapchainCreates{0}, swapchainDestroys{0}, surfaceDestroys{0}, gameListRevision{0};
 		std::atomic<double> fps{0};
 		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
@@ -93,33 +98,33 @@ namespace
 		HostState(HWND rootWindow, HWND gameWindow, CemuHost::Callbacks ui)
 			: root(rootWindow), canvas(gameWindow), callbacks(std::move(ui)) {}
 
-		bool Dispatch(std::function<bool()> action, bool wait)
+		bool Dispatch(std::function<bool()> action, bool wait, bool titleScoped = true)
 		{
 			if (GetCurrentThreadId() == uiThread)
 			{
 				uint64 expected;
 				{
 					std::lock_guard lock(uiMutex);
-					if (!accepting) return false;
+					if (!accepting || (titleScoped && !acceptingTitle)) return false;
 					expected = generation;
 				}
 				const bool result = action();
 				std::lock_guard lock(uiMutex);
-				return result && accepting && expected == generation;
+				return result && accepting && (!titleScoped || (acceptingTitle && expected == generation));
 			}
 			auto request = wait ? std::make_shared<UiRequest>() : nullptr;
 			{
 				std::lock_guard lock(uiMutex);
-				if (!accepting) return false;
+				if (!accepting || (titleScoped && !acceptingTitle)) return false;
 				const auto expected = generation;
 				if (request) requests.push_back(request);
-				callbacks.post([weak = weak_from_this(), expected, request, action = std::move(action)] {
+				callbacks.post([weak = weak_from_this(), expected, request, titleScoped, action = std::move(action)] {
 					auto state = weak.lock();
 					bool execute = false;
 					if (state)
 					{
 						std::lock_guard lock(state->uiMutex);
-						execute = state->alive && state->accepting && expected == state->generation && (!request || request->Start());
+						execute = state->alive && state->accepting && (!titleScoped || (state->acceptingTitle && expected == state->generation)) && (!request || request->Start());
 					}
 					bool result = false;
 					try { if (execute) result = action(); }
@@ -147,8 +152,15 @@ namespace
 				std::lock_guard lock(statusMutex);
 				writer.Key("phase"); writer.String(phase.c_str());
 				writer.Key("error"); writer.String(error.c_str());
+				writer.Key("corePhase"); writer.String(corePhase.c_str());
+				writer.Key("titlePhase"); writer.String(titlePhase.c_str());
+				writer.Key("stopReason"); writer.String(stopReason.c_str());
 				writer.Key("canLaunch"); writer.Bool(phase == "ready" && !launch && !stop && !stopped && !failed);
 			}
+			writer.Key("sessionId"); writer.Uint64(sessionId);
+			writer.Key("commonInitCount"); writer.Uint64(commonInitCount);
+			writer.Key("titleShutdownCount"); writer.Uint64(titleShutdownCount);
+			writer.Key("titleStopRequested"); writer.Bool(titleStop);
 			writer.Key("stopRequested"); writer.Bool(stop);
 			writer.Key("stopped"); writer.Bool(stopped);
 			writer.Key("failed"); writer.Bool(failed);
@@ -158,6 +170,13 @@ namespace
 			writer.Key("swapchainCreates"); writer.Uint64(swapchainCreates);
 			writer.Key("swapchainDestroys"); writer.Uint64(swapchainDestroys);
 			writer.Key("surfaceDestroys"); writer.Uint64(surfaceDestroys);
+			writer.Key("surfaceCreates"); writer.Uint64(surfaceCreates);
+			writer.Key("vulkanInstance"); writer.Uint64(vulkanInstance);
+			writer.Key("vulkanDevice"); writer.Uint64(vulkanDevice);
+			writer.Key("vulkanSurface"); writer.Uint64(vulkanSurface);
+			writer.Key("ppcRunning"); writer.Bool(CafeSystem::IsTitleRunning());
+			writer.Key("gpuStopped"); writer.Bool(Latte_GetStopSignal());
+			writer.Key("gpuInitialized"); writer.Bool(g_isGPUInitFinished);
 			writer.Key("swapchainWidth"); writer.Uint(swapchainWidth);
 			writer.Key("swapchainHeight"); writer.Uint(swapchainHeight);
 			writer.Key("gameListRevision"); writer.Uint64(gameListRevision);
@@ -177,19 +196,58 @@ namespace
 		}
 		void Publish()
 		{
-			Dispatch([self = shared_from_this()] { self->callbacks.status(self->Json()); return true; }, false);
+			Dispatch([self = shared_from_this()] { self->callbacks.status(self->Json()); return true; }, false, false);
 		}
 		void Phase(std::string value)
 		{
 			{
 				std::lock_guard lock(statusMutex);
+				if (titleStop && (value == "preparing" || value == "vulkan" || value == "running")) return;
 				phase = std::move(value);
+				if (phase == "preparing") titlePhase = "preparing";
+				if (phase == "vulkan") titlePhase = "starting";
+				if (phase == "running") titlePhase = "running";
 				if (logReady) cemuLog_log(LogType::Force, "NativeHost phase: {}", phase);
 			}
 			Publish();
 		}
+		void CancelTitleUi()
+		{
+			std::vector<std::shared_ptr<UiRequest>> pending;
+			{
+				std::lock_guard lock(uiMutex);
+				acceptingTitle = false;
+				++generation;
+				pending.swap(requests);
+			}
+			for (const auto& request : pending) request->Cancel();
+			s_windowInfo.set_keystatesup();
+			s_windowInfo.app_active = false;
+		}
+		void StopTitle(std::string reason)
+		{
+			{
+				std::lock_guard workLock(workMutex);
+				std::lock_guard statusLock(statusMutex);
+				if (stop || !launch || titleStop) return;
+				titleStop = true;
+				titlePhase = "stopping";
+				phase = "title-stopping";
+				stopReason = std::move(reason);
+				CancelTitleUi();
+			}
+			Publish();
+			wake.notify_all();
+		}
 		void Stop()
 		{
+			{
+				std::lock_guard workLock(workMutex);
+				std::lock_guard statusLock(statusMutex);
+				stop = true;
+				corePhase = "stopping";
+				if (launch) titlePhase = "stopping";
+			}
 			std::vector<std::shared_ptr<UiRequest>> pending;
 			{
 				std::lock_guard lock(uiMutex);
@@ -200,7 +258,6 @@ namespace
 			for (const auto& request : pending) request->Cancel();
 			s_windowInfo.set_keystatesup();
 			s_windowInfo.app_active = false;
-			{ std::lock_guard lock(workMutex); stop = true; }
 			wake.notify_all();
 		}
 		void Fail(std::string message)
@@ -215,13 +272,16 @@ namespace
 		}
 		void CafeRecreateCanvas() override
 		{
-			// OS のタイトル再起動経路。今回の一回起動契約を超えるため停止する。
-			Fail("In-process title relaunch is not supported by this host");
+			// OSLauncherThread は別スレッドで Prepare 済み。通常停止の成功とは区別する。
+			Fail("Guest OS title relaunch requires application shutdown");
 		}
 		void CafePPCProcessExit() override
 		{
-			if (logReady) cemuLog_log(LogType::Force, "NativeHost PPC process exited");
-			Stop();
+			if (logReady) cemuLog_log(LogType::Force, "NativeHost PPC process exited; returnStatus={}", CafeSystem::GetForegroundTitleReturnStatus().value_or(-1));
+			if (!CafeSystem::GetForegroundTitleReturnStatus())
+				Fail("Guest process exit without a return status");
+			else
+				StopTitle("guest-exit");
 		}
 	};
 
@@ -365,6 +425,19 @@ struct CemuHost::Impl
 	std::shared_ptr<HostState> state;
 	std::thread worker;
 
+	void ReleaseRenderer()
+	{
+		// GPU 開始前の取消では LatteThread_Exit が走らない。
+		if (g_renderer)
+		{
+			auto* renderer = g_renderer.get();
+			delete renderer;
+			g_renderer.release();
+		}
+		RemoveVulkanTrace();
+		state->vulkanInstance = state->vulkanDevice = state->vulkanSurface = 0;
+		g_isGPUInitFinished = false;
+	}
 	void Run()
 	{
 		const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -388,47 +461,85 @@ struct CemuHost::Impl
 			LatteOverlay_init();
 			CafeSystem::SetImplementation(state.get());
 			commonStarted = true;
+			++state->commonInitCount;
 			CemuCommonInit(state->runtime);
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
+			{ std::lock_guard lock(state->statusMutex); state->corePhase = "ready"; }
 			state->Phase("ready");
+			while (!state->stop)
 			{
-				std::unique_lock lock(state->workMutex);
-				state->wake.wait(lock, [&] { return state->stop || state->launch; });
-			}
-			if (!state->stop)
-			{
-				state->Phase("preparing");
-				Require(state->Dispatch([state = state] { return state->callbacks.prepareCanvas(); }, true), "Canvas preparation was cancelled");
-				auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
-				Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
+				{
+					std::unique_lock lock(state->workMutex);
+					state->wake.wait(lock, [&] { return state->stop || state->launch; });
+				}
 				if (!state->stop)
 				{
-					state->Phase("vulkan");
-					const Vector2i size{s_windowInfo.phys_width, s_windowInfo.phys_height};
-					Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
-					g_renderer = std::make_unique<VulkanRenderer>();
-					const auto renderer = VulkanRenderer::GetInstance();
-					renderer->InitializeSurface(size, true);
-					const auto& chain = renderer->GetChainInfo(true);
-					const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
-					Require(families.IsComplete() && chain.m_swapchain && chain.m_surface, "Native Vulkan swapchain is incomplete");
-					cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={} device=0x{:x}",
-						reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily, reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice()));
-					state->swapchainCreates = 1;
-					state->swapchainWidth = chain.getExtent().width;
-					state->swapchainHeight = chain.getExtent().height;
-					InstallVulkanTrace(*state);
-					g_isGPUInitFinished = false;
-					CafeSystem::LaunchForegroundTitle();
-					state->Phase("running");
-					std::unique_lock lock(state->workMutex);
-					state->wake.wait(lock, [&] { return state->stop.load(); });
+					if (!state->sessionId) ++state->sessionId;
+					if (!state->titleStop) state->Phase("preparing");
+					if (!state->Dispatch([state = state] { return state->callbacks.prepareCanvas(); }, true))
+					{
+						Require(state->stop || state->titleStop, "Canvas preparation failed");
+					}
+					if (!state->stop && !state->titleStop)
+					{
+						auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
+						Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
+						if (!state->stop && !state->titleStop)
+						{
+							state->Phase("vulkan");
+							const Vector2i size{s_windowInfo.phys_width, s_windowInfo.phys_height};
+							Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
+							g_renderer = std::make_unique<VulkanRenderer>();
+							const auto renderer = VulkanRenderer::GetInstance();
+							renderer->InitializeSurface(size, true);
+							const auto& chain = renderer->GetChainInfo(true);
+							const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
+							Require(families.IsComplete() && chain.m_swapchain && chain.m_surface, "Native Vulkan swapchain is incomplete");
+							cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={} device=0x{:x}",
+								reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily, reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice()));
+							state->vulkanInstance = reinterpret_cast<uintptr_t>(renderer->GetVkInstance());
+							state->vulkanDevice = reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice());
+							state->vulkanSurface = reinterpret_cast<uintptr_t>(chain.m_surface);
+							++state->surfaceCreates;
+							++state->swapchainCreates;
+							state->swapchainWidth = chain.getExtent().width;
+							state->swapchainHeight = chain.getExtent().height;
+							InstallVulkanTrace(*state);
+							g_isGPUInitFinished = false;
+							if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
+							state->Phase("running");
+							std::unique_lock lock(state->workMutex);
+							state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
+						}
+					}
+					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
+					CafeSystem::ShutdownTitle();
+					Require(!CafeSystem::IsTitleRunning() && Latte_GetStopSignal(), "Title threads did not stop");
+					ReleaseRenderer();
+					Require(state->swapchainCreates == state->swapchainDestroys && state->surfaceCreates == state->surfaceDestroys, "Title Vulkan resources were not released");
+					++state->titleShutdownCount;
+					state->fps = 0;
+					state->swapchainWidth = state->swapchainHeight = 0;
+					cemuLog_log(LogType::Force, "NativeHost title shutdown complete: session={} rendererPresent={} GPUStopped={}", state->sessionId.load(), bool(g_renderer), Latte_GetStopSignal());
+					if (!state->stop)
+					{
+						state->Phase("title-stopped");
+						Require(state->Dispatch([state = state] { return state->callbacks.titleStopped(); }, true, false) || state->stop, "Unable to restore Launcher Home");
+						{
+							std::lock_guard workLock(state->workMutex);
+							std::lock_guard statusLock(state->statusMutex);
+							state->launch = false;
+							state->titlePhase = "stopped";
+							if (!state->stop) state->phase = "ready";
+						}
+						state->Publish();
+					}
 				}
 			}
 		} catch (const std::exception& error)
 		{
-			if (!state->stop) state->Fail(error.what());
+			state->Fail(error.what());
 		}
 		state->Stop();
 		if (commonStarted)
@@ -438,13 +549,7 @@ struct CemuHost::Impl
 			cemuLog_log(LogType::Force, "NativeHost CafeSystem shutdown complete; rendererPresent={}", bool(g_renderer));
 			// GPU 未開始の取消でも、既存 LatteThread_Exit と同じく destructor 中は
 			// g_renderer を有効に保つ。内部資源の解放がこの参照を利用する。
-			if (g_renderer)
-			{
-				auto* renderer = g_renderer.get();
-				delete renderer;
-				g_renderer.release();
-			}
-			RemoveVulkanTrace();
+			ReleaseRenderer();
 			InputManager::instance().Shutdown();
 			cemuLog_log(LogType::Force, "NativeHost input shutdown complete; presents={} acquires={} swapchainsReleased={} surfacesReleased={}",
 				state->presents.load(), state->acquires.load(), state->swapchainDestroys.load(), state->surfaceDestroys.load());
@@ -457,6 +562,8 @@ struct CemuHost::Impl
 		{
 			std::lock_guard lock(state->statusMutex);
 			state->phase = state->failed ? "failed" : "stopped";
+			state->corePhase = state->phase;
+			state->titlePhase = state->failed ? "failed" : state->sessionId ? "stopped" : "idle";
 		}
 		if (state->logReady)
 		{
@@ -503,13 +610,19 @@ void CemuHost::LaunchGame()
 	{
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
-		if (m_impl->state->phase != "ready" || m_impl->state->stop || m_impl->state->launch) return;
+		if (m_impl->state->phase != "ready" || m_impl->state->stop || m_impl->state->launch || m_impl->state->failed) return;
 		m_impl->state->launch = true;
+		m_impl->state->titleStop = false;
+		++m_impl->state->sessionId;
+		m_impl->state->titlePhase = "preparing";
+		m_impl->state->stopReason.clear();
+		{ std::lock_guard lock(m_impl->state->uiMutex); m_impl->state->acceptingTitle = true; ++m_impl->state->generation; }
 		m_impl->state->phase = "preparing";
 	}
 	m_impl->state->Publish();
 	m_impl->state->wake.notify_all();
 }
+void CemuHost::StopGame() { m_impl->state->StopTitle("emulator-stop"); }
 void CemuHost::RequestStop() { m_impl->state->Stop(); }
 void CemuHost::ReportDisplayFailure() { m_impl->state->Fail("Unable to switch launcher display mode"); }
 bool CemuHost::IsStopped() const { return m_impl->state->stopped; }
@@ -532,13 +645,13 @@ void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused
 	}
 	s_windowInfo.dpi_scale = scale;
 	s_windowInfo.is_fullscreen = fullscreen;
-	s_windowInfo.app_active = visible && focused && !m_impl->state->stop;
+	s_windowInfo.app_active = visible && focused && IsRunning() && !m_impl->state->titleStop;
 	if (!s_windowInfo.app_active) s_windowInfo.set_keystatesup();
 }
 void CemuHost::InputMessage(UINT message, WPARAM key, LPARAM value)
 {
 	if (message == WM_KILLFOCUS || message == WM_CANCELMODE) { s_windowInfo.set_keystatesup(); s_windowInfo.app_active = false; return; }
-	if (message == WM_SETFOCUS) { s_windowInfo.app_active = !m_impl->state->stop; return; }
+	if (message == WM_SETFOCUS) { s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop; return; }
 	if ((message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && s_windowInfo.app_active)
 	{
 		UINT code = static_cast<UINT>(key);
@@ -593,7 +706,7 @@ namespace WindowSystem
 		cemuLog_log(LogType::Force, "NativeHost NotifyGameLoaded completed={}", ready);
 		return ready;
 	}
-	void NotifyGameExited() { if (auto state = s_currentHost.lock()) state->Stop(); }
+	void NotifyGameExited() { if (auto state = s_currentHost.lock()) state->StopTitle("game-exited-notification"); }
 	void RefreshGameList()
 	{
 		if (auto state = s_currentHost.lock()) { ++state->gameListRevision; state->Publish(); }
@@ -602,6 +715,7 @@ namespace WindowSystem
 	{
 		if (auto state = s_currentHost.lock())
 		{
+			if (state->titleStop || state->stop) return;
 			state->fps = fps;
 			state->Dispatch([state, idle, loading, fps] {
 				const auto title = idle ? L"MCWiiU Launcher" : loading ? L"MCWiiU Launcher - Loading" :

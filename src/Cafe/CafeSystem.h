@@ -47,6 +47,8 @@ namespace CafeSystem
 	std::optional<sint32> GetForegroundTitleReturnStatus(); // valid once the foreground title exited gracefully via coreinit exit
 
 	void ShutdownTitle();
+	uint64 GetTitleGeneration();
+	std::optional<uint64> ShutdownTitle(uint64 expectedGeneration);
 
 	std::string GetMlcStoragePath(TitleId titleId);
 	void MlcStorageMountAllTitles();
@@ -56,7 +58,7 @@ namespace CafeSystem
 	uint32 GetRPXHashBase();
 	uint32 GetRPXHashUpdated();
 	void RequestRecreateCanvas();
-	void NotifyPPCProcessExit(sint32 status);
+	void NotifyPPCProcessExit(sint32 status, uint64 stoppedGeneration);
 
 	void DumpCurrentRPX();
 };

@@ -1341,6 +1341,7 @@ sint32 codeMemoryBlockIndex = 0;
 sint32 codeMemoryBlockSize = 0;
 
 std::mutex mtx_allocExecutableMemory;
+static std::vector<std::pair<void*, size_t>> s_codeMemoryBlocks;
 
 uint8* PPCRecompilerX86_allocateExecutableMemory(sint32 size)
 {
@@ -1351,6 +1352,8 @@ uint8* PPCRecompilerX86_allocateExecutableMemory(sint32 size)
 		codeMemoryBlockSize = std::max(1024*1024*4, size+1024); // 4MB (or more if the function is larger than 4MB)
 		codeMemoryBlockIndex = 0;
 		codeMemoryBlock = (uint8*)MemMapper::AllocateMemory(nullptr, codeMemoryBlockSize, MemMapper::PAGE_PERMISSION::P_RWX);
+		if (!codeMemoryBlock) throw std::bad_alloc();
+		s_codeMemoryBlocks.emplace_back(codeMemoryBlock, codeMemoryBlockSize);
 	}
 	uint8* codeMem = codeMemoryBlock + codeMemoryBlockIndex;
 	codeMemoryBlockIndex += size;
@@ -1605,6 +1608,26 @@ bool PPCRecompiler_generateX64Code(PPCRecFunction_t* PPCRecFunction, ppcImlGenCo
 }
 
 static void* s_enterRecompilerCodeExit = nullptr;
+
+void PPCRecompilerX64FreeExecutableMemory()
+{
+	std::lock_guard lock(mtx_allocExecutableMemory);
+	// PPC scheduler と再コンパイル worker の終了後だけ、タイトルのコード領域を解放する。
+	size_t bytes = 0;
+	for (const auto& [address, size] : s_codeMemoryBlocks)
+	{
+		MemMapper::FreeMemory(address, size);
+		bytes += size;
+	}
+	cemuLog_log(LogType::Force, "Recompiler executable memory released: blocks={} bytes={}", s_codeMemoryBlocks.size(), bytes);
+	s_codeMemoryBlocks.clear();
+	codeMemoryBlock = nullptr;
+	codeMemoryBlockIndex = codeMemoryBlockSize = 0;
+	s_enterRecompilerCodeExit = nullptr;
+	PPCRecompiler_enterRecompilerCode = nullptr;
+	PPCRecompiler_leaveRecompilerCode_visited = nullptr;
+	PPCRecompiler_leaveRecompilerCode_unvisited = nullptr;
+}
 
 void PPCRecompilerX64Gen_generateEnterRecompilerCode()
 {

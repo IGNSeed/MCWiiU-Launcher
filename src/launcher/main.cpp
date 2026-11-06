@@ -23,6 +23,7 @@ namespace
 	bool s_failHostInitialization = false;
 	bool s_guiOnly = false;
 	bool s_launchImmediately = false;
+	bool s_sessionDiagnostics = false;
 
 	// 例外経路でも WebView2 の破棄より先に通知の参照を解除する。
 	struct WindowNotifications
@@ -170,6 +171,36 @@ namespace
 			return true;
 		}
 
+		bool ReturnHome()
+		{
+			if (m_stopping) return true;
+			m_core.InputMessage(WM_CANCELMODE, 0, 0);
+			m_transitioning = true;
+			bool success = true;
+			if (IsFullscreen())
+			{
+				success = m_host.SetFullscreenLayout(false);
+				m_window.set_fullscreen(false);
+				if (m_maximizedPlacement) success = SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement) && success;
+				m_mode = Mode::LauncherWindowed;
+			}
+			m_settingsSelected = false;
+			m_host.SetVisible(false);
+			m_host.SetGameLayout(false);
+			auto* controller = m_webview.native().controller;
+			RECT client{};
+			success = GetClientRect(m_window.native().hwnd, &client) && success;
+			if (success) success = SUCCEEDED(controller->put_Bounds(client));
+			if (success) success = SUCCEEDED(controller->put_IsVisible(TRUE));
+			if (success) success = SUCCEEDED(controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+			SetWindowTextW(m_window.native().hwnd, L"MCWiiU Launcher");
+			m_webview.execute("window.dispatchEvent(new Event('launcher-session-ended'));");
+			m_transitioning = false;
+			if (m_host.stateChanged) m_host.stateChanged();
+			Publish();
+			return success;
+		}
+
 		void Shortcut(UINT key)
 		{
 			if (m_stopping || m_transitioning || !m_core.IsRunning()) return;
@@ -265,7 +296,11 @@ namespace
 						gameHost.Focus();
 						return gameHost.IsRenderable();
 					},
-					.status = publishCore,
+					.status = [&](std::string json) {
+						publishCore(json);
+						if (gameHost.stateChanged) gameHost.stateChanged();
+					},
+					.titleStopped = [&] { return display->ReturnHome(); },
 					.stopped = [&] {
 						s_startupExitCode = core->HasFailed() ? 1 : 0;
 						window->close();
@@ -343,6 +378,8 @@ namespace
 #ifdef CEMU_NATIVE_HOST
 				else if (core && message == "game:start")
 					core->LaunchGame();
+				else if (core && s_sessionDiagnostics && message == "game:stop")
+					core->StopGame();
 				else if (core && (message == "page:home" || message == "page:settings"))
 				{
 					if (display->m_stopping) return saucer::status::handled;
@@ -397,6 +434,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 #ifdef CEMU_NATIVE_HOST
 	else if (arguments == L"--core-integration-test")
 		s_launchImmediately = true;
+	else if (arguments == L"--session-lifecycle-test")
+		s_sessionDiagnostics = true;
 	else if (arguments == L"--core-initialize-test")
 		s_launchImmediately = false;
 #endif

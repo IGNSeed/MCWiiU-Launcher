@@ -702,10 +702,10 @@ namespace coreinit
 		CafeSystem::LaunchForegroundTitle();
 	}
 
-	void OSShutdownThread(sint32 status)
+	void OSShutdownThread(sint32 status, uint64 generation)
 	{
-		CafeSystem::ShutdownTitle();
-		CafeSystem::NotifyPPCProcessExit(status);
+		if (const auto stoppedGeneration = CafeSystem::ShutdownTitle(generation))
+			CafeSystem::NotifyPPCProcessExit(status, *stoppedGeneration);
 	}
 
 	uint32 __LaunchByTitleId(uint64 titleId, uint32 argc, MEMPTR<char>* argv)
@@ -860,7 +860,7 @@ namespace coreinit
 	void __PPCExit(sint32 status)
 	{
 		// spawn shutdown thread (the current thread has to be destroyed as part of the shutdown process)
-		std::thread shutdownThread(OSShutdownThread, status);
+		std::thread shutdownThread(OSShutdownThread, status, CafeSystem::GetTitleGeneration());
 		shutdownThread.detach();
 		// suspend this thread
 		coreinit::OSSuspendThread(coreinit::OSGetCurrentThread());

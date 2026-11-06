@@ -3,6 +3,8 @@
 
 #include "x86Emitter.h"
 
+void PPCRecompilerX64FreeExecutableMemory();
+
 struct x64RelocEntry_t
 {
 	x64RelocEntry_t(uint32 offset, void* extraInfo) : offset(offset), extraInfo(extraInfo) {};

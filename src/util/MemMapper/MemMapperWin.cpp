@@ -39,7 +39,7 @@ namespace MemMapper
 
 	void FreeReservation(void* baseAddr, size_t size)
 	{
-		VirtualFree(baseAddr, size, MEM_RELEASE);
+		VirtualFree(baseAddr, 0, MEM_RELEASE);
 	}
 
 	void* AllocateMemory(void* baseAddr, size_t size, PAGE_PERMISSION permissionFlags, bool fromReservation)
@@ -57,7 +57,7 @@ namespace MemMapper
 		if(fromReservation)
 			VirtualFree(baseAddr, size, MEM_DECOMMIT);
 		else
-			VirtualFree(baseAddr, size, MEM_RELEASE);
+			VirtualFree(baseAddr, 0, MEM_RELEASE);
 	}
 
 };

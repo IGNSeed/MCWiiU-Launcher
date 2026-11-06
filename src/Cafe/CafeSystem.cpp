@@ -446,7 +446,7 @@ namespace CafeSystem
 	std::optional<sint32> s_foregroundReturnStatus;
 
 	static std::mutex s_titleLifecycleMutex;
-	static uint64 s_titleGeneration = 0;
+	static std::atomic_uint64_t s_titleGeneration{0};
 	static bool s_titlePrepared = false;
 	static bool s_titleStarted = false;
 	static bool s_coreShutdownRequested = false;
@@ -1142,6 +1142,21 @@ namespace CafeSystem
 		ShutdownTitleLocked();
 	}
 
+	uint64 GetTitleGeneration()
+	{
+		return s_titleGeneration;
+	}
+
+	std::optional<uint64> ShutdownTitle(uint64 expectedGeneration)
+	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		// exit の非同期 worker が前タイトルの停止や次タイトルへ遅れて到達しても破棄する。
+		if (s_coreShutdownRequested || expectedGeneration != s_titleGeneration)
+			return std::nullopt;
+		ShutdownTitleLocked();
+		return s_titleGeneration;
+	}
+
 	/* Virtual mlc storage */
 
 	void InitVirtualMlcStorage()
@@ -1240,8 +1255,10 @@ namespace CafeSystem
 		s_implementation->CafeRecreateCanvas();
 	}
 
-	void NotifyPPCProcessExit(sint32 status)
+	void NotifyPPCProcessExit(sint32 status, uint64 stoppedGeneration)
 	{
+		std::unique_lock lock(s_titleLifecycleMutex);
+		if (s_coreShutdownRequested || stoppedGeneration != s_titleGeneration) return;
 		s_foregroundReturnStatus = status;
 		s_implementation->CafePPCProcessExit();
 	}

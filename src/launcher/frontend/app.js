@@ -41,6 +41,7 @@ play.addEventListener("click", () => {
   play.disabled = true;
   windowCommand("game:start");
 });
+const stopGame = document.getElementById("stop-game");
 const coreLabels = {
   idle: ["準備中", "ゲームを準備しています", "起動状態を確認しています。"],
   validating: ["準備中", "ゲームを準備しています", "ゲームデータと設定を確認しています。"],
@@ -48,24 +49,31 @@ const coreLabels = {
   ready: ["準備完了", "Minecraft を起動できます", "保存済みのゲーム設定を使用します。"],
   preparing: ["起動中", "Minecraft を起動しています", "ゲームの読み込みを準備しています。"],
   vulkan: ["描画準備中", "Minecraft を起動しています", "Vulkan の描画を準備しています。"],
-  running: ["プレイ中", "Minecraft をプレイ中", "Home でゲームに戻れます。"],
+  running: ["プレイ中", "Minecraft 実行中", "Home でゲームに戻れます。"],
+  "title-stopping": ["終了中", "ゲーム終了中", "タイトルの停止を待っています。"],
+  "title-stopped": ["終了", "ゲームを終了しました", "次の起動を準備しています。"],
   stopping: ["終了中", "ゲームを終了しています", "終了処理が完了するとランチャーを閉じます。"],
   stopped: ["終了", "ゲームを終了しました", "ランチャーを閉じています。"],
   failed: ["起動失敗", "ゲームを起動できませんでした", "ゲームデータと保存済みの設定を確認してください。"],
+  "relaunch-failed": ["再起動失敗", "再起動失敗", "ランチャーを閉じてから、もう一度起動してください。"],
   unavailable: ["起動機能なし", "この画面ではゲームを起動できません", "ランチャーの表示設定を変更できます。"],
 };
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
-  const phase = state.failed ? "failed" : state.stopRequested && !state.stopped ? "stopping" : state.phase;
+  const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status, heading, description] = coreLabels[phase] || coreLabels.idle;
   document.querySelector(".status").textContent = status;
   play.disabled = state.canLaunch !== true;
   document.querySelector(".launch-panel h2").textContent = heading;
   document.querySelector(".launch-panel p").textContent = description;
+  stopGame.disabled = true;
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
   navigation.forEach((button) => { button.disabled = closing; });
   scale.disabled = closing;
+});
+window.addEventListener("launcher-session-ended", () => {
+  document.querySelector('[data-page="home"]').click();
 });
 window.addEventListener("launcher-display-state", (event) => {
   window.launcherDisplayState = event.detail;
