@@ -26,6 +26,7 @@ public:
 	void pin_instance(SDL_JoystickID instance);
 	SDL_JoystickID instance_id();
 	std::string serial();
+	bool supports_standard_gamepad();
 	
 	bool has_motion() override { return m_has_gyro && m_has_accel; }
 	bool has_rumble() override { return m_has_rumble; }

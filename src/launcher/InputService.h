@@ -10,7 +10,7 @@ class InputService final
 public:
 	InputService();
 	~InputService();
-	std::string Snapshot();
+	std::string Snapshot(bool editable = true);
 	std::string Command(std::string_view payload);
 	std::string Poll();
 	void CancelCapture();

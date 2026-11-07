@@ -45,6 +45,7 @@ public:
 	void DeleteFontTextures() override;
 
 	void Initialize() override;
+	void Shutdown() override;
 	bool IsPadWindowActive() override;
 
 	void Flush(bool waitIdle = false) override;

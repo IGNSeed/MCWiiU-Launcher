@@ -14,7 +14,8 @@ public:
 	struct Callbacks
 	{
 		std::function<void(std::function<void()>)> post;
-		std::function<bool()> prepareCanvas;
+		std::function<bool(bool)> prepareCanvas;
+		std::function<HWND()> openGLCanvas;
 		std::function<void(std::string)> status;
 		std::function<bool()> titleStopped;
 		std::function<void()> stopped;
@@ -44,6 +45,7 @@ public:
 	void RefreshSettingsInfo();
 	std::string InputCommand(uint64_t requestId, std::string_view payload);
 	std::string PollInput();
+	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();
 
 private:

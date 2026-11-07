@@ -69,12 +69,13 @@ public:
 
 	static void PrintLogging();
 	static void InitializeStatic();
+	static void UpdateAudioDelay();
 	static bool IsAudioAPIAvailable(AudioAPI api);
 
 	static std::unique_ptr<IAudioAPI> CreateDeviceFromConfig(AudioType type, sint32 rate, sint32 samples_per_block, sint32 bits_per_sample);
 	static std::unique_ptr<IAudioAPI> CreateDeviceFromConfig(AudioType type, sint32 rate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample);
 	static std::unique_ptr<IAudioAPI> CreateDevice(AudioAPI api, const DeviceDescriptionPtr& device, sint32 samplerate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample);
-	static std::vector<DeviceDescriptionPtr> GetDevices(AudioAPI api);
+	static std::vector<DeviceDescriptionPtr> GetDevices(AudioAPI api, bool refresh = false);
 
 protected:
 #if BOOST_OS_WINDOWS

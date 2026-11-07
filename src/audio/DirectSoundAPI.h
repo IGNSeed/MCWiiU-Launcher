@@ -14,19 +14,19 @@ public:
 	{
 	public:
 		DirectSoundDeviceDescription(const std::wstring& name, GUID* guid)
-			: DeviceDescription(name), m_guid(guid) { }
+			: DeviceDescription(name), m_guid(guid ? std::optional<GUID>(*guid) : std::nullopt) { }
 
 		std::wstring GetIdentifier() const override;
-		GUID* GetGUID() const { return m_guid; }
+		const GUID* GetGUID() const { return m_guid ? &*m_guid : nullptr; }
 
 	private:
-		GUID* m_guid;
+		std::optional<GUID> m_guid;
 	};
 
 	using DirectSoundDeviceDescriptionPtr = std::shared_ptr<DirectSoundDeviceDescription>;
 
 	// output
-	DirectSoundAPI(GUID* guid, sint32 samplerate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample);
+	DirectSoundAPI(const GUID* guid, sint32 samplerate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample);
 	~DirectSoundAPI();
 
 	AudioAPI GetType() const override { return DirectSound; }

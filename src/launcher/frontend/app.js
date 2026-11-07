@@ -73,6 +73,7 @@ const coreLabels = {
   initializing: ["初期化中", "ゲームを準備しています", "起動の準備を進めています。"],
   ready: ["準備完了", "Minecraft を起動できます", "保存済みのゲーム設定を使用します。"],
   preparing: ["起動中", "Minecraft を起動しています", "ゲームの読み込みを準備しています。"],
+  opengl: ["描画準備中", "Minecraft を起動しています", "OpenGL の描画を準備しています。"],
   vulkan: ["描画準備中", "Minecraft を起動しています", "Vulkan の描画を準備しています。"],
   running: ["プレイ中", "Minecraft 実行中", "Home でゲームに戻れます。"],
   "title-stopping": ["終了中", "ゲーム終了中", "タイトルの停止を待っています。"],
@@ -91,7 +92,7 @@ window.addEventListener("launcher-core-state", (event) => {
   document.querySelector(".status").textContent = status;
   play.disabled = state.canLaunch !== true || settingsBusy() || closeAfterSaves;
   document.querySelector(".launch-panel h2").textContent = heading;
-  document.querySelector(".launch-panel p").textContent = description;
+  document.querySelector(".launch-panel p").textContent = state.error || description;
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
   stopRequestPending = false;
@@ -170,7 +171,7 @@ let closeAfterSaves = false;
 let lastFps = 1000;
 let editingFps = false;
 let requestedSettingsInfo = false;
-function settingsBusy() { return pendingSave !== null || saveQueue.length > 0 || pendingInput !== null; }
+function settingsBusy() { return pendingSave !== null || saveQueue.length > 0 || pendingInput !== null || pendingAv !== null || avQueue.length > 0; }
 function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function draft(scope) { return desired[scope] || confirmed[scope]; }
 function updatePlay() {
@@ -186,7 +187,7 @@ function enqueueSave(scope, values) {
   drainSaves();
 }
 function drainSaves() {
-  if (pendingSave || pendingInput) return;
+  if (pendingSave || pendingInput || pendingAv) return;
   while (saveQueue.length) {
     const scope = saveQueue.shift();
     const values = desired[scope];
@@ -198,6 +199,7 @@ function drainSaves() {
     return;
   }
   updatePlay();
+  if (avQueue.length) { drainAv(); return; }
   if (closeAfterSaves) windowCommand("window:close-confirmed");
 }
 function renderNative(force = false) {
@@ -323,6 +325,7 @@ function updateNativeSettings(state) {
     note("native", (notices[state.settingsNotice] || "ゲームの起動準備を待っています。") + (state.canEditNativeSettings === true ? "" : " ゲームの実行中・起動中・停止中は変更できません。"));
   }
   renderInput(state.settingsInfo?.input, state);
+  renderAv(state.settingsInfo?.av, state);
   const info = state.settingsInfo;
   if (!info?.audioBackend && state.corePhase === "ready" && ["ready", "running"].includes(state.phase) && !requestedSettingsInfo) {
     requestedSettingsInfo = true;
@@ -394,13 +397,15 @@ const inputMessages = {
   "capture-timeout":"入力待機を終了しました。もう一度割当を選択してください。",
   "capture-cancelled":"入力待機をキャンセルしました。",
   disconnected:"Disconnected · 接続を確認し、一覧から選択してください。",
-  reconnected:"同一の識別情報を持つ機器へ再接続しました。",
+  reconnected:"コントローラーへ自動接続しました。保存済みの割当を復元しました。",
+  "connected-new-model":"新しい機器へ接続しました。機器別の割当を使用し、元の Profile は保持しました。",
+  "duplicate-input":"この入力は連続割当で使用済みです。入力を離し、別のボタンを押してください。",
   "select-controller":"接続中のコントローラーを一覧から選択してください。",
   "unsupported-profile":"現在の Profile は編集対象外です。物理コントローラーを選択すると SDLController の割当を作成します。",
 };
 function inputActive() { return !document.getElementById("settings").hidden && selectedTab === "input" && !document.hidden && !closeAfterSaves; }
 function inputCommand(values) {
-  if (pendingInput || closeAfterSaves || window.launcherCoreState?.canEditNativeSettings !== true) return;
+  if (pendingInput || pendingSave || pendingAv || closeAfterSaves || window.launcherCoreState?.canEditNativeSettings !== true) return;
   pendingInput = ++inputSequence;
   inputControls.disabled = true;
   updatePlay();
@@ -420,19 +425,21 @@ function renderInput(info, state = window.launcherCoreState) {
   const editable = state?.canEditNativeSettings === true && !pendingInput && !closeAfterSaves;
   inputControls.disabled = !editable;
   inputEdit.disabled = !current?.connected;
+  document.getElementById("deadzone-controls").disabled = !editable || !current?.connected;
   if (!current) return;
   if (!pendingInput) inputNote.textContent = editable ? (inputMessages[current.notice] || inputMessages.ready) : inputMessages["not-ready"];
-  options(physicalController, [["", "コントローラーを選択"], ...current.devices.map((d) => [String(d.token), `${d.name} · 接続ID ${d.instance} · ${d.uuid}`])], String(current.devices.find((d) => d.selected)?.token || ""));
+  options(physicalController, [["", "コントローラーを選択"], ...current.devices.map((d) => [String(d.token), d.name + (current.devices.filter(other => other.name === d.name).length > 1 ? ` (${current.devices.filter(other => other.name === d.name).indexOf(d) + 1})` : "")])], String(current.devices.find((d) => d.selected)?.token || ""));
   const chosenProfile = profileSelect.value;
   options(profileSelect, [["", "Profile を選択"], ...current.profiles.map((name) => [name, name])], current.profiles.includes(chosenProfile) ? chosenProfile : current.profiles.includes(current.profile) ? current.profile : "");
   setInfo("controller-info", [["Controller Status", current.connected ? "Connected" : "Disconnected"], ["Controller Profile", current.profile], ["Player", "1 · Wii U GamePad"]]);
   for (const [side, value] of [["left", current.leftDeadzone], ["right", current.rightDeadzone]]) {
     const slider = document.getElementById(side + "-deadzone");
-    if (document.activeElement !== slider || !editable) {
+    if (document.activeElement !== slider || !editable || ["save-failed","rejected"].includes(current.notice)) {
       slider.value = String(value);
       document.getElementById(side + "-deadzone-value").value = Number(value).toFixed(2);
     }
   }
+  updateDeadzonePreview();
   const key = JSON.stringify(current.mapping);
   if (mappingGrid.dataset.snapshot !== key) {
     mappingGrid.dataset.snapshot = key;
@@ -441,7 +448,7 @@ function renderInput(info, state = window.launcherCoreState) {
       row.className = "mapping-row"; row.dataset.mapping = m.id; row.dataset.button = m.button ?? "";
       label.textContent = m.label; button.textContent = (m.name || "未割当") + (m.duplicate ? "（重複）" : "");
       button.type = "button"; button.setAttribute("aria-label", m.label + "の割当 " + (m.name || "未割当"));
-      button.addEventListener("click", () => inputCommand({ op:"capture", mapping:m.id }));
+      button.addEventListener("click", () => inputCommand({ op:"capture", mapping:m.id, continuous:document.getElementById("mapping-continuous").checked }));
       row.append(label, button); return row;
     }));
   }
@@ -451,13 +458,22 @@ document.getElementById("profile-load").addEventListener("click", () => { if (pr
 document.getElementById("profile-save-as").addEventListener("click", () => inputCommand({ op:"save-as", name:document.getElementById("profile-name").value }));
 for (const side of ["left", "right"]) {
   const slider = document.getElementById(side + "-deadzone");
-  slider.addEventListener("input", () => { document.getElementById(side + "-deadzone-value").value = Number(slider.value).toFixed(2); });
+  slider.addEventListener("input", () => { document.getElementById(side + "-deadzone-value").value = Number(slider.value).toFixed(2); updateDeadzonePreview(); });
   slider.addEventListener("change", () => inputCommand({ op:"deadzone", left:Number(document.getElementById("left-deadzone").value), right:Number(document.getElementById("right-deadzone").value) }));
 }
 document.getElementById("input-reset").addEventListener("click", () => { resetConfirmation.hidden = false; document.getElementById("input-reset-cancel").focus(); });
 document.getElementById("input-reset-cancel").addEventListener("click", () => { resetConfirmation.hidden = true; document.getElementById("input-reset").focus(); });
 document.getElementById("input-reset-confirm").addEventListener("click", () => { resetConfirmation.hidden = true; inputCommand({ op:"reset" }); });
-captureCancel.addEventListener("click", () => { windowCommand("input:cancel"); lastCaptureId = 0; captureCancel.hidden = true; inputNote.textContent = inputMessages["capture-cancelled"]; });
+captureCancel.addEventListener("click", () => { windowCommand("input:cancel"); lastCaptureId = 0; document.getElementById("capture-actions").hidden = true; inputNote.textContent = inputMessages["capture-cancelled"]; });
+document.getElementById("input-capture-skip").addEventListener("click", () => inputCommand({op:"skip"}));
+document.getElementById("input-capture-finish").addEventListener("click", () => inputCommand({op:"finish"}));
+function updateDeadzonePreview() {
+  for (const side of ["left","right"]) {
+    const value = Number(document.getElementById(side + "-deadzone").value);
+    document.querySelector("#" + side + "-stick-test .deadzone-circle").style.width = value * 100 + "%";
+    document.querySelector("#" + side + "-stick-test .deadzone-circle").style.height = value * 100 + "%";
+  }
+}
 window.addEventListener("launcher-input-result", (event) => {
   if (event.detail.requestId !== pendingInput) return;
   pendingInput = null;
@@ -467,8 +483,8 @@ window.addEventListener("launcher-input-result", (event) => {
 });
 function clearLiveInput() {
   for (const side of ["left", "right"]) {
-    document.querySelector("#" + side + "-stick-test span").style.transform = "translate(0px,0px)";
-    document.getElementById(side + "-stick-value").value = "0.00 / 0.00";
+    document.querySelectorAll("#" + side + "-stick-test span").forEach(point => point.style.transform = "translate(-50%,-50%)");
+    document.getElementById(side + "-stick-value").value = "Raw 0.00 / 0.00 · Output 0.00 / 0.00";
   }
   mappingGrid.querySelectorAll(".mapping-row").forEach((row) => { row.dataset.pressed = "false"; });
   document.getElementById("trigger-test").textContent = "ZL 0.00 / ZR 0.00";
@@ -481,16 +497,26 @@ window.addEventListener("launcher-input-live", (event) => {
   if (!state.connected) clearLiveInput();
   else {
     for (const side of ["left", "right"]) {
-      const [x,y] = state[side];
-      document.querySelector("#" + side + "-stick-test span").style.transform = `translate(${x * 44}px,${y * 44}px)`;
-      document.getElementById(side + "-stick-value").value = `${x.toFixed(2)} / ${y.toFixed(2)}`;
+      const [x,y] = state[side], raw = state[side === "left" ? "rawLeft" : "rawRight"];
+      const test = document.getElementById(side + "-stick-test"), radius = test.clientWidth / 2 - 5;
+      for (const [selector, values] of [[".raw-point",raw],[".processed-point",[x,y]]])
+        test.querySelector(selector).style.transform = `translate(calc(-50% + ${values[0] * radius}px),calc(-50% + ${values[1] * radius}px))`;
+      document.getElementById(side + "-stick-value").value = `Raw ${raw[0].toFixed(2)} / ${raw[1].toFixed(2)} · Output ${x.toFixed(2)} / ${y.toFixed(2)}`;
     }
     document.getElementById("trigger-test").textContent = `ZL ${state.triggers[0].toFixed(2)} / ZR ${state.triggers[1].toFixed(2)}`;
     document.getElementById("button-test").textContent = state.buttons.map((id) => inputSnapshot?.buttons?.find((b) => b.id === id)?.name || `Button ${id}`).join(" · ") || "ボタン解放";
   }
   mappingGrid.querySelectorAll(".mapping-row").forEach((row) => { row.dataset.pressed = String(state.connected === true && row.dataset.button !== "" && state.buttons.includes(Number(row.dataset.button))); });
-  captureCancel.hidden = !state.captureId;
-  if (state.captureId || lastCaptureId) inputNote.textContent = inputMessages[state.notice] || inputMessages.ready;
+  document.getElementById("capture-actions").hidden = !state.captureId;
+  document.getElementById("input-capture-skip").disabled = !state.continuous || pendingInput !== null;
+  if (inputSnapshot && state.revision) inputSnapshot.revision = state.revision;
+  mappingGrid.querySelectorAll(".mapping-row").forEach(row => {
+    const id = Number(row.dataset.mapping);
+    row.dataset.capturing = String(!!state.captureId && id === state.captureMapping);
+    row.dataset.complete = String(state.completed?.includes(id) === true);
+    row.dataset.next = String(!!state.captureId && state.continuous && id === state.captureMapping + 1);
+  });
+  if (state.captureId || lastCaptureId) inputNote.textContent = (state.captureId ? (inputSnapshot?.mapping.find(m => m.id === state.captureMapping)?.label || "") + " · " : "") + (inputMessages[state.notice] || inputMessages.ready);
   if (lastCaptureId && !state.captureId) windowCommand("settings:get");
   lastCaptureId = state.captureId || 0;
 });
@@ -500,7 +526,7 @@ function stopInputView() {
   inputTimer = settingsTimer = null;
   inputPollPending = false; inputViewId++; lastCaptureId = 0;
   windowCommand("input:cancel");
-  captureCancel.hidden = true; resetConfirmation.hidden = true;
+  document.getElementById("capture-actions").hidden = true; resetConfirmation.hidden = true;
   clearLiveInput();
 }
 function updateInputView() {
@@ -517,3 +543,74 @@ function updateInputView() {
 }
 document.addEventListener("visibilitychange", () => { stopInputView(); updateInputView(); });
 window.addEventListener("blur", () => { windowCommand("input:cancel"); clearLiveInput(); });
+
+const avKeys = ["graphicsApi","gpu","vsync","async","fullSync","upscale","downscale","scaling","audioApi","latency","tvDevice","tvChannels","tvVolume","padDevice","padVolume","micDevice","micVolume"];
+const avQueue = [];
+let avSnapshot = null, pendingAv = null, avSequence = Date.now() * 1000;
+const avLabels = ["DirectSound","XAudio2 2.7","XAudio2","Cubeb"];
+function avNote(key,text) { document.getElementById(avKeys.indexOf(key) < 8 ? "graphics-settings-note" : "audio-settings-note").textContent = text; }
+function renderAv(info, state = window.launcherCoreState) {
+  if (info?.values) avSnapshot = info;
+  const current = avSnapshot, editable = state?.canEditNativeSettings === true && !closeAfterSaves && !pendingAv;
+  document.getElementById("av-graphics").disabled = document.getElementById("av-audio").disabled = !editable;
+  if (!current) return;
+  const values = current.values;
+  const select = (key, items) => {
+    const value = String(values[key]);
+    if (!items.some(item => String(item[0]) === value)) items.push([value,"保存したデバイス（利用できません）"]);
+    options(document.getElementById("av-" + key),items,value);
+    for (const option of document.getElementById("av-" + key).options) option.disabled = Number(option.value) < 0;
+  };
+  if (values.graphicsApi === 0) options(document.getElementById("av-gpu"),[[0,"System Default"]],"0");
+  else select("gpu", [[0,"Default"], ...current.gpus.map(d => [d.token,d.name])]);
+  select("vsync", values.graphicsApi === 0 ? [[0,"Off"],[1,"On"]] : [[0,"Off"],[1,"Double Buffering"],[2,"Triple Buffering"],[3,"Match Emulated Display (Experimental)"]]);
+  select("audioApi",current.audioApis.map(api => [api,avLabels[api]]));
+  for (const key of ["tvDevice","padDevice","micDevice"])
+    select(key,[[0,"Disabled"], ...(key === "micDevice" ? current.inputs : current.outputs).map(d => [d.token,d.name])]);
+  select("tvChannels",current.tvChannels.map(channel => [channel,["Mono","Stereo","Surround"][channel]]));
+  for (const key of avKeys) {
+    if (key === "gpu" && values.graphicsApi === 0) continue;
+    if (pendingAv?.key === key || avQueue.some(item => item.key === key)) continue;
+    const control = document.getElementById("av-" + key);
+    if (control.type === "checkbox") control.checked = values[key];
+    else if (control.type !== "range" || document.activeElement !== control || ["save-failed","rejected"].includes(current.notice)) control.value = String(values[key]);
+    if (control.type === "range") document.getElementById("av-" + key + "-value").value = Number(control.value) * (key === "latency" ? 12 : 1) + (key === "latency" ? " ms" : "%");
+  }
+  document.getElementById("av-gpu").disabled = document.getElementById("av-async").disabled = values.graphicsApi === 0;
+  document.getElementById("renderer-info").textContent = state?.rendererDevice ? `現在の描画: ${state.activeRenderer} · ${state.rendererDevice}` : "";
+  const missing = ["gpu","tvDevice","padDevice","micDevice"].filter(key => values[key] === -1);
+  if (!pendingAv && current.notice !== "save-failed" && current.notice !== "rejected") {
+    document.getElementById("graphics-settings-note").textContent = missing.includes("gpu") ? "保存したGPUが見つかりません。設定を保持し、起動時は既定GPUを使用します。" : "自動保存 · Applies on Next Play";
+    document.getElementById("audio-settings-note").textContent = missing.some(key => key !== "gpu") ? "保存した音声デバイスが見つかりません。設定を保持しています。接続または選択を確認してください。" : current.enumerationNotice ? "デバイス一覧を取得できませんでした。再接続を確認してください。" : "自動保存 · Applies on Next Play";
+  }
+  document.getElementById("audio-stream-note").textContent = state?.phase === "running" ? `TV Stream: ${current.tvStream ? "作成済み" : values.tvDevice === 0 ? "Disabled" : "未初期化・出力を確認してください"} · GamePad Stream: ${current.padStream ? "作成済み" : values.padDevice === 0 ? "Disabled" : "未初期化"}` : "";
+}
+function avCommand(key,value) {
+  if (!avSnapshot || closeAfterSaves || window.launcherCoreState?.canEditNativeSettings !== true) return;
+  const existing = avQueue.find(item => item.key === key);
+  if (existing) existing.value = value; else avQueue.push({key,value});
+  updatePlay(); drainSaves();
+}
+function drainAv() {
+  if (pendingAv || pendingSave || pendingInput || !avQueue.length) return;
+  pendingAv = {...avQueue.shift(),requestId:++avSequence};
+  avNote(pendingAv.key,"Saving…");
+  windowCommand("av:command:" + pendingAv.requestId + ":" + JSON.stringify({key:pendingAv.key,value:pendingAv.value,revision:avSnapshot.revision}));
+  renderAv(); updatePlay();
+}
+for (const key of avKeys) {
+  const control = document.getElementById("av-" + key);
+  control.addEventListener("change", () => avCommand(key,control.type === "checkbox" ? control.checked : Number(control.value)));
+  if (control.type === "range") control.addEventListener("input", () => {
+    document.getElementById("av-" + key + "-value").value = Number(control.value) * (key === "latency" ? 12 : 1) + (key === "latency" ? " ms" : "%");
+  });
+}
+window.addEventListener("launcher-av-result", event => {
+  if (!pendingAv || pendingAv.requestId !== event.detail.requestId) return;
+  const key = pendingAv.key, result = event.detail.settings;
+  if (result.values) avSnapshot = result;
+  pendingAv = null;
+  renderAv();
+  avNote(key,result.notice === "saved" ? "Saved · Applies on Next Play" : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  drainSaves(); updatePlay();
+});

@@ -144,7 +144,7 @@ bool XAudio2API::InitializeStatic()
 		if (!_XAudio2Create)
 			throw std::exception();
 
-		RefreshDevices();
+		GetDevices(true);
 		return true;
 	}
 	catch (const std::exception&)
@@ -165,6 +165,7 @@ void XAudio2API::Destroy()
 const std::vector<XAudio2API::DeviceDescriptionPtr>& XAudio2API::RefreshDevices()
 {
 	s_devices.clear();
+	const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
 	try
 	{
@@ -244,7 +245,7 @@ const std::vector<XAudio2API::DeviceDescriptionPtr>& XAudio2API::RefreshDevices(
 		cemuLog_log(LogType::Force, "XAudio2API::RefreshDevices: error while refreshing device list ({} - code: 0x{:08x})", ex.what(), ex.code().value());
 	}
 
-	CoUninitialize();
+	if (SUCCEEDED(apartment)) CoUninitialize();
 	return s_devices;
 }
 

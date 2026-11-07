@@ -1,6 +1,8 @@
 #include "CemuHost.h"
 #include "NativeSettings.h"
 #include "InputService.h"
+#include "AvSettings.h"
+#include "NativeOpenGL.h"
 
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
@@ -95,6 +97,8 @@ namespace
 		std::atomic_bool titleStop{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
+		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
+		std::string activeRenderer, rendererDevice;
 		std::string corePhase = "initializing", titlePhase = "idle", stopReason;
 		std::atomic_uint64_t presents{0}, acquires{0}, swapchainCreates{0}, swapchainDestroys{0}, surfaceDestroys{0}, gameListRevision{0};
 		std::atomic<double> fps{0};
@@ -103,6 +107,8 @@ namespace
 		fs::path runtime;
 		NativeSettings nativeSettings;
 		std::unique_ptr<InputService> input;
+		std::unique_ptr<AvSettings> av;
+		uint64_t lastAvRequest = 0;
 		uint64_t lastInputRequest = 0;
 		std::string settingsNotice = "loading", settingsInfo = "{}";
 		std::mutex imageMutex;
@@ -143,6 +149,10 @@ namespace
 					}
 					bool result = false;
 					try { if (execute) result = action(); }
+					catch (const std::exception& error)
+					{
+						if (state) { cemuLog_log(LogType::Force, "NativeHost UI operation failed: {}", error.what()); state->failed = true; }
+					}
 					catch (...) { if (state) state->failed = true; }
 					if (request)
 					{
@@ -164,7 +174,7 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy());
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy());
 		}
 		void ClearStopConfirmationLocked()
 		{
@@ -190,9 +200,14 @@ namespace
 				writer.Key("nativeSettings");
 				const auto settings = nativeSettings.Json();
 				writer.RawValue(settings.data(), settings.size(), rapidjson::kObjectType);
+				writer.Key("activeRenderer"); writer.String(activeRenderer.c_str());
+				writer.Key("rendererDevice"); writer.String(rendererDevice.c_str());
 				writer.Key("settingsNotice"); writer.String(settingsNotice.c_str());
 				writer.Key("settingsInfo"); writer.RawValue(settingsInfo.data(), settingsInfo.size(), rapidjson::kObjectType);
 			}
+			writer.Key("glContextsCreated"); writer.Uint64(glContextsCreated);
+			writer.Key("glContextsDestroyed"); writer.Uint64(glContextsDestroyed);
+			writer.Key("glPresents"); writer.Uint64(glPresents);
 			writer.Key("appliedNativeVsync"); writer.Uint(appliedVsync);
 			writer.Key("nativeResolutionActive"); writer.Bool(MinecraftNativeResolution::IsActive());
 			writer.Key("images"); writer.StartArray();
@@ -389,7 +404,8 @@ namespace
 		Require(settings.load_file((runtime / "portable/settings.xml").c_str()), "Unable to read runtime settings");
 		const auto config = settings.child("content");
 		Require(fs::equivalent(_utf8ToPath(config.child_value("mlc_path")), runtime / "portable/mlc01"), "Runtime MLC mismatch");
-		Require(std::string_view(config.child("Graphic").child_value("api")) == "1" && !config.child("Account").child("OnlineEnabled").text().as_bool(), "Only offline Vulkan is supported");
+		const std::string_view api = config.child("Graphic").child_value("api");
+		Require((api == "0" || api == "1") && !config.child("Account").child("OnlineEnabled").text().as_bool(), "Only offline Vulkan or OpenGL is supported");
 		for (const auto& entry : config.child("GamePaths").children())
 		{
 			const auto gamePath = fs::weakly_canonical(_utf8ToPath(entry.child_value()));
@@ -499,16 +515,19 @@ struct CemuHost::Impl
 {
 	std::shared_ptr<HostState> state;
 	std::thread worker;
+	std::unique_ptr<NativeOpenGL> openGL;
 
 	void ReleaseRenderer()
 	{
 		// GPU 開始前の取消では LatteThread_Exit が走らない。
 		if (g_renderer)
 		{
+			if (openGL) Require(openGL->MakeCurrent(false), "Unable to activate OpenGL for renderer cleanup");
 			auto* renderer = g_renderer.get();
 			delete renderer;
 			g_renderer.release();
 		}
+		if (openGL) { Require(openGL->Close(), "OpenGL resources were not released"); openGL.reset(); ++state->glContextsDestroyed; }
 		RemoveVulkanTrace();
 		state->vulkanInstance = state->vulkanDevice = state->vulkanSurface = 0;
 		g_isGPUInitFinished = false;
@@ -546,8 +565,8 @@ struct CemuHost::Impl
 			CemuCommonInit(state->runtime, false);
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
-			Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
-			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->corePhase = "ready"; }
+			InitializeGlobalVulkan();
+			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>(); state->corePhase = "ready"; }
 			state->Phase("ready");
 			while (!state->stop)
 			{
@@ -559,67 +578,96 @@ struct CemuHost::Impl
 				{
 					if (!state->sessionId) ++state->sessionId;
 					if (!state->titleStop) state->Phase("preparing");
-					if (!state->Dispatch([state = state] { return state->callbacks.prepareCanvas(); }, true))
+					try
 					{
-						Require(state->stop || state->titleStop, "Canvas preparation failed");
-					}
-					if (!state->stop && !state->titleStop)
-					{
-						auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
-						Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
-						NativeSettings settings;
+						if (!state->Dispatch([state = state] { return state->callbacks.prepareCanvas(GetConfig().graphic_api == kOpenGL); }, true))
 						{
-							std::lock_guard lock(state->statusMutex);
-							settings = state->nativeSettings;
+							Require(state->stop || state->titleStop, "Canvas preparation failed");
 						}
-						Require(MinecraftNativeResolution::Begin(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion(), settings.width, settings.height), "Invalid native resolution session");
-						if (settings.vsyncFrequency) LatteTiming_setCustomVsyncFrequency(settings.vsyncFrequency);
-						else LatteTiming_disableCustomVsyncFrequency();
-						state->appliedVsync = settings.vsyncFrequency;
-						{ std::lock_guard lock(state->imageMutex); state->images.clear(); }
-						cemuLog_log(LogType::Force, "NativeHost session settings: vsync={} internal={}x{}", settings.vsyncFrequency, settings.width, settings.height);
 						if (!state->stop && !state->titleStop)
 						{
-							state->Phase("vulkan");
-							const Vector2i size{s_windowInfo.phys_width, s_windowInfo.phys_height};
-							Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
-							g_renderer = std::make_unique<VulkanRenderer>();
-							const auto renderer = VulkanRenderer::GetInstance();
-							const auto limits = renderer->GetPhysicalDevice();
-							VkPhysicalDeviceProperties properties{};
-							vkGetPhysicalDeviceProperties(limits, &properties);
-							Require(settings.width <= properties.limits.maxImageDimension2D && settings.height <= properties.limits.maxImageDimension2D, "Native resolution exceeds Vulkan image limits");
-							renderer->InitializeSurface(size, true);
-							const auto& chain = renderer->GetChainInfo(true);
-							const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
-							Require(families.IsComplete() && chain.m_swapchain && chain.m_surface, "Native Vulkan swapchain is incomplete");
-							cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={} device=0x{:x}",
-								reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily, reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice()));
-							state->vulkanInstance = reinterpret_cast<uintptr_t>(renderer->GetVkInstance());
-							state->vulkanDevice = reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice());
-							state->vulkanSurface = reinterpret_cast<uintptr_t>(chain.m_surface);
-							++state->surfaceCreates;
-							++state->swapchainCreates;
-							state->swapchainWidth = chain.getExtent().width;
-							state->swapchainHeight = chain.getExtent().height;
-							InstallVulkanTrace(*state);
-							g_isGPUInitFinished = false;
-							if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
-							if (CafeSystem::IsTitleRunning())
+							state->av->PrepareLaunch();
+							{ std::lock_guard lock(state->statusMutex); state->error.clear(); }
+							auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
+							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
+							NativeSettings settings;
 							{
-								sint32 applied = 0;
-								const bool custom = LatteTiming_getCustomVsyncFrequency(applied);
-								Require(custom == (settings.vsyncFrequency != 0) && (!custom || applied == settings.vsyncFrequency), "Native VSync was changed during title initialization");
-								state->appliedVsync = custom ? applied : 0;
-								cemuLog_log(LogType::Force, "NativeHost verified LatteTiming after title initialization: custom={} frequency={}", custom, applied);
+								std::lock_guard lock(state->statusMutex);
+								settings = state->nativeSettings;
 							}
-							state->Phase("running");
-							std::unique_lock lock(state->workMutex);
-							state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
+							Require(MinecraftNativeResolution::Begin(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion(), settings.width, settings.height), "Invalid native resolution session");
+							if (settings.vsyncFrequency) LatteTiming_setCustomVsyncFrequency(settings.vsyncFrequency);
+							else LatteTiming_disableCustomVsyncFrequency();
+							state->appliedVsync = settings.vsyncFrequency;
+							{ std::lock_guard lock(state->imageMutex); state->images.clear(); }
+							cemuLog_log(LogType::Force, "NativeHost session settings: vsync={} internal={}x{}", settings.vsyncFrequency, settings.width, settings.height);
+							if (!state->stop && !state->titleStop)
+							{
+								const Vector2i size{s_windowInfo.phys_width, s_windowInfo.phys_height};
+								Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
+								const bool useOpenGL = GetConfig().graphic_api == kOpenGL;
+								state->Phase(useOpenGL ? "opengl" : "vulkan");
+								{
+									std::lock_guard lock(state->statusMutex);
+									state->activeRenderer = useOpenGL ? "OpenGL" : "Vulkan";
+								}
+								if (useOpenGL)
+								{
+									openGL = std::make_unique<NativeOpenGL>(state->callbacks.openGLCanvas(), settings.width, settings.height, [state = state] { ++state->glPresents; });
+									++state->glContextsCreated;
+									g_renderer = std::make_unique<OpenGLRenderer>();
+									std::lock_guard lock(state->statusMutex); state->rendererDevice = openGL->DeviceName();
+								}
+								else
+								{
+									Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
+									g_renderer = std::make_unique<VulkanRenderer>();
+									const auto renderer = VulkanRenderer::GetInstance();
+									const auto limits = renderer->GetPhysicalDevice();
+									VkPhysicalDeviceProperties properties{};
+									vkGetPhysicalDeviceProperties(limits, &properties);
+									Require(settings.width <= properties.limits.maxImageDimension2D && settings.height <= properties.limits.maxImageDimension2D, "Native resolution exceeds Vulkan image limits");
+									renderer->InitializeSurface(size, true);
+									const auto& chain = renderer->GetChainInfo(true);
+									const auto families = VulkanRenderer::FindQueueFamilies(chain.m_surface, renderer->GetPhysicalDevice());
+									Require(families.IsComplete() && chain.m_swapchain && chain.m_surface, "Native Vulkan swapchain is incomplete");
+									cemuLog_log(LogType::Force, "NativeHost Vulkan instance={} physicalDevice={} surface={} swapchain={} extent={}x{} graphicsFamily={} presentFamily={} device=0x{:x}",
+										reinterpret_cast<uintptr_t>(renderer->GetVkInstance()), reinterpret_cast<uintptr_t>(renderer->GetPhysicalDevice()), reinterpret_cast<uintptr_t>(chain.m_surface), reinterpret_cast<uintptr_t>(chain.m_swapchain), chain.getExtent().width, chain.getExtent().height, families.graphicsFamily, families.presentFamily, reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice()));
+									state->vulkanInstance = reinterpret_cast<uintptr_t>(renderer->GetVkInstance());
+									state->vulkanDevice = reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice());
+									state->vulkanSurface = reinterpret_cast<uintptr_t>(chain.m_surface);
+									++state->surfaceCreates;
+									++state->swapchainCreates;
+									state->swapchainWidth = chain.getExtent().width;
+									state->swapchainHeight = chain.getExtent().height;
+									InstallVulkanTrace(*state);
+									std::lock_guard lock(state->statusMutex); state->rendererDevice = renderer->GetDeviceName();
+								}
+								g_isGPUInitFinished = false;
+								if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
+								if (CafeSystem::IsTitleRunning())
+								{
+									sint32 applied = 0;
+									const bool custom = LatteTiming_getCustomVsyncFrequency(applied);
+									Require(custom == (settings.vsyncFrequency != 0) && (!custom || applied == settings.vsyncFrequency), "Native VSync was changed during title initialization");
+									state->appliedVsync = custom ? applied : 0;
+									{ std::lock_guard lock(state->statusMutex); state->rendererDevice = useOpenGL ? openGL->DeviceName() : g_renderer->GetDeviceName(); }
+									cemuLog_log(LogType::Force, "NativeHost verified LatteTiming after title initialization: custom={} frequency={}", custom, applied);
+								}
+								state->Phase("running");
+								std::unique_lock lock(state->workMutex);
+								state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
+							}
 						}
+					}
+					catch (const std::exception& error)
+					{
+						cemuLog_log(LogType::Force, "NativeHost title launch failed: {}", error.what());
+						std::lock_guard lock(state->statusMutex); state->error = error.what();
 					}
 					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
 					CafeSystem::ShutdownTitle();
+					state->av->EndTitle();
 					Require(!CafeSystem::IsTitleRunning() && Latte_GetStopSignal(), "Title threads did not stop");
 					ReleaseRenderer();
 					MinecraftNativeResolution::End();
@@ -654,6 +702,7 @@ struct CemuHost::Impl
 		{
 			state->Phase("stopping");
 			CafeSystem::Shutdown();
+			if (state->av) state->av->EndTitle();
 			cemuLog_log(LogType::Force, "NativeHost CafeSystem shutdown complete; rendererPresent={}", bool(g_renderer));
 			// GPU 未開始の取消でも、既存 LatteThread_Exit と同じく destructor 中は
 			// g_renderer を有効に保つ。内部資源の解放がこの参照を利用する。
@@ -661,7 +710,7 @@ struct CemuHost::Impl
 			MinecraftNativeResolution::End();
 			LatteTiming_disableCustomVsyncFrequency();
 			state->appliedVsync = 0;
-			{ std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->input.reset(); }
+			{ std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->input.reset(); state->av.reset(); }
 			InputManager::instance().Shutdown();
 			cemuLog_log(LogType::Force, "NativeHost input shutdown complete; presents={} acquires={} swapchainsReleased={} surfacesReleased={}",
 				state->presents.load(), state->acquires.load(), state->swapchainDestroys.load(), state->surfaceDestroys.load());
@@ -723,6 +772,7 @@ void CemuHost::LaunchGame()
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
 		if (!m_impl->state->CanEditSettingsLocked()) return;
+		if (m_impl->state->input) m_impl->state->input->CancelCapture();
 		m_impl->state->launch = true;
 		m_impl->state->titleStop = false;
 		m_impl->state->ClearStopConfirmationLocked();
@@ -821,7 +871,7 @@ std::string CemuHost::InputCommand(uint64_t requestId, std::string_view payload)
 	if (!state.input) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastInputRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastInputRequest = requestId;
-	if (payload == "{\"op\":\"cancel\"}") { state.input->CancelCapture(); return state.input->Snapshot(); }
+	if (payload == "{\"op\":\"cancel\"}") { state.input->CancelCapture(); return state.input->Snapshot(state.CanEditSettingsLocked()); }
 	if (!state.CanEditSettingsLocked()) { state.input->CancelCapture(); return "{\"notice\":\"not-ready\"}"; }
 	return state.input->Command(payload);
 }
@@ -842,6 +892,18 @@ void CemuHost::CancelInputCapture()
 	std::lock_guard workLock(state.workMutex);
 	std::lock_guard statusLock(state.statusMutex);
 	if (state.input) state.input->CancelCapture();
+}
+
+std::string CemuHost::AvCommand(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.av) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastAvRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastAvRequest = requestId;
+	if (!state.CanEditSettingsLocked()) return "{\"notice\":\"not-ready\"}";
+	return state.av->Command(payload);
 }
 
 void CemuHost::RefreshSettingsInfo()
@@ -895,7 +957,8 @@ void CemuHost::RefreshSettingsInfo()
 			}
 		}
 		writer.EndArray();
-		if (state.input) { writer.Key("input"); const auto snapshot = state.input->Snapshot(); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
+		if (state.av) { writer.Key("av"); const auto snapshot = state.av->Snapshot(); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
+		if (state.input) { writer.Key("input"); const auto snapshot = state.input->Snapshot(state.CanEditSettingsLocked()); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
 		writer.EndObject();
 		changed = state.settingsInfo != buffer.GetString();
 		state.settingsInfo = buffer.GetString();
@@ -971,7 +1034,7 @@ namespace WindowSystem
 	{
 		auto state = s_currentHost.lock();
 		if (!state) return false;
-		const bool ready = state->Dispatch([state] { return g_renderer && state->callbacks.prepareCanvas(); }, true);
+		const bool ready = state->Dispatch([state] { return g_renderer && state->callbacks.prepareCanvas(GetConfig().graphic_api == kOpenGL); }, true);
 		cemuLog_log(LogType::Force, "NativeHost NotifyGameLoaded completed={}", ready);
 		return ready;
 	}
@@ -988,7 +1051,7 @@ namespace WindowSystem
 			state->fps = fps;
 			state->Dispatch([state, idle, loading, fps] {
 				const auto title = idle ? L"MCWiiU Launcher" : loading ? L"MCWiiU Launcher - Loading" :
-					boost::nowide::widen(fmt::format("MCWiiU Launcher - FPS: {:.2f} [Vulkan] [TitleId: 00050000-101dbe00] [JP v560]", fps));
+					boost::nowide::widen(fmt::format("MCWiiU Launcher - FPS: {:.2f} [{}] [TitleId: 00050000-101dbe00] [JP v560]", fps, state->activeRenderer));
 				SetWindowTextW(state->root, title.c_str());
 				state->callbacks.status(state->Json());
 				return true;

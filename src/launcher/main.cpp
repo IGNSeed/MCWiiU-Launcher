@@ -367,19 +367,21 @@ namespace
 			{
 				core = std::make_unique<CemuHost>(window->native().hwnd, gameHost.GetHandle(), CemuHost::Callbacks{
 					.post = [app](std::function<void()> callback) { app->post(std::move(callback)); },
-					.prepareCanvas = [&] {
+					.prepareCanvas = [&](bool openGL) {
+						if (!gameHost.SetOpenGLComposition(openGL)) return false;
 						if (display) { display->m_launcherVisible = false; display->m_settingsSelected = false; }
 						gameHost.SetGameLayout(true);
 						gameHost.SetVisible(true);
 						gameHost.Focus();
 						return gameHost.IsRenderable();
 					},
+					.openGLCanvas = [&] { return gameHost.GetOpenGLHandle(); },
 					.status = [&](std::string json) {
 						if (display) display->SetStopConfirmation(core->HasStopGameConfirmation());
 						publishCore(json);
 						if (gameHost.stateChanged) gameHost.stateChanged();
 					},
-					.titleStopped = [&] { return display->ReturnHome(); },
+					.titleStopped = [&] { return gameHost.SetOpenGLComposition(false) && display->ReturnHome(); },
 					.stopped = [&] {
 						s_startupExitCode = core->HasFailed() ? 1 : 0;
 						window->close();
@@ -474,7 +476,7 @@ namespace
 					return saucer::status::unhandled;
 #ifdef CEMU_NATIVE_HOST
 				if (display && display->m_stopping && message != "window:close" && message != "window:close-confirmed" &&
-					!message.starts_with("settings:save:") && !message.starts_with("preferences:save:"))
+					!message.starts_with("settings:save:") && !message.starts_with("preferences:save:") && !message.starts_with("av:command:"))
 					return saucer::status::handled;
 #endif
 
@@ -516,6 +518,15 @@ namespace
 							std::to_string(request->first) + ",state:" + core->StatusJson() + "}}));");
 					}
 					else core->SaveNativeSettings(payload);
+				}
+				else if (core && message.starts_with("av:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("av:command:").size())))
+					{
+						const auto snapshot = core->AvCommand(request->first, request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-av-result', {detail:{requestId:" + std::to_string(request->first) + ",settings:" + snapshot + "}}));");
+						core->RefreshSettingsInfo();
+					}
 				}
 				else if (core && message.starts_with("input:command:"))
 				{

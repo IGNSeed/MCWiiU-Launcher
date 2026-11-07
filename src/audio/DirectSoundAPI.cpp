@@ -11,7 +11,7 @@ std::wstring DirectSoundAPI::DirectSoundDeviceDescription::GetIdentifier() const
 	return m_guid ? WStringFromGUID(*m_guid) : L"default";
 }
 
-DirectSoundAPI::DirectSoundAPI(GUID* guid, sint32 samplerate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample)
+DirectSoundAPI::DirectSoundAPI(const GUID* guid, sint32 samplerate, sint32 channels, sint32 samples_per_block, sint32 bits_per_sample)
 	: IAudioAPI(samplerate, channels, samples_per_block, bits_per_sample)
 {
 	if (DirectSoundCreate8(guid, &m_direct_sound, nullptr) != DS_OK)

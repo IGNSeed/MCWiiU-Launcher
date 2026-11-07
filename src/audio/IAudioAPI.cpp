@@ -76,7 +76,7 @@ void IAudioAPI::InitWFX(sint32 samplerate, sint32 channels, sint32 bits_per_samp
 
 void IAudioAPI::InitializeStatic()
 {
-	s_audioDelay = GetConfig().audio_delay;
+	UpdateAudioDelay();
 
 #if BOOST_OS_WINDOWS
 	s_availableApis[DirectSound] = true;
@@ -87,6 +87,11 @@ void IAudioAPI::InitializeStatic()
 #if HAS_CUBEB
 	s_availableApis[Cubeb] = CubebAPI::InitializeStatic();
 #endif
+}
+
+void IAudioAPI::UpdateAudioDelay()
+{
+	s_audioDelay = GetConfig().audio_delay;
 }
 
 bool IAudioAPI::IsAudioAPIAvailable(AudioAPI api)
@@ -169,7 +174,7 @@ AudioAPIPtr IAudioAPI::CreateDevice(AudioAPI api, const DeviceDescriptionPtr& de
 	}
 }
 
-std::vector<IAudioAPI::DeviceDescriptionPtr> IAudioAPI::GetDevices(AudioAPI api)
+std::vector<IAudioAPI::DeviceDescriptionPtr> IAudioAPI::GetDevices(AudioAPI api, bool refresh)
 {
 	if (!IsAudioAPIAvailable(api))
 		return {};
@@ -187,7 +192,7 @@ std::vector<IAudioAPI::DeviceDescriptionPtr> IAudioAPI::GetDevices(AudioAPI api)
 	}
 	case XAudio2:
 	{
-		return XAudio2API::GetDevices();
+		return XAudio2API::GetDevices(refresh);
 	}
 #endif
 #if HAS_CUBEB

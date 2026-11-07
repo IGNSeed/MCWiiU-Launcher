@@ -98,7 +98,10 @@ struct InputService::Impl
 	std::string fallbackXml, selectedUuid, selectedSerial, notice = "ready";
 	uint64_t revision = 1, tokenCounter = 0, fileCounter = 0, captureId = 0, captureSequence = 0;
 	unsigned captureMapping = 0;
-	bool neutral = false;
+	bool neutral = false, continuous = false, advancing = false, initialized = false, editable = true, autoSelect = true;
+	std::set<unsigned> completed;
+	std::map<unsigned, unsigned> sequenceButtons;
+	static constexpr unsigned kBasicMappings = 24;
 	std::chrono::steady_clock::time_point deadline{}, nextDevices{};
 	fs::path directory = ActiveSettings::GetConfigPath("controllerProfiles");
 
@@ -132,6 +135,59 @@ struct InputService::Impl
 		for (const auto entry : c.child("mappings").children("entry"))
 			pad->set_mapping(entry.child("mapping").text().as_uint(), selected, entry.child("button").text().as_uint());
 	}
+	fs::path DeviceProfile(const pugi::xml_document& doc)
+	{
+		const auto c = doc.child("emulated_controller").child("controller");
+		const std::string uuid = c.child_value("uuid");
+		const auto separator = uuid.find('_');
+		RequireInput(separator != std::string::npos && uuid.size() == separator + 33);
+		uint64_t hash = 14695981039346656037ULL;
+		for (const unsigned char ch : std::string(c.child_value("launcher_serial"))) { hash ^= ch; hash *= 1099511628211ULL; }
+		return directory / ".launcher-devices" / fmt::format("{}-{:016x}.xml", uuid.substr(separator + 1), hash);
+	}
+	void Select(const std::shared_ptr<SDLController>& controller)
+	{
+		RequireInput(controller->connect());
+		auto doc = Current();
+		const auto previous = selected;
+		const auto oldUuid = std::string(doc.child("emulated_controller").child("controller").child_value("uuid"));
+		bool compatible = true;
+		try { Validate(doc); } catch (...) { compatible = false; }
+		const bool sameModel = compatible && oldUuid.find('_') != std::string::npos && oldUuid.substr(oldUuid.find('_')) == controller->uuid().substr(controller->uuid().find('_'));
+		try
+		{
+			// 機種を変更する前に元の XML を機器別に残し、名前付き Profile は更新しない。
+			if (compatible && !sameModel && std::string_view(doc.child("emulated_controller").child("controller").child_value("api")) == "SDLController")
+			{
+				try { Validate(doc); const auto oldPath = DeviceProfile(doc); CheckPath(oldPath); fs::create_directories(oldPath.parent_path());
+					if (!fs::exists(oldPath)) WriteNew(oldPath, Xml(doc)); } catch (...) { RequireInput(false); }
+			}
+			selected = controller;
+			if (!sameModel)
+			{
+				auto defaults = std::make_shared<VPADController>(0);
+				defaults->add_controller(selected); RequireInput(defaults->set_default_mapping(selected));
+				auto& manager = InputManager::instance(); const auto old = manager.get_controller(0);
+				manager.set_controller(defaults);
+				try { doc = Current(); } catch (...) { if (old) manager.set_controller(old); else manager.delete_controller(0); throw; }
+				if (old) manager.set_controller(old); else manager.delete_controller(0);
+				Text(doc.document_element().child("controller"), "launcher_serial", selected->serial());
+				const auto savedPath = DeviceProfile(doc);
+				if (fs::exists(savedPath))
+				{
+					const auto bytes = Read(savedPath); RequireInput(doc.load_buffer(bytes.data(), bytes.size())); Validate(doc);
+					RequireInput(DeviceProfile(doc) == savedPath);
+				}
+				Text(doc.document_element(), "profile", "");
+			}
+			const auto c = doc.document_element().child("controller");
+			Text(c, "uuid", selected->uuid()); Text(c, "display_name", selected->display_name()); Text(c, "launcher_serial", selected->serial());
+			Persist(doc, sameModel);
+			selectedUuid = selected->uuid(); selectedSerial = selected->serial();
+			if (!sameModel) notice = "connected-new-model";
+		}
+		catch (...) { selected = previous; throw; }
+	}
 	void RefreshDevices()
 	{
 		if (std::chrono::steady_clock::now() < nextDevices) return;
@@ -147,19 +203,28 @@ struct InputService::Impl
 			fresh.push_back(old == devices.end() ? Device{++tokenCounter, c} : *old);
 		}
 		devices = std::move(fresh);
-		if (selected && !selected->is_connected())
+		AutoConnect();
+	}
+	void AutoConnect()
+	{
+		if (!initialized || !autoSelect || notice == "recovery-required" || (selected && selected->is_connected())) return;
+		captureId = 0; continuous = advancing = false;
+		std::vector<std::shared_ptr<SDLController>> valid, serialMatches, modelMatches;
+		for (const auto& d : devices)
 		{
-			captureId = 0; notice = "disconnected";
-			// pinned instance の connect は別機器へフォールバックしない。
+			if (!d.controller->supports_standard_gamepad()) continue;
+			valid.push_back(d.controller);
+			if (!selectedSerial.empty() && d.controller->serial() == selectedSerial && d.controller->uuid().substr(d.controller->uuid().find('_')) == selectedUuid.substr(selectedUuid.find('_'))) serialMatches.push_back(d.controller);
+			const auto uuid = d.controller->uuid();
+			if (selectedUuid.find('_') != std::string::npos && uuid.substr(uuid.find('_')) == selectedUuid.substr(selectedUuid.find('_'))) modelMatches.push_back(d.controller);
 		}
-		if ((!selected || !selected->is_connected()) && !selectedSerial.empty())
+		const auto candidate = serialMatches.size() == 1 ? serialMatches.front() : selectedSerial.empty() && modelMatches.size() == 1 ? modelMatches.front() : valid.size() == 1 ? valid.front() : nullptr;
+		if (candidate && editable)
 		{
-			std::vector<std::shared_ptr<SDLController>> matches;
-			for (const auto& d : devices)
-				if (d.controller->connect() && d.controller->serial() == selectedSerial && d.controller->uuid().substr(d.controller->uuid().find('_')) == selectedUuid.substr(selectedUuid.find('_')))
-					matches.push_back(d.controller);
-			if (matches.size() == 1) { auto doc = Current(); selected = matches.front(); Bind(doc); notice = "reconnected"; }
+			try { Select(candidate); if (notice == "saved") notice = "reconnected"; }
+			catch (...) { if (notice != "recovery-required") notice = "save-failed"; }
 		}
+		else notice = valid.empty() ? "disconnected" : "select-controller";
 	}
 
 	// 既存 save の serializer と load を利用し、ファイルの置換と復旧を Launcher が所有する。
@@ -178,6 +243,8 @@ struct InputService::Impl
 		std::vector<fs::path> targets{directory / "controller0.xml"};
 		if (updateNamed && ValidName(profile)) targets.push_back(directory / _utf8ToPath(profile + ".xml"));
 		if (newName) RequireInput(targets.size() == 2 && !fs::exists(targets.back()));
+		const auto devicePath = DeviceProfile(doc);
+		CheckPath(devicePath); fs::create_directories(devicePath.parent_path()); targets.push_back(devicePath);
 		const auto old = input.get_controller(0);
 		const auto oldSettings = selected ? selected->get_settings() : ControllerBase::Settings{};
 		std::vector<std::pair<fs::path, std::optional<std::string>>> originals;
@@ -234,15 +301,16 @@ struct InputService::Impl
 		}
 	}
 
-	void Capture(unsigned mapping)
+	void Capture(unsigned mapping, bool sequence = false)
 	{
 		RequireInput(selected && selected->is_connected() && mapping > 0 && mapping < VPADController::kButtonId_Max);
 		captureMapping = mapping; captureId = ++captureSequence; neutral = false;
+		continuous = sequence && mapping <= kBasicMappings; advancing = false; completed.clear(); sequenceButtons.clear();
 		deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10); notice = "release-inputs";
 	}
 	ControllerState Raw()
 	{
-		if (!selected || !selected->is_connected()) { captureId = 0; return {}; }
+		if (!selected || !selected->is_connected()) { captureId = 0; continuous = advancing = false; return {}; }
 		// SDLController::raw_state は既存 controller mutex 下で値をコピーする。
 		return static_cast<ControllerBase&>(*selected).raw_state();
 	}
@@ -253,7 +321,11 @@ struct InputService::Impl
 		if (!neutral)
 		{
 			neutral = raw.buttons.IsIdle() && glm::length(raw.axis) < 0.2f && glm::length(raw.rotation) < 0.2f && glm::length(raw.trigger) < 0.2f;
-			if (neutral) notice = "press-input";
+			if (neutral)
+			{
+				if (advancing) { ++captureMapping; advancing = false; }
+				notice = "press-input";
+			}
 			return;
 		}
 		std::optional<unsigned> button;
@@ -265,6 +337,10 @@ struct InputService::Impl
 			if (std::abs(axis.y) >= 0.6f) button = axis.y > 0 ? positive + 1 : negative + 1;
 		}
 		if (!button) return;
+		if (continuous && std::any_of(sequenceButtons.begin(), sequenceButtons.end(), [&](const auto& value) { return value.first != captureMapping && value.second == *button; }))
+		{
+			neutral = false; notice = "duplicate-input"; return;
+		}
 		auto doc = Current(); auto mappings = doc.child("emulated_controller").child("controller").child("mappings");
 		bool duplicate = false;
 		for (auto entry = mappings.child("entry"); entry;)
@@ -276,7 +352,14 @@ struct InputService::Impl
 			entry = next;
 		}
 		auto entry = mappings.append_child("entry"); Text(entry, "mapping", std::to_string(captureMapping)); Text(entry, "button", std::to_string(*button));
-		captureId = 0; Persist(doc, true); if (duplicate) notice = "saved-duplicate";
+		Persist(doc, true);
+		completed.insert(captureMapping); sequenceButtons[captureMapping] = *button;
+		if (continuous && captureMapping < kBasicMappings)
+		{
+			advancing = true; neutral = false; notice = "release-inputs";
+			deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		}
+		else { captureId = 0; continuous = false; if (duplicate) notice = "saved-duplicate"; }
 	}
 };
 
@@ -300,27 +383,29 @@ InputService::InputService() : m_impl(std::make_unique<Impl>())
 		s.fallbackXml = Xml(doc);
 		const auto c = doc.child("emulated_controller").child("controller");
 		s.selectedUuid = c.child_value("uuid"); s.selectedSerial = c.child_value("launcher_serial");
-		std::vector<std::shared_ptr<SDLController>> matches;
-		for (const auto& d : s.devices)
-			if (d.controller->uuid().substr(d.controller->uuid().find('_')) == s.selectedUuid.substr(s.selectedUuid.find('_')) && d.controller->connect() && !s.selectedSerial.empty() && d.controller->serial() == s.selectedSerial) matches.push_back(d.controller);
-		if (matches.size() == 1) s.selected = matches.front();
-		// 同型複数台は guid_index による自動選択を行わない。
 		s.Bind(doc);
-		if (!s.selected) s.notice = "select-controller";
+		s.notice = "select-controller";
 	}
-	catch (...) { s.notice = "unsupported-profile"; }
+	catch (...)
+	{
+		s.notice = "unsupported-profile";
+		const auto controller = InputManager::instance().get_controller(0);
+		// 他 API や複数機器の既存 Profile は、明示選択するまで保持する。
+		s.autoSelect = !controller || !controller->get_highest_mapping_id();
+	}
+	s.initialized = true; s.nextDevices = {}; s.RefreshDevices();
 }
 InputService::~InputService() = default;
 void InputService::CancelCapture()
 {
 	if (m_impl->captureId) m_impl->notice = "capture-cancelled";
-	m_impl->captureId = 0;
+	m_impl->captureId = 0; m_impl->continuous = m_impl->advancing = false;
 }
 bool InputService::IsHealthy() const { return m_impl->notice != "recovery-required"; }
 
-std::string InputService::Snapshot()
+std::string InputService::Snapshot(bool editable)
 {
-	auto& s = *m_impl; s.RefreshDevices();
+	auto& s = *m_impl; s.editable = editable; s.RefreshDevices();
 	rapidjson::StringBuffer buffer; Writer w(buffer); w.StartObject();
 	w.Key("notice"); w.String(s.notice.c_str());
 	w.Key("revision"); w.Uint64(s.revision);
@@ -329,7 +414,7 @@ std::string InputService::Snapshot()
 	for (const auto& d : s.devices)
 	{
 		w.StartObject(); w.Key("token"); w.Uint64(d.token); w.Key("name"); w.String(d.controller->display_name().c_str());
-		w.Key("instance"); w.Uint(d.controller->instance_id()); w.Key("uuid"); w.String(d.controller->uuid().c_str());
+
 		w.Key("selected"); w.Bool(s.selected == d.controller && s.selected->is_connected()); w.EndObject();
 	}
 	w.EndArray(); w.Key("profiles"); w.StartArray();
@@ -378,11 +463,23 @@ std::string InputService::Command(std::string_view payload)
 		for (auto it = request.MemberBegin(); it != request.MemberEnd(); ++it)
 		{
 			const std::string_view key = it->name.GetString();
-			RequireInput(key == "op" || key == "revision" || (op == "select" && key == "token") || (op == "capture" && key == "mapping") || ((op == "load" || op == "save-as") && key == "name") || (op == "deadzone" && (key == "left" || key == "right")));
+			RequireInput(key == "op" || key == "revision" || (op == "select" && key == "token") || (op == "capture" && (key == "mapping" || key == "continuous")) || ((op == "load" || op == "save-as") && key == "name") || (op == "deadzone" && (key == "left" || key == "right")));
 		}
 		const auto value = [&](const char* key) -> const rapidjson::Value& { RequireInput(request.HasMember(key)); return request[key]; };
 		if (op == "cancel") { s.captureId = 0; s.notice = "capture-cancelled"; }
-		else if (op == "capture") { RequireInput(value("mapping").IsUint()); s.Capture(value("mapping").GetUint()); }
+		else if (op == "capture")
+		{
+			RequireInput(value("mapping").IsUint() && (!request.HasMember("continuous") || value("continuous").IsBool()));
+			s.Capture(value("mapping").GetUint(), request.HasMember("continuous") && value("continuous").GetBool());
+		}
+		else if (op == "skip")
+		{
+			RequireInput(s.captureId && s.continuous);
+			if (s.advancing) { ++s.captureMapping; s.advancing = false; }
+			if (s.captureMapping >= Impl::kBasicMappings) { s.captureId = 0; s.continuous = false; s.notice = "saved"; }
+			else { ++s.captureMapping; s.advancing = false; s.neutral = false; s.notice = "release-inputs"; s.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10); }
+		}
+		else if (op == "finish") { RequireInput(s.captureId != 0); s.captureId = 0; s.continuous = s.advancing = false; s.notice = "saved"; }
 		else
 		{
 			s.captureId = 0;
@@ -392,23 +489,7 @@ std::string InputService::Command(std::string_view payload)
 				RequireInput(value("token").IsUint64()); s.RefreshDevices();
 				const auto it = std::find_if(s.devices.begin(), s.devices.end(), [&](const auto& d) { return d.token == value("token").GetUint64(); });
 				RequireInput(it != s.devices.end() && it->controller->connect());
-				const auto previous = s.selected; s.selected = it->controller;
-				auto root = doc.child("emulated_controller");
-				if (!root || std::string_view(root.child_value("type")) != "Wii U GamePad") { doc.reset(); root = doc.append_child("emulated_controller"); Text(root, "type", "Wii U GamePad"); }
-				bool first = !root.child("controller") || std::string_view(root.child("controller").child_value("api")) != "SDLController";
-				while (root.child("controller") && root.child("controller").next_sibling("controller")) root.remove_child(root.child("controller").next_sibling("controller"));
-				auto c = root.child("controller"); if (!c) c = root.append_child("controller");
-				Text(c, "api", "SDLController"); Text(c, "uuid", s.selected->uuid()); Text(c, "display_name", s.selected->display_name()); Text(c, "launcher_serial", s.selected->serial());
-				for (const auto group : {"axis", "rotation", "trigger"}) if (!c.child(group)) { auto setting = c.append_child(group); Text(setting, "deadzone", "0.25"); Text(setting, "range", "1"); }
-				if (first)
-				{
-					auto original = InputManager::instance().get_controller(0);
-					auto defaults = std::make_shared<VPADController>(0); defaults->add_controller(s.selected); defaults->set_default_mapping(s.selected);
-					InputManager::instance().set_controller(defaults); auto base = s.Current(); InputManager::instance().set_controller(original);
-					c.remove_child("mappings"); c.append_copy(base.child("emulated_controller").child("controller").child("mappings"));
-				}
-				try { s.Persist(doc, true); s.selectedUuid = s.selected->uuid(); s.selectedSerial = s.selected->serial(); }
-				catch (...) { s.selected = previous; throw; }
+				s.Select(it->controller); s.autoSelect = true;
 			}
 			else if (op == "load")
 			{
@@ -466,7 +547,11 @@ std::string InputService::Poll()
 	}
 	rapidjson::StringBuffer buffer; Writer w(buffer); w.StartObject();
 	w.Key("captureId"); w.Uint64(s.captureId); w.Key("notice"); w.String(s.notice.c_str());
+	w.Key("captureMapping"); w.Uint(s.captureMapping); w.Key("continuous"); w.Bool(s.continuous); w.Key("advancing"); w.Bool(s.advancing);
+	w.Key("revision"); w.Uint64(s.revision);
+	w.Key("completed"); w.StartArray(); for (auto id : s.completed) w.Uint(id); w.EndArray();
 	w.Key("connected"); w.Bool(s.selected && s.selected->is_connected());
+	w.Key("rawLeft"); Vector(w, raw.axis); w.Key("rawRight"); Vector(w, raw.rotation);
 	w.Key("left"); Vector(w, left); w.Key("right"); Vector(w, right); w.Key("triggers"); Vector(w, raw.trigger);
 	auto pressed = raw.buttons.GetButtonList();
 	for (const auto& [axis, positive, negative] : std::array<std::tuple<glm::vec2, unsigned, unsigned>, 3>{{{left, kAxisXP, kAxisXN}, {right, kRotationXP, kRotationXN}, {raw.trigger, kTriggerXP, kTriggerXN}}})

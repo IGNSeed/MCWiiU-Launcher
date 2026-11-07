@@ -75,24 +75,32 @@
               <div class="input-row"><label for="physical-controller">Physical Controller</label><select id="physical-controller"><option value="">コントローラーを選択</option></select></div>
               <fieldset id="input-edit" disabled>
                 <legend class="visually-hidden">割当とProfile</legend>
+                <h2 class="settings-heading">Controller Profile</h2>
                 <div class="input-row"><label for="controller-profile">Controller Profile</label><select id="controller-profile"><option value="">Profile を選択</option></select><button id="profile-load" type="button">読込</button></div>
                 <div class="input-row"><label for="profile-name">新しい Profile 名</label><input id="profile-name" type="text" maxlength="64" autocomplete="off" spellcheck="false"><button id="profile-save-as" type="button">新しい名前で保存</button></div>
-                <h2 class="settings-heading">Stick Deadzone</h2>
-                <div class="input-row"><label for="left-deadzone">Left Stick</label><input id="left-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="left-deadzone-value" for="left-deadzone">0.25</output></div>
-                <div class="input-row"><label for="right-deadzone">Right Stick</label><input id="right-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="right-deadzone-value" for="right-deadzone">0.25</output></div>
                 <h2 class="settings-heading">Button Mapping</h2>
+                <label class="checkbox-row"><input id="mapping-continuous" type="checkbox" checked>連続割当</label>
                 <div id="controller-mapping" class="mapping-grid"></div>
                 <button id="input-reset" type="button">Reset to Default</button>
                 <div id="input-reset-confirmation" hidden><p class="footnote">現在の割当と左右のデッドゾーンを既定値へ戻します。変更前の Profile はバックアップされます。</p><button id="input-reset-cancel" type="button">キャンセル</button> <button id="input-reset-confirm" type="button">既定値へ戻す</button></div>
               </fieldset>
             </fieldset>
             <p id="input-note" class="footnote" role="status">ゲーム停止後、準備完了になると変更できます。</p>
-            <button id="input-capture-cancel" type="button" hidden>入力待機をキャンセル</button>
+            <div id="capture-actions" hidden><button id="input-capture-skip" type="button">Skip</button> <button id="input-capture-cancel" type="button">Cancel</button> <button id="input-capture-finish" type="button">Finish</button></div>
             <h2 class="settings-heading">Controller Input Test</h2>
-            <div class="stick-tests"><div><div id="left-stick-test" class="stick-test" aria-label="左スティック"><span></span></div><output id="left-stick-value">0.00 / 0.00</output></div><div><div id="right-stick-test" class="stick-test" aria-label="右スティック"><span></span></div><output id="right-stick-value">0.00 / 0.00</output></div></div>
+            <div class="stick-tests">
+              <div><h3>Left Stick</h3><div id="left-stick-test" class="stick-test" aria-label="左スティック"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="left-stick-value">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
+              <div><h3>Right Stick</h3><div id="right-stick-test" class="stick-test" aria-label="右スティック"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="right-stick-value">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
+            </div>
+            <p class="footnote">小さい点：生入力 · 明るい点：適用後 · 中央の円：Deadzone</p>
             <p id="trigger-test" class="footnote">ZL 0.00 / ZR 0.00</p>
             <p id="button-test" class="footnote">未接続</p>
-            <p class="footnote">接続中の1台をプレイヤー1へ割り当てます。同型機器は接続IDで区別します。識別できない再接続では、もう一度選択してください。入力テストは SDL の値に現在のデッドゾーンを適用して表示します。</p>
+            <fieldset id="deadzone-controls" disabled><legend class="visually-hidden">Stick Deadzone</legend>
+                <h2 class="settings-heading">Stick Deadzone</h2>
+                <div class="input-row"><label for="left-deadzone">Left Stick</label><input id="left-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="left-deadzone-value" for="left-deadzone">0.25</output></div>
+                <div class="input-row"><label for="right-deadzone">Right Stick</label><input id="right-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="right-deadzone-value" for="right-deadzone">0.25</output></div>
+            </fieldset>
+            <p class="footnote">変更はドラッグ終了時に保存されます。接続中の1台をプレイヤー1へ割り当てます。複数台を識別できない場合は一覧から選択してください。</p>
           </div>
           <div id="panel-graphics" role="tabpanel" aria-labelledby="tab-graphics" hidden>
             <h2 class="settings-heading">Native Graphics</h2>
@@ -110,13 +118,44 @@
               </div>
             </fieldset>
             <p id="native-settings-note" class="footnote" role="status">ゲームの起動準備を待っています。</p>
-            <h2 class="settings-heading">Graphics Options</h2>
-            <dl class="settings-info"><dt>Graphics API</dt><dd>Vulkan（固定） · OpenGL は今後対応予定</dd><dt>Graphics Device / VSync</dt><dd>変更機能は今後対応予定</dd><dt>Async Shader Compile</dt><dd>変更機能は今後対応予定</dd><dt>Upscale / Downscale Filter</dt><dd>変更機能は今後対応予定</dd><dt>Fullscreen Scaling</dt><dd>変更機能は今後対応予定</dd></dl>
+            <fieldset id="av-graphics" disabled><legend class="visually-hidden">Graphics Settings</legend>
+            <h2 class="settings-heading">General Graphics</h2>
+              <div class="setting-row"><div><label for="av-graphicsApi">Graphics API</label></div><select id="av-graphicsApi"><option value="1">Vulkan</option><option value="0">OpenGL</option></select></div>
+              <div class="setting-row"><div><label for="av-gpu">Graphics Device</label></div><select id="av-gpu"></select></div>
+              <div class="setting-row"><div><label for="av-vsync">VSync</label><p>画面への出力同期です。FPS上限とは別に適用されます。</p></div><select id="av-vsync"></select></div>
+            <h2 class="settings-heading">Performance</h2>
+              <div class="setting-row"><div><label for="av-async">Async Shader Compile</label></div><input id="av-async" type="checkbox"></div>
+              <div class="setting-row"><div><label for="av-fullSync">GX2DrawDone Full Sync</label></div><input id="av-fullSync" type="checkbox"></div>
+            <h2 class="settings-heading">Image Scaling</h2>
+              <div class="setting-row"><div><label for="av-upscale">Upscale Filter</label></div><select id="av-upscale"><option value="0">Bilinear</option><option value="1">Bicubic</option><option value="2">Hermite</option><option value="3">Nearest Neighbor</option></select></div>
+              <div class="setting-row"><div><label for="av-downscale">Downscale Filter</label></div><select id="av-downscale"><option value="0">Bilinear</option><option value="1">Bicubic</option><option value="2">Hermite</option><option value="3">Nearest Neighbor</option></select></div>
+              <div class="setting-row"><div><label for="av-scaling">Fullscreen Scaling</label></div><select id="av-scaling"><option value="0">Keep Aspect Ratio</option><option value="1">Stretch</option></select></div>
+            </fieldset>
+            <p id="graphics-settings-note" class="footnote" role="status">ゲーム停止後に変更できます。</p>
+            <p id="renderer-info" class="footnote"></p>
           </div>
           <div id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
-            <h2 class="settings-heading">Audio</h2>
             <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-            <p class="footnote">Audio API・出力デバイス・音量・Microphone の変更は今後対応予定です。</p>
+            <fieldset id="av-audio" disabled><legend class="visually-hidden">Audio Settings</legend>
+            <h2 class="settings-heading">General</h2>
+              <div class="setting-row"><div><label for="av-audioApi">Audio API</label></div><select id="av-audioApi"></select></div>
+              <div class="setting-row"><div><label for="av-latency">Audio Latency</label></div><div class="av-slider"><input id="av-latency" type="range" min="0" max="23" step="1"><output id="av-latency-value"></output></div></div>
+            <h2 class="settings-heading">TV Output</h2>
+              <div class="setting-row"><div><label for="av-tvDevice">Output Device</label></div><select id="av-tvDevice"></select></div>
+              <div class="setting-row"><div><label for="av-tvChannels">Channels</label></div><select id="av-tvChannels"><option value="0">Mono</option><option value="1">Stereo</option><option value="2">Surround</option></select></div>
+              <div class="setting-row"><div><label for="av-tvVolume">Volume</label></div><div class="av-slider"><input id="av-tvVolume" type="range" min="0" max="100" step="1"><output id="av-tvVolume-value"></output></div></div>
+            <h2 class="settings-heading">GamePad Output</h2>
+              <div class="setting-row"><div><label for="av-padDevice">Output Device</label></div><select id="av-padDevice"></select></div>
+              <div class="setting-row"><div><label for="av-padChannels">Channels</label></div><span>Stereo</span></div>
+              <div class="setting-row"><div><label for="av-padVolume">Volume</label></div><div class="av-slider"><input id="av-padVolume" type="range" min="0" max="100" step="1"><output id="av-padVolume-value"></output></div></div>
+            <h2 class="settings-heading">Microphone</h2>
+              <div class="setting-row"><div><label for="av-micDevice">Input Device</label></div><select id="av-micDevice"></select></div>
+              <div class="setting-row"><div><label for="av-micChannels">Channels</label></div><span>Mono</span></div>
+              <div class="setting-row"><div><label for="av-micVolume">Input Volume</label></div><div class="av-slider"><input id="av-micVolume" type="range" min="0" max="100" step="1"><output id="av-micVolume-value"></output></div></div>
+            </fieldset>
+            <p id="audio-settings-note" class="footnote" role="status">ゲーム停止後に変更できます。</p>
+            <p id="audio-stream-note" class="footnote"></p>
+            <p class="footnote">変更は次回Playで適用されます。Microphoneはゲームが入力を要求したときに使用します。</p>
           </div>
           <div id="panel-overlay" role="tabpanel" aria-labelledby="tab-overlay" hidden>
             <h2 class="settings-heading">Overlay</h2>

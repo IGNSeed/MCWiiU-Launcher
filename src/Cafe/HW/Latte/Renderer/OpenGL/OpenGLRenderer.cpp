@@ -231,14 +231,15 @@ typedef void(*GL_IMPORT)();
 GL_IMPORT _GetOpenGLFunction(HMODULE hLib, const char* name)
 {
 	GL_IMPORT r = (GL_IMPORT)wglGetProcAddress(name);
-	if (r == nullptr)
+	if (r == nullptr || reinterpret_cast<uintptr_t>(r) <= 3 || reinterpret_cast<uintptr_t>(r) == UINTPTR_MAX)
 		r = (GL_IMPORT)GetProcAddress(hLib, name);
 	return r;
 }
 
 void LoadOpenGLImports()
 {
-	HMODULE hLib = LoadLibraryA("opengl32.dll");
+	HMODULE hLib = GetModuleHandleA("opengl32.dll");
+	if (!hLib) hLib = LoadLibraryA("opengl32.dll");
 #define GLFUNC(__type, __name)	__name = (__type)_GetOpenGLFunction(hLib, STRINGIFY(__name));
 #include "Common/GLInclude/glFunctions.h"
 #undef GLFUNC
@@ -410,6 +411,14 @@ void OpenGLRenderer::Initialize()
 
 	// imgui
 	ImGui_ImplOpenGL3_Init("#version 130");
+}
+
+void OpenGLRenderer::Shutdown()
+{
+	// Contextと共有Font Atlasの破棄前に、次回起動へ残るバックエンド資源を解放する。
+	ImGui::SetCurrentContext(imguiTVContext);
+	ImGui_ImplOpenGL3_Shutdown();
+	Renderer::Shutdown();
 }
 
 bool OpenGLRenderer::IsPadWindowActive()

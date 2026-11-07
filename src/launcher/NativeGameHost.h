@@ -16,6 +16,7 @@ public:
 	NativeGameHost& operator=(const NativeGameHost&) = delete;
 
 	HWND GetHandle() const { return m_child; }
+	HWND GetOpenGLHandle() const { return m_openGLChild; }
 	SIZE GetClientSize() const;
 	bool IsRenderable() const;
 	bool HasLayoutFailed() const { return m_layoutFailed; }
@@ -24,12 +25,14 @@ public:
 	bool Focus();
 	void SetGameLayout(bool enabled);
 	bool SetFullscreenLayout(bool enabled);
+	bool SetOpenGLComposition(bool enabled);
 	void SetControlsVisible(bool visible);
 	std::function<void()> stateChanged;
 	std::function<void(UINT, WPARAM, LPARAM)> input;
 	std::function<void(UINT)> shortcut;
 
 private:
+	static LRESULT CALLBACK OpenGLProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
 	static LRESULT CALLBACK ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
@@ -55,4 +58,6 @@ private:
 	bool m_layoutFailed = false;
 	bool m_gameLayout = false;
 	bool m_fullscreenLayout = false;
+	HWND m_openGLChild = nullptr;
+	ATOM m_openGLClass = 0;
 };

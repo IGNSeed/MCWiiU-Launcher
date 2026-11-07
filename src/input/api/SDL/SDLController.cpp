@@ -117,6 +117,18 @@ std::string SDLController::serial()
 	return {};
 }
 
+bool SDLController::supports_standard_gamepad()
+{
+	std::scoped_lock lock(m_controller_mutex);
+	if (!connect()) return false;
+	for (const auto button : {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH,
+		SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN, SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+		SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+		SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK})
+		if (!m_buttons[button]) return false;
+	return std::all_of(m_axis.begin(), m_axis.end(), [](bool available) { return available; });
+}
+
 void SDLController::start_rumble()
 {
 	std::scoped_lock lock(m_controller_mutex);

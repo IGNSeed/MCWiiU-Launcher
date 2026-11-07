@@ -8,6 +8,7 @@
 namespace
 {
 	constexpr wchar_t s_className[] = L"MCWiiULauncher.NativeGameHost";
+	constexpr wchar_t s_openGLClassName[] = L"MCWiiULauncher.OpenGLSurface";
 	constexpr UINT_PTR s_subclassId = 0x4d435748;
 	// 診断起動時だけ受け付ける固定操作。外部 HWND やポインターは受け取らない。
 	constexpr UINT s_diagnosticMessage = WM_APP + 0x340;
@@ -80,6 +81,51 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 	}
 }
 
+bool NativeGameHost::SetOpenGLComposition(bool enabled)
+{
+	if (!OnUiThread()) return false;
+	if (!enabled)
+	{
+		if (m_openGLChild && !DestroyWindow(m_openGLChild)) return false;
+		m_openGLChild = nullptr;
+		return true;
+	}
+	if (m_openGLChild) return true;
+	if (!m_openGLClass)
+	{
+		WNDCLASSEXW windowClass{sizeof(WNDCLASSEXW)};
+		windowClass.lpfnWndProc = OpenGLProc;
+		windowClass.hInstance = m_instance;
+		windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+		windowClass.lpszClassName = s_openGLClassName;
+		m_openGLClass = RegisterClassExW(&windowClass);
+		if (!m_openGLClass) return false;
+	}
+	// Vulkan WSI の残存する表示面と WGL の pixel format を共有しない。
+	// UI STA が既存 NativeGameHost 内に描画用の子だけを所有する。
+	m_openGLChild = CreateWindowExW(WS_EX_LAYERED, s_openGLClassName, L"OpenGL game surface",
+		WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_child, nullptr, m_instance, this);
+	if (!m_openGLChild) return false;
+	if (!SetLayeredWindowAttributes(m_openGLChild, 0, 255, LWA_ALPHA))
+	{
+		DestroyWindow(m_openGLChild); m_openGLChild = nullptr; return false;
+	}
+	UpdateLayout();
+	return !m_layoutFailed;
+}
+
+LRESULT CALLBACK NativeGameHost::OpenGLProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	if (message == WM_NCCREATE)
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams));
+	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+	if (self && message == WM_LBUTTONDOWN) { self->Focus(); return 0; }
+	if (message == WM_ERASEBKGND) return 1;
+	if (message == WM_PAINT) { PAINTSTRUCT paint; BeginPaint(hwnd, &paint); EndPaint(hwnd, &paint); return 0; }
+	if (message == WM_NCDESTROY) SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+	return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
 NativeGameHost::~NativeGameHost()
 {
 	Release();
@@ -95,6 +141,7 @@ void NativeGameHost::Release()
 	// 所有者は UI STA 内に固定する。破棄後に subclass から this を参照させない。
 	if (!OnUiThread())
 		std::terminate();
+	SetOpenGLComposition(false);
 	if (m_subclassed)
 		RemoveWindowSubclass(m_parent, ParentProc, s_subclassId);
 	m_subclassed = false;
@@ -113,6 +160,8 @@ void NativeGameHost::Release()
 	if (m_class)
 		UnregisterClassW(s_className, m_instance);
 	m_class = 0;
+	if (m_openGLClass) UnregisterClassW(s_openGLClassName, m_instance);
+	m_openGLClass = 0;
 }
 
 SIZE NativeGameHost::GetClientSize() const
@@ -248,6 +297,13 @@ void NativeGameHost::UpdateLayout()
 	}
 	if (!active || m_layoutFailed)
 		RestoreWebViewFocus();
+	if (m_openGLChild)
+	{
+		RECT bounds{};
+		if (!GetClientRect(m_child, &bounds) || !SetWindowPos(m_openGLChild, HWND_BOTTOM, 0, 0,
+			std::max<LONG>(1, bounds.right), std::max<LONG>(1, bounds.bottom), SWP_NOACTIVATE)) m_layoutFailed = true;
+		ShowWindow(m_openGLChild, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+	}
 	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 	UpdateControls();
 	if (stateChanged) stateChanged();
