@@ -556,9 +556,13 @@ struct AccountService::Impl
 		}
 	}
 
-	void Preview(const fs::path& selected)
+	void ClearPreview()
 	{
 		candidates.clear(); onlineFiles.clear(); onlineComplete = false; hasOtp = hasSeeprom = false; previewNotice.clear(); ++preview;
+	}
+	void Preview(const fs::path& selected)
+	{
+		ClearPreview();
 		CheckPath(selected);
 		RequireAccount(LowerPath(_pathToUtf8(selected.extension())) == ".zip" && fs::is_regular_file(selected) && fs::file_size(selected) <= s_totalLimit, "invalid-zip");
 		ZipArchive zip(selected, true);
@@ -709,21 +713,10 @@ std::string AccountService::Command(std::string_view payload, bool canEdit)
 				state.Commit({{state.settings, state.Selection(id)}});
 				GetConfig().account.m_persistent_id = id; state.connection = 0;
 			}
-			else if (op == "create")
+			else if (op == "clear-preview")
 			{
-				RequireAccount(json.MemberCount() == 3 && json.HasMember("name"), "invalid-request");
-				RequireAccount(Account::HasFreeAccountSlots(), "account-limit");
-				const auto name = MiiName(String(json["name"]));
-				const uint32 id = Account::GetNextPersistentId();
-				RequireAccount(id >= Account::kMinPersistendId && id != UINT32_MAX && !fs::exists(state.File(id).parent_path()), "id-unavailable");
-				Account account(id, name);
-				const auto staged = state.portable / fmt::format(".account-create-{}-{}", GetCurrentProcessId(), ++state.sequence);
-				CheckPath(staged); RequireAccount(!fs::exists(staged), "write-failed");
-				std::string bytes;
-				try { RequireAccount(!account.SaveToFile(staged), "write-failed"); bytes = Read(staged); ParseAccount(bytes, id); }
-				catch (...) { DeleteFileW(staged.c_str()); throw; }
-				RequireAccount(DeleteFileW(staged.c_str()), "write-failed");
-				state.Commit({{state.File(id), bytes}}, std::nullopt, true);
+				RequireAccount(json.MemberCount() == 2, "invalid-request");
+				state.ClearPreview();
 			}
 			else if (op == "edit")
 			{

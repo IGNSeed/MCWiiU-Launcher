@@ -27,19 +27,12 @@
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main>
-      <header class="topbar"><span id="page-label">Home</span><span class="status" role="status">準備中</span></header>
-      <section id="home" aria-labelledby="game-title">
-        <div class="eyebrow">MCWiiU Launcher</div>
-        <h1 id="game-title">Minecraft<span>Wii U Edition</span></h1>
-        <div class="version">v560 専用</div>
-        <p class="intro">ゲームを始めるための、新しいホーム。</p>
-        <div class="launch-panel">
-          <div><h2>ゲームを準備しています</h2><p>起動状態を確認しています。</p></div>
-          <button id="play" type="button" disabled aria-describedby="launch-note">Play</button>
+      <header class="topbar"><span id="page-label">Settings</span></header>
+      <section id="home" aria-label="Minecraft: Wii U Edition">
+        <div class="home-art">
+          <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
+          <button id="play" type="button" disabled>PLAY</button>
         </div>
-        <button id="return-home-game" type="button" data-return-game hidden>ゲームに戻る</button>
-        <p id="launch-note" class="footnote">F10：ゲーム終了の確認 · F11：ゲームのフルスクリーン表示・解除</p>
-        <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
@@ -137,7 +130,6 @@
             <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
             <fieldset id="av-audio" disabled><legend class="visually-hidden">Audio Settings</legend>
             <h2 class="settings-heading">General</h2>
-              <label class="checkbox-row"><input id="av-introSound" type="checkbox">Enable Intro Sound</label>
               <div class="setting-row"><div><label for="av-audioApi">Audio API</label></div><select id="av-audioApi"></select></div>
               <div class="setting-row"><div><label for="av-latency">Audio Latency</label></div><div class="av-slider"><input id="av-latency" type="range" min="0" max="23" step="1"><output id="av-latency-value"></output></div></div>
             <h2 class="settings-heading">TV Output</h2>
@@ -192,23 +184,16 @@
               <div class="setting-row"><label for="account-network">Network Service</label><select id="account-network" disabled><option>Offline</option><option>Pretendo</option><option>Custom</option></select></div>
               <p id="account-network-status" class="footnote" role="status"></p>
               <div id="account-custom" hidden><button id="account-custom-select" type="button" disabled>Select network_services.xml</button><label class="footnote"><input id="account-custom-replace" type="checkbox"> 既存のCustom設定をバックアップして置換する</label></div>
-              <button id="account-test-connection" type="button" disabled>Test Connection</button>
-              <p class="footnote">選択したサービスへ認証情報を送信します。接続テストはボタン操作時、ゲーム通信はPlay後に開始します。</p>
+              <p class="footnote">ゲーム通信はPlay後に選択したサービスで開始します。</p>
             </section>
             <fieldset id="account-management-actions" disabled>
               <h2 class="settings-heading">Account Management</h2>
-              <div class="account-actions"><button id="account-create" type="button">Create Account</button><button id="account-edit" type="button">Edit Account</button><button id="account-delete" type="button">Delete Account</button></div>
+              <div class="account-actions"><button id="account-add" type="button">Add Account</button><button id="account-edit" type="button">Edit Account</button><button id="account-delete" type="button">Delete Account</button></div>
             </fieldset>
             <p id="account-lock-note" class="footnote">Coreの準備を待っています。</p>
             <h2 class="settings-heading">Account Information</h2>
             <button id="account-details-toggle" type="button" aria-expanded="false" aria-controls="account-details" disabled>Show Details</button>
             <dl id="account-details" class="settings-info" hidden></dl>
-            <h2 class="settings-heading">Import Account</h2>
-            <div id="account-drop" class="account-drop" role="region" aria-label="Dumpling ZIP import">
-              <p>Import from Dumpling</p><p class="footnote">Drag and drop a Dumpling ZIP file</p>
-              <button id="account-select-zip" type="button" disabled>Select ZIP File</button>
-            </div>
-            <div id="account-preview" hidden><label class="footnote" for="account-import-mode">Import Mode</label><select id="account-import-mode"><option value="account">Account Only</option><option value="online">Account + Online Files</option></select><label class="footnote"><input id="account-online-replace" type="checkbox"> 表示された異なるOnline Filesをバックアップして置換する</label><details><summary>Online Files</summary><ul id="account-online-files"></ul></details><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
             <p id="account-notice" class="footnote" role="status" aria-live="polite"></p>
           </div>
         </div>
@@ -216,11 +201,24 @@
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>
   </div>
+  <dialog id="account-add-dialog" aria-labelledby="account-add-title" aria-describedby="account-add-description">
+    <h2 id="account-add-title">Add Account</h2>
+    <p id="account-add-description" class="footnote">Dumpling ZIPを選択してアカウントを追加します。</p>
+    <fieldset id="account-import-controls" disabled>
+      <div id="account-drop" class="account-drop" role="region" aria-label="Dumpling ZIP import">
+        <p>Import from Dumpling</p><p class="footnote">Drag and drop a Dumpling ZIP file</p>
+        <button id="account-select-zip" type="button" disabled>Select ZIP File</button>
+      </div>
+      <div id="account-preview" hidden><label class="footnote" for="account-import-mode">Import Mode</label><select id="account-import-mode"><option value="account">Account Only</option><option value="online">Account + Online Files</option></select><label class="footnote"><input id="account-online-replace" type="checkbox"> 表示された異なるOnline Filesをバックアップして置換する</label><details><summary>Online Files</summary><ul id="account-online-files"></ul></details><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
+    </fieldset>
+    <p id="account-add-notice" class="footnote" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="account-add-cancel" type="button">Cancel</button></div>
+  </dialog>
   <dialog id="account-editor" aria-labelledby="account-editor-title">
     <form id="account-editor-form">
-      <h2 id="account-editor-title">Create Account</h2>
+      <h2 id="account-editor-title">Edit Account</h2>
       <div class="account-form-row"><label for="account-name">Mii Name</label><input id="account-name" type="text" maxlength="10" required autocomplete="off"></div>
-      <div id="account-edit-fields" hidden>
+      <div id="account-edit-fields">
         <div class="account-form-row"><label for="account-birthday">Birthday</label><input id="account-birthday" type="date" min="1900-01-01" max="9999-12-31"></div>
         <div class="account-form-row"><label for="account-gender">Gender</label><select id="account-gender"><option value="0">Male</option><option value="1">Female</option></select></div>
         <div class="account-form-row"><label for="account-country">Country / Region Code</label><input id="account-country" type="number" min="0" max="255" step="1"></div>
@@ -228,7 +226,7 @@
         <p class="footnote">入力確定時に自動保存されます。</p>
       </div>
       <p id="account-editor-note" class="footnote" role="status"></p>
-      <div class="dialog-actions"><button id="account-editor-cancel" type="button">Close</button><button id="account-editor-submit" type="submit">Create Account</button></div>
+      <div class="dialog-actions"><button id="account-editor-cancel" type="button">Close</button></div>
     </form>
   </dialog>
   <dialog id="account-confirmation" aria-labelledby="account-confirmation-title">

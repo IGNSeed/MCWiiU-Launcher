@@ -6,12 +6,16 @@ function showPage(selected) {
   if (!pages.includes(selected)) return;
   stopInputView();
   hideAccountDetails();
-  pages.forEach((page) => { document.getElementById(page).hidden = page !== selected || (page === "home" && window.launcherCoreState?.phase === "running"); });
+  pages.forEach((page) => {
+    const panel = document.getElementById(page);
+    panel.hidden = page !== selected || (page === "home" && window.launcherCoreState?.phase === "running");
+    if (panel.hidden && panel.contains(document.activeElement)) document.querySelector(`[data-page="${selected}"]`).focus();
+  });
+  resetPlayGlow();
   navigation.forEach((item) => {
     if (item.dataset.page === selected) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
-  document.getElementById("page-label").textContent = selected === "home" ? "Home" : "Settings";
   document.querySelector("main").scrollTop = 0;
   updateInputView();
   updateAccountView();
@@ -25,11 +29,34 @@ function windowCommand(command) {
   window.chrome?.webview?.postMessage(command);
 }
 const play = document.getElementById("play");
+let launchPending = false, launchRequestSession = 0;
 play.addEventListener("click", () => {
-  if (play.disabled || window.launcherCoreState?.canLaunch !== true) return;
+  if (play.disabled || launchPending || settingsBusy() || window.launcherCoreState?.canLaunch !== true) return;
+  launchPending = true;
+  launchRequestSession = window.launcherCoreState.sessionId;
   play.disabled = true;
   windowCommand("game:start");
 });
+let glowFrame = 0;
+function resetPlayGlow() {
+  cancelAnimationFrame(glowFrame); glowFrame = 0;
+  delete play.dataset.glow;
+}
+play.addEventListener("pointermove", event => {
+  if (play.disabled || glowFrame) return;
+  const x = event.clientX, y = event.clientY;
+  glowFrame = requestAnimationFrame(() => {
+    glowFrame = 0;
+    if (play.disabled) return;
+    const rect = play.getBoundingClientRect();
+    play.style.setProperty("--mouse-x", `${(x - rect.left) * play.offsetWidth / rect.width}px`);
+    play.style.setProperty("--mouse-y", `${(y - rect.top) * play.offsetHeight / rect.height}px`);
+    play.dataset.glow = "true";
+  });
+});
+for (const event of ["pointerleave","pointercancel","blur"]) play.addEventListener(event, resetPlayGlow);
+window.addEventListener("blur", resetPlayGlow);
+new MutationObserver(() => { if (play.disabled) resetPlayGlow(); }).observe(play, {attributes:true,attributeFilter:["disabled"]});
 let returnAfterSaves = false;
 document.querySelectorAll("[data-return-game]").forEach(button => button.addEventListener("click", () => {
   if (window.launcherCoreState?.canStopGame !== true) return;
@@ -65,32 +92,19 @@ stopConfirm.addEventListener("click", () => {
   windowCommand(`game:stop-confirm:${stopConfirmation.sessionId}:${stopConfirmation.confirmationId}`);
 });
 const coreLabels = {
-  idle: ["準備中", "ゲームを準備しています", "起動状態を確認しています。"],
-  validating: ["準備中", "ゲームを準備しています", "ゲームデータと設定を確認しています。"],
-  initializing: ["初期化中", "ゲームを準備しています", "起動の準備を進めています。"],
-  ready: ["準備完了", "Minecraft を起動できます", "保存済みのゲーム設定を使用します。"],
-  preparing: ["起動中", "Minecraft を起動しています", "ゲームの読み込みを準備しています。"],
-  opengl: ["描画準備中", "Minecraft を起動しています", "OpenGL の描画を準備しています。"],
-  vulkan: ["描画準備中", "Minecraft を起動しています", "Vulkan の描画を準備しています。"],
-  running: ["プレイ中", "Minecraft 実行中", "Home でゲームに戻れます。"],
-  "title-stopping": ["終了中", "ゲーム終了中", "タイトルの停止を待っています。"],
-  "title-stopped": ["終了", "ゲームを終了しました", "次の起動を準備しています。"],
-  stopping: ["終了中", "ゲームを終了しています", "終了処理が完了するとランチャーを閉じます。"],
-  stopped: ["終了", "ゲームを終了しました", "ランチャーを閉じています。"],
-  failed: ["起動失敗", "ゲームを起動できませんでした", "ゲームデータと保存済みの設定を確認してください。"],
-  "relaunch-failed": ["再起動失敗", "再起動失敗", "ランチャーを閉じてから、もう一度起動してください。"],
-  unavailable: ["起動機能なし", "この画面ではゲームを起動できません", "ランチャーの設定と情報を確認できます。"],
+  idle: ["準備中"], validating: ["準備中"], initializing: ["初期化中"], ready: ["準備完了"],
+  preparing: ["起動中"], opengl: ["描画準備中"], vulkan: ["描画準備中"], running: ["プレイ中"],
+  "title-stopping": ["終了中"], "title-stopped": ["終了"], stopping: ["終了中"], stopped: ["終了"],
+  failed: ["起動失敗"], "relaunch-failed": ["再起動失敗"], unavailable: ["起動機能なし"],
 };
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
+  if (state.phase !== "ready" || state.sessionId !== launchRequestSession) launchPending = false;
   if (state.phase === "running") document.getElementById("home").hidden = true;
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
-  const [status, heading, description] = coreLabels[phase] || coreLabels.idle;
-  document.querySelector(".status").textContent = status;
-  play.disabled = state.canLaunch !== true || settingsBusy() || closeAfterSaves;
-  document.querySelector(".launch-panel h2").textContent = heading;
-  document.querySelector(".launch-panel p").textContent = state.error || description;
+  const [status] = coreLabels[phase] || coreLabels.idle;
+  play.disabled = state.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
   if (hasConfirmation) {
@@ -172,7 +186,7 @@ function settingsBusy() { return pendingSave !== null || saveQueue.length > 0 ||
 function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function draft(scope) { return desired[scope] || confirmed[scope]; }
 function updatePlay() {
-  play.disabled = window.launcherCoreState?.canLaunch !== true || settingsBusy() || closeAfterSaves;
+  play.disabled = window.launcherCoreState?.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
 }
 function note(scope, text) {
   document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note").textContent = text;
@@ -547,7 +561,7 @@ window.addEventListener("blur", () => { windowCommand("input:cancel"); clearLive
 const avKeys = ["graphicsApi","gpu","vsync","async","fullSync","upscale","downscale","scaling","audioApi","latency","tvDevice","tvChannels","tvVolume","padDevice","padVolume","micDevice","micVolume"];
 const graphicsAvKeys = avKeys.slice(0, 8);
 const overlayAvKeys = ["overlayPosition","overlayColor","overlayScale","overlayFps","overlayDrawCalls","overlayCpu","overlayCpuPerCore","overlayRam","overlayVram","overlayDebug","notificationPosition","notificationColor","notificationScale","notificationProfiles","notificationBattery","notificationShaders","notificationFriends"];
-avKeys.push("introSound", ...overlayAvKeys);
+avKeys.push(...overlayAvKeys);
 function avCategory(key) { return graphicsAvKeys.includes(key) ? "graphics" : overlayAvKeys.includes(key) ? "overlay" : "audio"; }
 function canEditAv(key, state = window.launcherCoreState) { return state?.[avCategory(key) === "graphics" ? "canEditNativeSettings" : avCategory(key) === "overlay" ? "canEditOverlay" : "canEditAudio"] === true; }
 function colorHex(rgba) { return "#" + [rgba & 255, (rgba >>> 8) & 255, (rgba >>> 16) & 255].map(channel => channel.toString(16).padStart(2,"0")).join("").toUpperCase(); }
@@ -637,7 +651,7 @@ window.addEventListener("launcher-av-result", event => {
   if (result.values) avSnapshot = result;
   pendingAv = null;
   renderAv();
-  avNote(key,result.notice === "saved" ? (avCategory(key) === "graphics" || key === "introSound" ? "Saved · 次回Playで適用されます。" : "Applied · Saved") : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  avNote(key,result.notice === "saved" ? (avCategory(key) === "graphics" ? "Saved · 次回Playで適用されます。" : "Applied · Saved") : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
   drainSaves(); updatePlay();
 });
 
@@ -645,6 +659,49 @@ window.addEventListener("launcher-av-result", event => {
 const accountQueue = [];
 let accountSnapshot = null, pendingAccount = null, accountSequence = Date.now() * 1000;
 let accountDetailsVisible = false, accountEditRequested = false, accountEditorId = null, accountConfirmationAction = null;
+const accountAddDialog = document.getElementById("account-add-dialog");
+let accountFocusTarget = null, accountConfirmationOpener = null;
+function importInProgress() { return pendingAccount?.command.op === "import" || accountQueue.some(c => c.op === "import"); }
+function clearAccountPreview() {
+  delete document.getElementById("account-drop").dataset.drag;
+  document.getElementById("account-add-notice").textContent = "";
+  document.getElementById("account-online-replace").checked = false;
+  document.querySelector("#account-preview details").open = false;
+  if (accountSnapshot) Object.assign(accountSnapshot, {candidates:[],onlineFiles:[],previewId:0,previewNotice:"",hasOtp:false,hasSeeprom:false,onlineComplete:false});
+  document.getElementById("account-preview").hidden = true;
+  document.getElementById("account-candidates").replaceChildren();
+  document.getElementById("account-online-files").replaceChildren();
+  delete document.getElementById("account-candidates").dataset.snapshot;
+  delete document.getElementById("account-online-files").dataset.snapshot;
+}
+document.getElementById("account-add").addEventListener("click", () => {
+  if (settingsBusy() || window.launcherCoreState?.canEditAccounts !== true || accountSnapshot?.canEdit !== true || accountSnapshot.accounts.length >= 12) return;
+  accountFocusTarget = null;
+  hideAccountDetails(); clearAccountPreview();
+  accountAddDialog.showModal();
+  document.getElementById("account-add-cancel").focus();
+  accountCommand({op:"clear-preview"});
+});
+document.getElementById("account-add-cancel").addEventListener("click", () => { if (!importInProgress()) accountAddDialog.close(); });
+accountAddDialog.addEventListener("cancel", event => { if (importInProgress()) event.preventDefault(); });
+accountAddDialog.addEventListener("close", () => {
+  for (let i = accountQueue.length - 1; i >= 0; --i) if (["select-zip","drop","import"].includes(accountQueue[i].op)) accountQueue.splice(i,1);
+  accountConfirmationAction = null;
+  if (accountConfirmationDialog.open) accountConfirmationDialog.close();
+  clearAccountPreview(); accountCommand({op:"clear-preview"});
+  accountFocusTarget = document.getElementById("account-add");
+  restoreAccountFocus();
+});
+function restoreAccountFocus() {
+  if (!accountFocusTarget || settingsBusy()) return;
+  let target = accountFocusTarget;
+  accountFocusTarget = null;
+  if (selectedTab !== "account" || document.getElementById("settings").hidden || window.launcherCoreState?.canEditAccounts !== true) return;
+  const modal = document.querySelector("dialog[open]");
+  if (modal && !modal.contains(target)) return;
+  if (target.matches(":disabled")) target = modal ? document.getElementById("account-add-cancel") : document.getElementById("account-active");
+  target.focus({preventScroll:true});
+}
 const accountEditor = document.getElementById("account-editor");
 const accountConfirmationDialog = document.getElementById("account-confirmation");
 const accountNotices = {
@@ -665,6 +722,7 @@ function hideAccountDetails() {
   const button = document.getElementById("account-details-toggle");
   button.textContent = "Show Details"; button.setAttribute("aria-expanded", "false");
   if (accountEditor.open) accountEditor.close();
+  if (accountAddDialog.open && !importInProgress()) accountAddDialog.close();
   if (accountConfirmationDialog.open) accountConfirmationDialog.close();
   document.getElementById("account-email").value = document.getElementById("account-birthday").value = "";
   accountEditorId = null;
@@ -705,7 +763,7 @@ function renderAccount() {
   document.getElementById("account-management").disabled = document.getElementById("account-management-actions").disabled = !canEdit;
   document.getElementById("account-select-zip").disabled = document.getElementById("account-network").disabled = !canEdit;
   document.getElementById("account-details-toggle").disabled = !active || !!pendingAccount || closeAfterSaves;
-  document.getElementById("account-create").disabled = list.length >= 12;
+  document.getElementById("account-add").disabled = list.length >= 12;
   document.getElementById("account-delete").disabled = list.length <= 1;
   const select = document.getElementById("account-active");
   const signature = JSON.stringify(list);
@@ -723,11 +781,9 @@ function renderAccount() {
   document.getElementById("account-lock-note").textContent = state?.phase === "unavailable" ? "Coreがないためアカウント操作は利用できません。" : state?.phase === "running" ? "アカウントの変更はMinecraft終了後に行えます。" : canEdit ? "変更は自動保存されます。アカウントを切り替えてもセーブは移動しません。" : "Coreの準備と保存の完了を待っています。";
   if (accountSnapshot) document.getElementById("account-network").value = accountSnapshot.network;
   const onlineLabels = {ready:"Online Files Ready", "account-credentials-missing":"Account認証情報が不足しています", "online-files-missing":"Online Filesが不足しています", "crypto-not-ready":"Crypto初期化を確認できません", "restart-required":"Online Files Installed · Restart Launcher Required", "custom-missing":"network_services.xmlを選択してください", "online-files-invalid":"Online FilesまたはCustom設定を確認してください"};
-  const connectionLabels = {"not-tested":"Not Tested",testing:"Testing…","login-success":"Login Successful",failed:"Failed"};
-  document.getElementById("account-network-status").textContent = `${onlineLabels[accountSnapshot?.onlineStatus] || "確認待ち"} · Runtime Network: ${accountSnapshot?.effectiveNetwork || "Offline"} · Connection: ${connectionLabels[accountSnapshot?.connection] || "Not Tested"}`;
+  document.getElementById("account-network-status").textContent = `${onlineLabels[accountSnapshot?.onlineStatus] || "確認待ち"} · Runtime Network: ${accountSnapshot?.effectiveNetwork || "Offline"}`;
   document.getElementById("account-custom").hidden = accountSnapshot?.network !== "Custom";
   document.getElementById("account-custom-select").disabled = !canEdit;
-  document.getElementById("account-test-connection").disabled = !canEdit || accountSnapshot?.network === "Offline" || accountSnapshot?.onlineStatus !== "ready";
   const files = document.getElementById("account-online-files");
   const fileSignature = JSON.stringify(accountSnapshot?.onlineFiles || []);
   if (files.dataset.snapshot !== fileSignature) {
@@ -744,7 +800,7 @@ function renderAccount() {
   }
   const candidates = accountSnapshot?.candidates || [];
   const preview = document.getElementById("account-preview");
-  preview.hidden = !accountSnapshot?.previewId;
+  preview.hidden = !accountAddDialog.open || !(accountSnapshot?.candidates?.length || accountSnapshot?.previewNotice);
   const container = document.getElementById("account-candidates");
   const previewSignature = JSON.stringify([accountSnapshot?.previewId,candidates]);
   if (container.dataset.snapshot !== previewSignature) {
@@ -760,7 +816,10 @@ function renderAccount() {
   document.getElementById("account-preview-note").textContent = accountSnapshot?.previewNotice === "preview-ready" ? `${candidates.length} Account検出` : accountSnapshot?.previewNotice === "imported" ? "インポートが完了しました。Active Accountから選択できます。" : accountSnapshot?.previewNotice ? "検証結果: " + accountSnapshot.previewNotice : "";
   document.getElementById("account-console-note").textContent = accountSnapshot?.hasOtp || accountSnapshot?.hasSeeprom ? "本体共通ファイルを検出しました。Account + Online Filesでは表示された認証・System Filesを取り込みます。既存Accountは上書きしません。" : "";
   document.getElementById("account-import").disabled = !canEdit || !candidates.some(c => c.state === "new");
-  if (!canEdit && accountConfirmationDialog.open) accountConfirmationDialog.close();
+  document.getElementById("account-import-controls").disabled = !canEdit;
+  document.getElementById("account-add-cancel").disabled = importInProgress();
+  if (!canEdit && accountConfirmationDialog.open) { accountConfirmationAction = null; accountConfirmationDialog.close(); }
+  if (state?.canEditAccounts !== true && accountAddDialog.open && !importInProgress()) accountAddDialog.close();
 }
 window.addEventListener("launcher-account-result", event => {
   if (!pendingAccount || pendingAccount.requestId !== event.detail.requestId) return;
@@ -773,17 +832,19 @@ window.addEventListener("launcher-account-result", event => {
   const message = accountNotices[result.notice] ?? "操作できませんでした。入力と保存先を確認してください。";
   document.getElementById("account-notice").textContent = message;
   document.getElementById("account-editor-note").textContent = message;
-  if (command.op === "create" && result.notice === "saved") { accountEditor.close(); document.getElementById("account-name").value = ""; }
+  document.getElementById("account-add-notice").textContent = result.previewNotice === "imported"
+    ? "インポートが完了しました。Active Accountから選択できます。" + (result.restartRequired ? " Online Files Installed · Restart Launcher Required" : "")
+    : message;
   if (command.op === "details" && accountEditRequested && result.details) {
     accountEditRequested = false;
-    openAccountEditor(true);
+    openAccountEditor();
   }
   if (command.op === "edit" && result.notice !== "saved") {
     accountQueue.length = 0;
     accountEditRequested = true;
     accountQueue.push({op:"details"});
   } else if (["edit","select"].includes(command.op) && accountDetailsVisible && !accountQueue.length) accountQueue.push({op:"details"});
-  renderAccount(); drainSaves(); updatePlay();
+  renderAccount(); drainSaves(); updatePlay(); restoreAccountFocus();
 });
 document.getElementById("account-active").addEventListener("change", event => {
   hideAccountDetails(); accountCommand({op:"select",id:Number(event.target.value)});
@@ -794,20 +855,16 @@ document.getElementById("account-details-toggle").addEventListener("click", () =
   const button = document.getElementById("account-details-toggle"); button.textContent = "Hide Details"; button.setAttribute("aria-expanded","true");
   accountCommand({op:"details"});
 });
-function openAccountEditor(edit) {
+function openAccountEditor() {
   const active = accountSnapshot?.accounts.find(a => a.id === accountSnapshot.activeId);
-  if (edit && (!active || !accountSnapshot.details)) return;
-  accountEditorId = edit ? active.id : null;
-  document.getElementById("account-editor-title").textContent = edit ? "Edit Account" : "Create Account";
-  document.getElementById("account-edit-fields").hidden = !edit;
-  document.getElementById("account-editor-submit").hidden = edit;
-  document.getElementById("account-name").value = edit ? active.name : "";
+  if (!active || !accountSnapshot.details || window.launcherCoreState?.canEditAccounts !== true) return;
+  accountEditorId = active.id;
+  document.getElementById("account-name").value = active.name;
   document.getElementById("account-editor-note").textContent = "";
-  if (edit) for (const field of ["birthday","gender","country","email"]) document.getElementById("account-"+field).value = accountSnapshot.details[field];
+  for (const field of ["birthday","gender","country","email"]) document.getElementById("account-"+field).value = accountSnapshot.details[field];
   if (!accountEditor.open) accountEditor.showModal();
   document.getElementById("account-name").focus();
 }
-document.getElementById("account-create").addEventListener("click", () => openAccountEditor(false));
 document.getElementById("account-edit").addEventListener("click", () => { accountEditRequested = true; accountCommand({op:"details"}); });
 document.getElementById("account-editor-cancel").addEventListener("click", () => { accountEditor.close(); if (!accountDetailsVisible && accountSnapshot) delete accountSnapshot.details; });
 accountEditor.addEventListener("cancel", () => { if (!accountDetailsVisible && accountSnapshot) delete accountSnapshot.details; });
@@ -815,12 +872,10 @@ accountEditor.addEventListener("close", () => {
   for (const field of ["name","birthday","gender","country","email"]) document.getElementById("account-" + field).value = "";
   if (!accountDetailsVisible && accountSnapshot) delete accountSnapshot.details;
   accountEditorId = null;
+  accountFocusTarget = document.getElementById("account-edit");
+  restoreAccountFocus();
 });
-document.getElementById("account-editor-form").addEventListener("submit", event => {
-  event.preventDefault();
-  if (accountEditorId !== null || pendingAccount || !event.target.reportValidity()) return;
-  accountCommand({op:"create",name:document.getElementById("account-name").value});
-});
+document.getElementById("account-editor-form").addEventListener("submit", event => event.preventDefault());
 for (const field of ["name","birthday","gender","country","email"]) {
   const control = document.getElementById("account-" + field);
   control.addEventListener("change", () => {
@@ -829,6 +884,8 @@ for (const field of ["name","birthday","gender","country","email"]) {
   });
 }
 function confirmAccountAction(action,title,text) {
+  if (settingsBusy() || accountConfirmationDialog.open) return;
+  accountConfirmationOpener = document.activeElement;
   accountConfirmationAction = action;
   document.getElementById("account-confirmation-title").textContent = title;
   document.getElementById("account-confirmation-text").textContent = text;
@@ -838,32 +895,38 @@ document.getElementById("account-delete").addEventListener("click", () => {
   const active = accountSnapshot?.accounts.find(a => a.id === accountSnapshot.activeId); if (!active) return;
   confirmAccountAction({op:"delete",id:active.id},"このアカウントを削除しますか？",`${active.name}\nアカウントはバックアップへ退避します。ゲームのセーブは削除しません。`);
 });
+accountConfirmationDialog.addEventListener("cancel", () => { accountConfirmationAction = null; });
+accountConfirmationDialog.addEventListener("close", () => {
+  accountFocusTarget = accountConfirmationOpener;
+  accountConfirmationOpener = null;
+  restoreAccountFocus();
+});
 document.getElementById("account-confirmation-cancel").addEventListener("click", () => { accountConfirmationDialog.close(); accountConfirmationAction = null; });
 document.getElementById("account-confirmation-accept").addEventListener("click", () => {
   const action = accountConfirmationAction; accountConfirmationAction = null; accountConfirmationDialog.close();
-  if (action) { hideAccountDetails(); accountCommand(action); }
+  if (action) { if (action.op !== "import") hideAccountDetails(); accountCommand(action); }
 });
 document.getElementById("account-network").addEventListener("change", event => accountCommand({op:"network",value:event.target.value}));
-document.getElementById("account-select-zip").addEventListener("click", () => accountCommand({op:"select-zip"}));
+document.getElementById("account-select-zip").addEventListener("click", () => { if (accountAddDialog.open && !settingsBusy()) accountCommand({op:"select-zip"}); });
 document.getElementById("account-import").addEventListener("click", () => {
   const ids = Array.from(document.querySelectorAll("#account-candidates input:checked:not(:disabled)"),e => Number(e.value));
-  if (!ids.length) return;
+  if (!accountAddDialog.open || settingsBusy() || !ids.length) return;
   const online = document.getElementById("account-import-mode").value === "online";
   const replaceOnline = document.getElementById("account-online-replace").checked;
-  if (online && accountSnapshot.onlineFiles.some(f => f.state === "different") && !replaceOnline) { document.getElementById("account-notice").textContent = "異なるファイルの置換を明示的に承認してください。"; return; }
+  if (online && accountSnapshot.onlineFiles.some(f => f.state === "different") && !replaceOnline) { document.getElementById("account-add-notice").textContent = "異なるファイルの置換を明示的に承認してください。"; return; }
   confirmAccountAction({op:"import",preview:accountSnapshot.previewId,ids,online,replaceOnline},"選択したアカウントをインポートしますか？",`${ids.length} Account\n既存Accountとゲームのセーブは上書きしません。${online ? `\nOnline Files: ${accountSnapshot.onlineFiles.filter(f=>f.state !== "identical").length} files · 導入後はLauncherを再起動してください。` : ""}`);
 });
 const accountDrop = document.getElementById("account-drop");
-accountDrop.addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; accountDrop.dataset.drag = "true"; });
+accountDrop.addEventListener("dragover", event => { event.preventDefault(); if (accountAddDialog.open && !settingsBusy() && window.launcherCoreState?.canEditAccounts === true) { event.dataTransfer.dropEffect = "copy"; accountDrop.dataset.drag = "true"; } });
 accountDrop.addEventListener("dragleave", () => { delete accountDrop.dataset.drag; });
 accountDrop.addEventListener("drop", event => {
   event.preventDefault(); delete accountDrop.dataset.drag;
+  if (!accountAddDialog.open || settingsBusy() || window.launcherCoreState?.canEditAccounts !== true) return;
   const files = event.dataTransfer.files;
-  if (files.length !== 1 || !files[0].name.toLowerCase().endsWith(".zip")) { document.getElementById("account-notice").textContent = "ZIPファイルを1つ選択してください。"; return; }
+  if (files.length !== 1 || !files[0].name.toLowerCase().endsWith(".zip")) { document.getElementById("account-add-notice").textContent = "ZIPファイルを1つ選択してください。"; return; }
   accountCommand({op:"drop",file:files[0]});
 });
 document.addEventListener("dragover", event => event.preventDefault());
 document.addEventListener("drop", event => event.preventDefault());
 
 document.getElementById("account-custom-select").addEventListener("click", () => accountCommand({op:"select-custom",replaceExisting:document.getElementById("account-custom-replace").checked}));
-document.getElementById("account-test-connection").addEventListener("click", () => accountCommand({op:"test"}));

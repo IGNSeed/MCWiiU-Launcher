@@ -189,10 +189,24 @@ AvSettings::AvSettings() : m_impl(std::make_unique<Impl>())
 			m_impl->gpu.push_back({++m_impl->tokenCounter, boost::nowide::widen(UuidText(device.uuid)), device.name});
 	}
 	catch (...) {}
-	// Launcher 専用既定値。明示された OFF は保持する。
-	pugi::xml_document stored;
-	if (stored.load_file(m_impl->path.c_str()) && !stored.child("content").child("play_boot_sound"))
-		GetConfig().play_boot_sound = true;
+	// Launcher では保存済み OFF も移行し、通常 Cemu の既定値は変えない。
+	GetConfig().play_boot_sound = true;
+	try
+	{
+		if (fs::exists(m_impl->path))
+		{
+			const auto original = ReadAv(m_impl->path);
+			pugi::xml_document stored;
+			RequireAv(stored.load_buffer(original.data(), original.size()));
+			auto root = stored.child("content"); RequireAv(bool(root));
+			if (!root.child("play_boot_sound").text().as_bool())
+			{
+				SetAv(root, "play_boot_sound", "true");
+				m_impl->Persist(stored);
+			}
+		}
+	}
+	catch (...) { if (m_impl->notice != "recovery-required") m_impl->notice = "save-failed"; }
 	LatteOverlay_setSettings(m_impl->overlay);
 	m_impl->Refresh();
 	m_impl->RefreshChannels();
@@ -270,6 +284,7 @@ std::string AvSettings::Command(std::string_view payload, bool running)
 			RequireAv((member == "key" || member == "value" || member == "revision") && keys.insert(member).second);
 		}
 		const std::string key(request["key"].GetString(), request["key"].GetStringLength());
+		RequireAv(key != "introSound");
 		const auto& value = request["value"];
 		const bool graphics = key == "graphicsApi" || key == "gpu" || key == "vsync" || key == "async" || key == "fullSync" || key == "upscale" || key == "downscale" || key == "scaling";
 		RequireAv(!running || !graphics);
@@ -282,8 +297,8 @@ std::string AvSettings::Command(std::string_view payload, bool running)
 		auto graphic = root.child("Graphic"), audio = root.child("Audio"); RequireAv(graphic && audio);
 		const auto& c = GetConfig();
 		s.notice = "ready";
-		if (key == "introSound") SetAv(root, "play_boot_sound", boolean());
-		else if (key.starts_with("overlay") || key.starts_with("notification"))
+		SetAv(root, "play_boot_sound", "true");
+		if (key.starts_with("overlay") || key.starts_with("notification"))
 		{
 			const bool performance = key.starts_with("overlay");
 			auto node = graphic.child(performance ? "Overlay" : "Notification");
@@ -417,7 +432,6 @@ std::string AvSettings::Command(std::string_view payload, bool running)
 		{
 			s.overlay = {candidate.overlay, candidate.notification, s.revision}; LatteOverlay_setSettings(s.overlay);
 		}
-		else if (key == "introSound") applied.play_boot_sound = candidate.play_boot_sound;
 		else
 		{
 			applied.audio_api = candidate.audio_api; applied.audio_delay = candidate.audio_delay;
@@ -446,6 +460,7 @@ void AvSettings::EndTitle()
 void AvSettings::PrepareLaunch()
 {
 	RequireAv(IsHealthy());
+	GetConfig().play_boot_sound = true;
 	m_impl->Refresh(true);
 	IAudioAPI::UpdateAudioDelay();
 }
