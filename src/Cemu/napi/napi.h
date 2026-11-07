@@ -93,6 +93,8 @@ namespace NAPI
 		}
 	};
 
+	_NAPI_CommonResultACT ACT_TestAccountLogin(AuthInfo& authInfo, uint64 titleId, uint16 titleVersion);
+
 	/* account service (account.nintendo.net) */
 
 	struct ACTGetProfileResult 

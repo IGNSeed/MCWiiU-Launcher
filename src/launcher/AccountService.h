@@ -15,6 +15,10 @@ public:
 	std::string Command(std::string_view payload, bool canEdit);
 	std::string PreviewZip(const std::filesystem::path& selectedFile, bool canEdit);
 	bool IsHealthy() const;
+	bool IsTesting() const;
+	void PrepareLaunch();
+	void RunConnectionTest();
+	std::string ImportCustom(const std::filesystem::path& selectedFile, bool canEdit, bool replaceExisting);
 	static void EnforceOffline();
 
 private:

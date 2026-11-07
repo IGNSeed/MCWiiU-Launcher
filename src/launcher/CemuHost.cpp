@@ -99,7 +99,7 @@ namespace
 		uint64 confirmationCounter = 0, confirmationId = 0, confirmationSession = 0, confirmationGeneration = 0;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
 		std::atomic_bool titleStop{false};
-		std::atomic_bool inputReady{false};
+		std::atomic_bool inputReady{false}, networkTest{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
 		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
@@ -198,7 +198,7 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || accounts->IsHealthy());
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
 		}
 		bool CanEditLiveSettingsLocked() const
 		{
@@ -442,7 +442,7 @@ namespace
 		const auto config = settings.child("content");
 		Require(fs::equivalent(_utf8ToPath(config.child_value("mlc_path")), runtime / "portable/mlc01"), "Runtime MLC mismatch");
 		const std::string_view api = config.child("Graphic").child_value("api");
-		Require((api == "0" || api == "1") && !config.child("Account").child("OnlineEnabled").text().as_bool(), "Only offline Vulkan or OpenGL is supported");
+		Require(api == "0" || api == "1", "Only Vulkan or OpenGL is supported");
 		for (const auto& entry : config.child("GamePaths").children())
 		{
 			const auto gamePath = fs::weakly_canonical(_utf8ToPath(entry.child_value()));
@@ -613,7 +613,13 @@ struct CemuHost::Impl
 			{
 				{
 					std::unique_lock lock(state->workMutex);
-					state->wake.wait(lock, [&] { return state->stop || state->launch; });
+					state->wake.wait(lock, [&] { return state->stop || state->launch || state->networkTest; });
+				}
+				if (state->networkTest.exchange(false) && !state->stop)
+				{
+					state->accounts->RunConnectionTest();
+					state->Publish();
+					continue;
 				}
 				if (!state->stop)
 				{
@@ -627,7 +633,7 @@ struct CemuHost::Impl
 						}
 						if (!state->stop && !state->titleStop)
 						{
-							AccountService::EnforceOffline();
+							state->accounts->PrepareLaunch();
 							// Coreは同一プロセスに残るため、ACTだけ次の初期化で選択Accountを再読込する。
 							iosuAct_invalidateAccountCache();
 							state->av->PrepareLaunch();
@@ -961,7 +967,10 @@ std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payloa
 	if (!state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastAccountRequest = requestId;
-	return state.accounts->Command(payload, state.CanEditSettingsLocked());
+	const bool wasTesting = state.accounts->IsTesting();
+	const auto result = state.accounts->Command(payload, state.CanEditSettingsLocked());
+	if (!wasTesting && state.accounts->IsTesting()) { state.networkTest = true; state.wake.notify_all(); }
+	return result;
 }
 
 std::string CemuHost::PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile)
@@ -973,6 +982,15 @@ std::string CemuHost::PreviewAccountZip(uint64_t requestId, const std::wstring& 
 	if (!requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastAccountRequest = requestId;
 	return state.accounts->PreviewZip(selectedFile, state.CanEditSettingsLocked());
+}
+
+std::string CemuHost::ImportCustomNetwork(uint64_t requestId, const std::wstring& selectedFile, bool replaceExisting)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex); std::lock_guard statusLock(state.statusMutex);
+	if (!state.accounts || !requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"not-ready\"}";
+	state.lastAccountRequest = requestId;
+	return state.accounts->ImportCustom(selectedFile, state.CanEditSettingsLocked(), replaceExisting);
 }
 
 void CemuHost::RefreshSettingsInfo()

@@ -1,6 +1,7 @@
 #pragma once
 
 void iosuCrypto_init();
+bool iosuCrypto_hasValidCertificates();
 
 bool iosuCrypto_getDeviceId(uint32* deviceId);
 void iosuCrypto_getDeviceSerialString(char* serialString);

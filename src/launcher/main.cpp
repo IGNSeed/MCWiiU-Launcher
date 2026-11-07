@@ -73,13 +73,13 @@ namespace
 	};
 
 #ifdef CEMU_NATIVE_HOST
-	std::optional<std::wstring> SelectDumplingZip(HWND owner)
+	std::optional<std::wstring> SelectDumplingZip(HWND owner, bool network = false)
 	{
 		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
 		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
-		const COMDLG_FILTERSPEC types[]{{L"Dumpling ZIP", L"*.zip"}};
+		const COMDLG_FILTERSPEC types[]{{network ? L"Cemu network configuration" : L"Dumpling ZIP", network ? L"*.xml" : L"*.zip"}};
 		if (FAILED(dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT)) ||
-			FAILED(dialog->SetFileTypes(1, types)) || FAILED(dialog->SetTitle(L"Select Dumpling ZIP")) || FAILED(dialog->Show(owner))) return std::nullopt;
+			FAILED(dialog->SetFileTypes(1, types)) || FAILED(dialog->SetTitle(network ? L"Select network_services.xml" : L"Select Dumpling ZIP")) || FAILED(dialog->Show(owner))) return std::nullopt;
 		Microsoft::WRL::ComPtr<IShellItem> item;
 		PWSTR path = nullptr;
 		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return std::nullopt;
@@ -635,6 +635,18 @@ namespace
 							webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(requestId) + ",account:" + snapshot + "}}));");
 						});
 					}
+				}
+				else if (core && message.starts_with("account:select-custom:") && display->m_settingsSelected && !display->m_stopping)
+				{
+					const auto tail = message.substr(std::string_view("account:select-custom:").size()); const auto colon = tail.find(':');
+					if (colon != std::string_view::npos && (tail.substr(colon + 1) == "0" || tail.substr(colon + 1) == "1"))
+						if (const auto id = ParseStopId(tail.substr(0, colon)); id && *id <= 9007199254740991ULL)
+							app->post([&, requestId = *id, replace = tail.substr(colon + 1) == "1"] {
+								if (notifications.m_closing || display->m_stopping) return;
+								const auto selected = SelectDumplingZip(window->native().hwnd, true);
+								const auto snapshot = selected ? core->ImportCustomNetwork(requestId, *selected, replace) : core->AccountCommand(requestId, "{\"op\":\"list\"}");
+								webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(requestId) + ",account:" + snapshot + "}}));");
+							});
 				}
 				else if (core && message.starts_with("account:command:"))
 				{

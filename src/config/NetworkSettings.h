@@ -21,6 +21,8 @@ struct NetworkConfig
 
 	NetworkConfig(const NetworkConfig&) = delete;
 
+	// Launcher は公開 CA とホスト名を検証し、既存 Cemu の設定は変更しない。
+	bool requireVerifiedTLS = false;
     ConfigValue<std::string> networkname;
     ConfigValue<bool> disablesslver = false;
     struct
@@ -77,6 +79,7 @@ inline NetworkConfig& GetNetworkConfig() { return n_config.data();};
 
 inline bool IsNetworkServiceSSLDisabled(NetworkService service)
 {
+	if (GetNetworkConfig().requireVerifiedTLS) return false;
 	if(service == NetworkService::Nintendo)
 		return false;
 	else if(service == NetworkService::Pretendo)

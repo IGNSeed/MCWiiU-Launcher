@@ -49,6 +49,7 @@ public:
 	std::string PollInput();
 	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();
+	std::string ImportCustomNetwork(uint64_t requestId, const std::wstring& selectedFile, bool replaceExisting);
 	std::string AccountCommand(uint64_t requestId, std::string_view payload);
 	std::string PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile);
 

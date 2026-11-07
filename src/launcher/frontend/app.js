@@ -684,7 +684,8 @@ function drainAccount() {
   if (command.op !== "list" && command.op !== "details") command.revision = accountSnapshot?.revision;
   pendingAccount = {requestId:++accountSequence,command};
   renderAccount(); updatePlay();
-  if (command.op === "select-zip") windowCommand("account:select-zip:" + pendingAccount.requestId);
+  if (command.op === "select-custom") windowCommand("account:select-custom:" + pendingAccount.requestId + ":" + (command.replaceExisting ? "1" : "0"));
+  else if (command.op === "select-zip") windowCommand("account:select-zip:" + pendingAccount.requestId);
   else if (command.op === "drop") {
     try {
       if (typeof window.chrome?.webview?.postMessageWithAdditionalObjects !== "function") throw new Error("unavailable");
@@ -701,7 +702,7 @@ function renderAccount() {
   const canEdit = state?.canEditAccounts === true && accountSnapshot?.canEdit === true && !pendingAccount && !closeAfterSaves;
   const list = accountSnapshot?.accounts || [];
   const active = list.find(a => a.id === accountSnapshot.activeId);
-  document.getElementById("account-management").disabled = !canEdit;
+  document.getElementById("account-management").disabled = document.getElementById("account-management-actions").disabled = !canEdit;
   document.getElementById("account-select-zip").disabled = document.getElementById("account-network").disabled = !canEdit;
   document.getElementById("account-details-toggle").disabled = !active || !!pendingAccount || closeAfterSaves;
   document.getElementById("account-create").disabled = list.length >= 12;
@@ -721,10 +722,25 @@ function renderAccount() {
   document.getElementById("account-count").textContent = active ? `Account ${list.indexOf(active) + 1} of ${list.length}` : "アカウントを読み込んでいます。";
   document.getElementById("account-lock-note").textContent = state?.phase === "unavailable" ? "Coreがないためアカウント操作は利用できません。" : state?.phase === "running" ? "アカウントの変更はMinecraft終了後に行えます。" : canEdit ? "変更は自動保存されます。アカウントを切り替えてもセーブは移動しません。" : "Coreの準備と保存の完了を待っています。";
   if (accountSnapshot) document.getElementById("account-network").value = accountSnapshot.network;
+  const onlineLabels = {ready:"Online Files Ready", "account-credentials-missing":"Account認証情報が不足しています", "online-files-missing":"Online Filesが不足しています", "crypto-not-ready":"Crypto初期化を確認できません", "restart-required":"Online Files Installed · Restart Launcher Required", "custom-missing":"network_services.xmlを選択してください", "online-files-invalid":"Online FilesまたはCustom設定を確認してください"};
+  const connectionLabels = {"not-tested":"Not Tested",testing:"Testing…","login-success":"Login Successful",failed:"Failed"};
+  document.getElementById("account-network-status").textContent = `${onlineLabels[accountSnapshot?.onlineStatus] || "確認待ち"} · Runtime Network: ${accountSnapshot?.effectiveNetwork || "Offline"} · Connection: ${connectionLabels[accountSnapshot?.connection] || "Not Tested"}`;
+  document.getElementById("account-custom").hidden = accountSnapshot?.network !== "Custom";
+  document.getElementById("account-custom-select").disabled = !canEdit;
+  document.getElementById("account-test-connection").disabled = !canEdit || accountSnapshot?.network === "Offline" || accountSnapshot?.onlineStatus !== "ready";
+  const files = document.getElementById("account-online-files");
+  const fileSignature = JSON.stringify(accountSnapshot?.onlineFiles || []);
+  if (files.dataset.snapshot !== fileSignature) {
+    files.replaceChildren(); files.dataset.snapshot = fileSignature;
+    for (const file of accountSnapshot?.onlineFiles || []) { const row = document.createElement("li"); row.textContent = `${file.path} · ${file.state}`; files.append(row); }
+    document.getElementById("account-import-mode").value = accountSnapshot?.onlineComplete ? "online" : "account";
+    document.getElementById("account-online-replace").checked = false;
+  }
+  document.querySelector('#account-import-mode option[value="online"]').disabled = !accountSnapshot?.onlineComplete;
   const details = accountSnapshot?.details;
   if (accountDetailsVisible && details && active) {
     document.getElementById("account-details").hidden = false;
-    setInfo("account-details", [["Persistent ID",active.id.toString(16).padStart(8,"0")],["Mii Name",active.name],["Account ID",details.accountId || "未設定"],["Birthday",details.birthday || "未設定"],["Gender",details.gender === 0 ? "Male" : details.gender === 1 ? "Female" : "未設定"],["Country / Region Code",details.country || "未設定"],["Email",details.email || "未設定"],["Online Requirements",details.onlineRequirements === "available-offline" ? "必要ファイルあり · 通信Offline" : "必要ファイルが不足 · 通信Offline"]]);
+    setInfo("account-details", [["Persistent ID",active.id.toString(16).padStart(8,"0")],["Mii Name",active.name],["Account ID",details.accountId || "未設定"],["Birthday",details.birthday || "未設定"],["Gender",details.gender === 0 ? "Male" : details.gender === 1 ? "Female" : "未設定"],["Country / Region Code",details.country || "未設定"],["Email",details.email || "未設定"],["Online Requirements",details.onlineRequirements === "available" ? "必要ファイルあり" : "必要ファイルが不足"]]);
   }
   const candidates = accountSnapshot?.candidates || [];
   const preview = document.getElementById("account-preview");
@@ -737,12 +753,12 @@ function renderAccount() {
     candidates.forEach(candidate => {
       const row = document.createElement("label"); row.className = "account-candidate";
       const check = document.createElement("input"); check.type = "checkbox"; check.value = String(candidate.id); check.disabled = candidate.state !== "new"; check.checked = !check.disabled;
-      const text = document.createElement("span"); text.textContent = `${candidate.name || "未設定"} · ${candidate.id.toString(16).padStart(8,"0")} · ${labels[candidate.state] || "対象外"}${candidate.reason === "persistent-id-mismatch" ? " · フォルダとAccount内のPersistent IDが一致しません" : ""}`;
+      const text = document.createElement("span"); text.textContent = `${candidate.name || "未設定"} · Source: ${(candidate.sourceId || candidate.id).toString(16).padStart(8,"0")} · Internal: ${(candidate.internalId || candidate.id).toString(16).padStart(8,"0")} → Destination: ${candidate.id.toString(16).padStart(8,"0")} · ${labels[candidate.state] || "対象外"}`;
       row.append(check,text); container.append(row);
     });
   }
   document.getElementById("account-preview-note").textContent = accountSnapshot?.previewNotice === "preview-ready" ? `${candidates.length} Account検出` : accountSnapshot?.previewNotice === "imported" ? "インポートが完了しました。Active Accountから選択できます。" : accountSnapshot?.previewNotice ? "検証結果: " + accountSnapshot.previewNotice : "";
-  document.getElementById("account-console-note").textContent = accountSnapshot?.hasOtp || accountSnapshot?.hasSeeprom ? "本体共通ファイルを検出しました。OTP / SEEPROMはインストールしません。" : "";
+  document.getElementById("account-console-note").textContent = accountSnapshot?.hasOtp || accountSnapshot?.hasSeeprom ? "本体共通ファイルを検出しました。Account + Online Filesでは表示された認証・System Filesを取り込みます。既存Accountは上書きしません。" : "";
   document.getElementById("account-import").disabled = !canEdit || !candidates.some(c => c.state === "new");
   if (!canEdit && accountConfirmationDialog.open) accountConfirmationDialog.close();
 }
@@ -832,7 +848,10 @@ document.getElementById("account-select-zip").addEventListener("click", () => ac
 document.getElementById("account-import").addEventListener("click", () => {
   const ids = Array.from(document.querySelectorAll("#account-candidates input:checked:not(:disabled)"),e => Number(e.value));
   if (!ids.length) return;
-  confirmAccountAction({op:"import",preview:accountSnapshot.previewId,ids},"選択したアカウントをインポートしますか？",`${ids.length} Account\n既存Account・OTP・SEEPROM・ゲームのセーブは上書きしません。`);
+  const online = document.getElementById("account-import-mode").value === "online";
+  const replaceOnline = document.getElementById("account-online-replace").checked;
+  if (online && accountSnapshot.onlineFiles.some(f => f.state === "different") && !replaceOnline) { document.getElementById("account-notice").textContent = "異なるファイルの置換を明示的に承認してください。"; return; }
+  confirmAccountAction({op:"import",preview:accountSnapshot.previewId,ids,online,replaceOnline},"選択したアカウントをインポートしますか？",`${ids.length} Account\n既存Accountとゲームのセーブは上書きしません。${online ? `\nOnline Files: ${accountSnapshot.onlineFiles.filter(f=>f.state !== "identical").length} files · 導入後はLauncherを再起動してください。` : ""}`);
 });
 const accountDrop = document.getElementById("account-drop");
 accountDrop.addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; accountDrop.dataset.drag = "true"; });
@@ -845,3 +864,6 @@ accountDrop.addEventListener("drop", event => {
 });
 document.addEventListener("dragover", event => event.preventDefault());
 document.addEventListener("drop", event => event.preventDefault());
+
+document.getElementById("account-custom-select").addEventListener("click", () => accountCommand({op:"select-custom",replaceExisting:document.getElementById("account-custom-replace").checked}));
+document.getElementById("account-test-connection").addEventListener("click", () => accountCommand({op:"test"}));

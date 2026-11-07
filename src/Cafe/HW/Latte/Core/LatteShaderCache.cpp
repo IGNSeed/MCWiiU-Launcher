@@ -234,7 +234,7 @@ class BootSoundPlayer
 			return;
 		}
 		bootSndAudioDev->SetAudioDelayOverride(4);
-		bootSndAudioDev->Play();
+
 
 		std::string sndPath = fmt::format("{}/meta/{}", CafeSystem::GetMlcStoragePath(CafeSystem::GetForegroundTitleId()), "bootSound.btsnd");
 		sint32 fscStatus = FSC_STATUS_UNDEFINED;
@@ -252,7 +252,17 @@ class BootSoundPlayer
 		constexpr sint32 audioBlockSize = samplesPerBlock * (bitsPerSample/8) * nChannels;
 		std::unique_ptr<FSCVirtualFile, decltype(&fsc_close)> file(bootSndFileHandle, fsc_close);
 		BootSoundReader bootSndFileReader(file.get(), audioBlockSize);
-		cemuLog_log(LogType::Force, "Intro sound playback started");
+		// キャッシュ読込が先に完了しても、最初の音声キューを減衰させずに用意する。
+		// 起動を遅延させず、実際のデバイスの必要ブロック数を基準にする。
+		uint32 primedBlocks = 0;
+		while (!m_stopRequested && bootSndAudioDev->NeedAdditionalBlocks())
+		{
+			auto* samples = bootSndFileReader.getSamples();
+			if (!samples || !bootSndAudioDev->FeedBlock(samples)) return;
+			++primedBlocks;
+		}
+		if (m_stopRequested || !bootSndAudioDev->Play()) return;
+		cemuLog_log(LogType::Force, "Intro sound playback started: primedBlocks={} volume={} fadeRequested={}", primedBlocks, bootSndAudioDev->GetVolume(), m_fadeOutRequested.load());
 
 		uint64 fadeOutSample = 0; // track how far into the fadeout
 		constexpr uint64 fadeOutDuration = sampleRate * 2; // fadeout should last 2 seconds

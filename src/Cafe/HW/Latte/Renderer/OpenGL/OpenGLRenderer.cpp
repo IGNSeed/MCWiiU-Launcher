@@ -211,7 +211,8 @@ ImTextureID OpenGLRenderer::GenerateTexture(const std::vector<uint8>& data, cons
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
 	glActiveTexture(GL_TEXTURE0);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB, size.x, size.y, 0, GL_RGB, GL_UNSIGNED_BYTE, data.data());
+	// ロード画像は Vulkan と同じ UNORM とし、Overlay 合成時の sRGB decode を避ける。
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, size.x, size.y, 0, GL_RGB, GL_UNSIGNED_BYTE, data.data());
 	return (ImTextureID)(uintptr_t)textureId;
 }
 

@@ -12,6 +12,12 @@
 #include <fstream>
 #include <optional>
 #include <set>
+#include <atomic>
+#include <curl/curl.h>
+#include <openssl/x509.h>
+#include "Cemu/napi/napi.h"
+#include "Cemu/ncrypto/ncrypto.h"
+#include "Cafe/IOSU/legacy/iosu_crypto.h"
 
 namespace
 {
@@ -200,7 +206,7 @@ struct AccountService::Impl
 {
 	struct Candidate
 	{
-		uint32 id = 0;
+		uint32 id = 0, sourceId = 0, internalId = 0;
 		std::string name, state = "invalid", reason;
 		std::map<std::string, std::string> files;
 	};
@@ -214,28 +220,138 @@ struct AccountService::Impl
 	fs::path act = ActiveSettings::GetMlcPath("usr/save/system/act");
 	fs::path settings = portable / "settings.xml";
 	fs::path preferences = portable / "launcher-account-preferences.json";
+	struct OnlineFile
+	{
+		std::string relative, bytes, state;
+		std::optional<std::string> before;
+	};
+	std::vector<OnlineFile> onlineFiles;
+	std::map<uint32, std::string> networks;
+	std::atomic<int> connection{0}; // 未試験・試験中・ログイン成功・失敗
 	std::vector<Candidate> candidates;
 	uint64 revision = 1, preview = 0, sequence = 0;
-	std::string notice = "ready", network = "Offline", previewNotice;
+	std::string notice = "ready", previewNotice;
+	bool restartRequired = false, onlineComplete = false;
 	bool healthy = true, hasOtp = false, hasSeeprom = false;
 
 	Impl()
 	{
 		CheckPath(act); CheckPath(settings); CheckPath(preferences);
+		if (fs::exists(portable / ".launcher-account-transaction")) { healthy = false; notice = "recovery-required"; return; }
+		bool migrate = false;
 		if (fs::exists(preferences))
 		{
-			const auto bytes = Read(preferences, 1024);
-			rapidjson::Document json;
-			json.Parse(bytes.data(), bytes.size());
-			if (!json.HasParseError() && json.IsObject() && json.MemberCount() == 2 && json.HasMember("version") && json["version"].IsUint() && json["version"].GetUint() == 1 && json.HasMember("network") && json["network"].IsString())
+			try
 			{
-				const auto value = String(json["network"]);
-				if (value == "Offline" || value == "Pretendo" || value == "Custom") network = value;
-				else notice = "preferences-invalid";
+				const auto bytes = Read(preferences, 4096); rapidjson::Document json;
+				json.Parse<rapidjson::kParseValidateEncodingFlag>(bytes.data(), bytes.size());
+				RequireAccount(!json.HasParseError() && json.IsObject() && json.MemberCount() == 2 && json.HasMember("version") && json["version"].IsUint());
+				if (json["version"].GetUint() == 1)
+				{
+					RequireAccount(json.HasMember("network")); const auto choice = String(json["network"]); Service(choice);
+					networks[ActiveSettings::GetPersistentId()] = choice; migrate = true;
+				}
+				else
+				{
+					RequireAccount(json["version"].GetUint() == 2 && json.HasMember("accounts") && json["accounts"].IsObject() && json["accounts"].MemberCount() <= 12);
+					for (auto it = json["accounts"].MemberBegin(); it != json["accounts"].MemberEnd(); ++it)
+					{
+						const auto key = String(it->name), value = String(it->value); Service(value);
+						RequireAccount(key.size() == 8 && Hex(key) >= Account::kMinPersistendId && networks.emplace(Hex(key), value).second);
+					}
+				}
 			}
-			else notice = "preferences-invalid";
+			catch (...) { networks.clear(); notice = "preferences-invalid"; }
 		}
-		if (fs::exists(portable / ".launcher-account-transaction")) { healthy = false; notice = "recovery-required"; }
+		if (migrate) Commit({{preferences, Preferences(networks)}});
+		ApplyNetwork();
+	}
+
+	static NetworkService Service(std::string_view value)
+	{
+		if (value == "Offline") return NetworkService::Offline;
+		if (value == "Pretendo") return NetworkService::Pretendo;
+		RequireAccount(value == "Custom", "invalid-network"); return NetworkService::Custom;
+	}
+	std::string Network() const
+	{
+		const auto it = networks.find(ActiveSettings::GetPersistentId()); return it == networks.end() ? "Offline" : it->second;
+	}
+	std::string Preferences(const std::map<uint32, std::string>& values) const
+	{
+		rapidjson::StringBuffer b; Writer w(b); w.StartObject(); w.Key("version"); w.Uint(2); w.Key("accounts"); w.StartObject();
+		for (const auto& [id, value] : values) Text(w, fmt::format("{:08x}", id).c_str(), value);
+		w.EndObject(); w.EndObject(); return b.GetString();
+	}
+	void ValidateCustom(std::string_view bytes) const
+	{
+		RequireAccount(!bytes.empty() && bytes.size() <= 64 * 1024 && bytes.find('\0') == std::string_view::npos, "custom-invalid");
+		pugi::xml_document doc; RequireAccount(doc.load_buffer(bytes.data(), bytes.size(), pugi::parse_full), "custom-invalid");
+		for (auto node : doc.children()) RequireAccount(node.type() == pugi::node_declaration || node.type() == pugi::node_element, "custom-invalid");
+		const auto root = doc.child("content"); RequireAccount(root && !root.next_sibling("content"), "custom-invalid");
+		std::set<std::string> seen;
+		for (auto node : root.children()) RequireAccount(seen.insert(node.name()).second && (std::string_view(node.name()) == "networkname" || std::string_view(node.name()) == "disablesslverification" || std::string_view(node.name()) == "urls"), "custom-invalid");
+		RequireAccount(seen.size() == 3 && std::string_view(root.child_value("disablesslverification")) == "0" && !std::string_view(root.child_value("networkname")).empty(), "custom-invalid");
+		seen.clear(); const std::set<std::string> names{"act","ecs","nus","ias","ccsu","ccs","idbe","boss","tagaya","olv"};
+		for (auto node : root.child("urls").children())
+		{
+			RequireAccount(names.contains(node.name()) && seen.insert(node.name()).second && !node.first_child().next_sibling(), "custom-invalid");
+			const std::string url = node.child_value(); RequireAccount(url.size() <= 2048 && url.starts_with("https://") && std::all_of(url.begin(), url.end(), [](unsigned char c) { return c > 32 && c < 127; }), "custom-invalid");
+			auto parsed = std::unique_ptr<CURLU, decltype(&curl_url_cleanup)>(curl_url(), curl_url_cleanup);
+			RequireAccount(parsed && curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), CURLU_NON_SUPPORT_SCHEME) == CURLUE_OK, "custom-invalid");
+			for (auto part : {CURLUPART_USER, CURLUPART_PASSWORD, CURLUPART_QUERY, CURLUPART_FRAGMENT}) { char* out = nullptr; const auto result = curl_url_get(parsed.get(), part, &out, 0); curl_free(out); RequireAccount(result != CURLUE_OK, "custom-invalid"); }
+		}
+		RequireAccount(seen == names, "custom-invalid");
+	}
+	std::string Readiness() const
+	{
+		if (restartRequired) return "restart-required";
+		try
+		{
+			const auto& account = Find(ActiveSettings::GetPersistentId());
+			if (!account.IsValidOnlineAccount()) return "account-credentials-missing";
+			if (!account.ValidateOnlineFiles().IsValid()) return "online-files-missing";
+			if (!ActiveSettings::HasRequiredOnlineFiles() || !NCrypto::OTP_IsPresent() || !NCrypto::SEEPROM_IsPresent() || !iosuCrypto_hasValidCertificates()) return "crypto-not-ready";
+			if (Network() == "Custom") { const auto path = portable / "network_services.xml"; if (!fs::exists(path)) return "custom-missing"; ValidateCustom(Read(path, 64 * 1024)); }
+			return "ready";
+		}
+		catch (...) { return "online-files-invalid"; }
+	}
+	void ApplyNetwork()
+	{
+		GetNetworkConfig().requireVerifiedTLS = true;
+		AccountService::EnforceOffline();
+		if (Network() != "Offline" && Readiness() == "ready") GetConfig().SetAccountSelectedService(ActiveSettings::GetPersistentId(), Service(Network()));
+	}
+	std::set<uint32> Occupied() const
+	{
+		std::set<uint32> used;
+		for (const auto& a : Account::GetAccounts()) used.insert(a.GetPersistentId());
+		if (fs::exists(act)) for (const auto& e : fs::directory_iterator(act)) { CheckPath(e.path()); const auto name = e.path().filename().string(); if (name.size() == 8) { try { used.insert(Hex(name)); } catch (...) {} } }
+		const auto saves = ActiveSettings::GetMlcPath("usr/save"); CheckPath(saves);
+		size_t count = 0;
+		if (fs::exists(saves)) for (const auto& high : fs::directory_iterator(saves))
+		{
+			CheckPath(high.path()); if (!high.is_directory() || high.path().filename().wstring().size() != 8) continue;
+			for (const auto& low : fs::directory_iterator(high.path()))
+			{
+				CheckPath(low.path()); if (!low.is_directory() || low.path().filename().wstring().size() != 8) continue;
+				const auto users = low.path() / "user"; CheckPath(users); if (!fs::exists(users)) continue;
+				for (const auto& entry : fs::directory_iterator(users)) { RequireAccount(++count <= 10000, "save-scan-limit"); CheckPath(entry.path()); const auto name = entry.path().filename().string(); if (name.size() == 8) { try { used.insert(Hex(name)); } catch (...) {} } }
+			}
+		}
+		return used;
+	}
+	static uint32 Allocate(std::set<uint32>& used)
+	{
+		uint32 id = Account::kMinPersistendId; while (used.contains(id)) { RequireAccount(id != UINT32_MAX, "id-unavailable"); ++id; }
+		used.insert(id); return id;
+	}
+	static std::string Remap(std::string_view bytes, uint32 id)
+	{
+		const auto pos = bytes.find("\nPersistentId="); RequireAccount(pos != std::string_view::npos, "invalid-id");
+		const auto start = pos + std::string_view("\nPersistentId=").size(); const auto end = bytes.find_first_of("\r\n", start);
+		return std::string(bytes.substr(0, start)) + fmt::format("{:08x}", id) + (end == std::string_view::npos ? std::string{} : std::string(bytes.substr(end)));
 	}
 
 	fs::path File(uint32 id) const
@@ -252,7 +368,7 @@ struct AccountService::Impl
 		RequireAccount(it != list.end(), "account-not-found");
 		return *it;
 	}
-	std::string Selection(uint32 id)
+	std::string Selection(uint32 id, const std::map<uint32, std::string>* services = nullptr)
 	{
 		pugi::xml_document xml;
 		RequireAccount(xml.load_string(Read(settings).c_str()), "settings-invalid");
@@ -263,6 +379,11 @@ struct AccountService::Impl
 		auto node = account.child("PersistentId");
 		if (!node) node = account.append_child("PersistentId");
 		node.text().set(id);
+		if (services)
+		{
+			auto entries = config.child("AccountService"); if (!entries) entries = config.append_child("AccountService"); entries.remove_children();
+			for (const auto& [pid, value] : *services) { auto e = entries.append_child("SelectedService"); e.append_attribute("PersistentId").set_value(pid); e.append_attribute("Service").set_value(static_cast<int>(Service(value))); }
+		}
 		std::ostringstream out; xml.save(out);
 		return out.str();
 	}
@@ -275,8 +396,12 @@ struct AccountService::Impl
 		Text(writer, "notice", notice);
 		writer.Key("canEdit"); writer.Bool(canEdit && healthy);
 		writer.Key("activeId"); writer.Uint(ActiveSettings::GetPersistentId());
-		Text(writer, "network", network);
-		Text(writer, "effectiveNetwork", "Offline");
+		Text(writer, "network", Network());
+		const auto effective = ActiveSettings::GetNetworkService();
+		Text(writer, "effectiveNetwork", effective == NetworkService::Pretendo ? "Pretendo" : effective == NetworkService::Custom ? "Custom" : "Offline");
+		Text(writer, "onlineStatus", Readiness());
+		Text(writer, "connection", connection == 1 ? "testing" : connection == 2 ? "login-success" : connection == 3 ? "failed" : "not-tested");
+		writer.Key("restartRequired"); writer.Bool(restartRequired);
 		writer.Key("accounts"); writer.StartArray();
 		for (const auto& account : Account::GetAccounts())
 		{
@@ -296,11 +421,15 @@ struct AccountService::Impl
 			writer.Key("country"); writer.Uint(account.GetCountry());
 			Text(writer, "email", account.GetEmail());
 			const auto online = account.ValidateOnlineFiles();
-			Text(writer, "onlineRequirements", online.IsValid() ? "available-offline" : "missing");
+			Text(writer, "onlineRequirements", online.IsValid() ? "available" : "missing");
 			writer.EndObject();
 		}
 		writer.Key("previewId"); writer.Uint64(preview);
 		Text(writer, "previewNotice", previewNotice);
+		writer.Key("onlineComplete"); writer.Bool(onlineComplete);
+		writer.Key("onlineFiles"); writer.StartArray();
+		for (const auto& file : onlineFiles) { writer.StartObject(); Text(writer, "path", file.relative); Text(writer, "state", file.state); writer.EndObject(); }
+		writer.EndArray();
 		writer.Key("hasOtp"); writer.Bool(hasOtp);
 		writer.Key("hasSeeprom"); writer.Bool(hasSeeprom);
 		writer.Key("candidates"); writer.StartArray();
@@ -308,6 +437,8 @@ struct AccountService::Impl
 		{
 			writer.StartObject();
 			writer.Key("id"); writer.Uint(candidate.id);
+			writer.Key("sourceId"); writer.Uint(candidate.sourceId);
+			writer.Key("internalId"); writer.Uint(candidate.internalId);
 			Text(writer, "name", candidate.name);
 			Text(writer, "state", candidate.state);
 			Text(writer, "reason", candidate.reason);
@@ -381,7 +512,9 @@ struct AccountService::Impl
 				auto& change = changes[i];
 				CheckPath(change.path);
 				RequireAccount(change.before ? fs::exists(change.path) && Read(change.path) == *change.before : !fs::exists(change.path), "concurrent-change");
-				if (!fs::exists(change.path.parent_path())) { RequireAccount(fs::create_directory(change.path.parent_path()), "write-failed"); createdDirectories.push_back(change.path.parent_path()); }
+				std::vector<fs::path> missing;
+				for (auto parent = change.path.parent_path(); !fs::exists(parent); parent = parent.parent_path()) { RequireAccount(parent != parent.root_path(), "unsafe-path"); CheckPath(parent); missing.push_back(parent); }
+				for (auto it = missing.rbegin(); it != missing.rend(); ++it) { RequireAccount(fs::create_directory(*it), "write-failed"); createdDirectories.push_back(*it); }
 				const auto staged = folder / fmt::format("after-{}", i);
 				RequireAccount(MoveFileExW(staged.c_str(), change.path.c_str(), (change.before ? MOVEFILE_REPLACE_EXISTING : 0) | MOVEFILE_WRITE_THROUGH), "save-failed");
 				++applied;
@@ -425,13 +558,17 @@ struct AccountService::Impl
 
 	void Preview(const fs::path& selected)
 	{
-		candidates.clear(); hasOtp = hasSeeprom = false; previewNotice.clear(); ++preview;
+		candidates.clear(); onlineFiles.clear(); onlineComplete = false; hasOtp = hasSeeprom = false; previewNotice.clear(); ++preview;
 		CheckPath(selected);
 		RequireAccount(LowerPath(_pathToUtf8(selected.extension())) == ".zip" && fs::is_regular_file(selected) && fs::file_size(selected) <= s_totalLimit, "invalid-zip");
 		ZipArchive zip(selected, true);
 		RequireAccount(zip.IsValid() && zip.GetNumEntries() > 0 && zip.GetNumEntries() <= 4096, "invalid-zip");
 		std::set<std::string> paths;
-		std::map<uint32, Candidate> found;
+		std::map<std::string, Candidate> found;
+		std::map<std::string, std::string> online;
+		std::set<std::string> certificates;
+		for (const auto* name : iosuCrypt_getCertificateNames()) certificates.insert(LowerPath("sys/title/0005001b/10054000/content/" + boost::nowide::narrow(name)));
+		for (const auto* name : iosuCrypt_getCertificateKeys()) certificates.insert(LowerPath("sys/title/0005001b/10054000/content/" + boost::nowide::narrow(name)));
 		size_t total = 0;
 		for (size_t i = 0; i < zip.GetNumEntries(); ++i)
 		{
@@ -451,34 +588,43 @@ struct AccountService::Impl
 			const auto filename = path.substr(slash == std::string::npos ? 0 : slash + 1);
 			hasOtp |= filename == "otp.bin"; hasSeeprom |= filename == "seeprom.bin";
 			const auto match = ("/" + path).find("/usr/save/system/act/");
-			if (match == std::string::npos) continue;
+			if (match == std::string::npos)
+			{
+				std::string relative;
+				if (filename == "otp.bin" || filename == "seeprom.bin") relative = filename;
+				else if (const auto mlc = ("/" + path).find("/mlc01/"); mlc != std::string::npos)
+				{
+					const auto sub = ("/" + path).substr(mlc + 7);
+					const std::set<std::string> additional{"sys/title/0005001b/10054000/content/ccerts/wiiu_wagonu_crypto_symkey.aes","sys/title/0005001b/10054000/content/ccerts/wiiu_wagonu_hmac_key.aes","sys/title/0005001b/10056000/content/fflreshigh.dat","sys/title/0005001b/10056000/content/fflreshighlg.dat","sys/title/0005001b/10056000/content/fflresmiddle.dat","sys/title/0005001b/10056000/content/fflresmiddlelg.dat","usr/save/system/nim/ec/ec_account_info.exi"};
+					if (certificates.contains(sub) || additional.contains(sub)) relative = "mlc01/" + sub;
+				}
+				if (!relative.empty()) RequireAccount(online.emplace(relative, std::string(reinterpret_cast<const char*>(data.data()), data.size())).second, "duplicate-zip-path");
+				continue;
+			}
 			const auto accountPath = ("/" + path).substr(match + std::string_view("/usr/save/system/act/").size());
 			if (accountPath == "persisid.dat") continue;
 			RequireAccount(accountPath.size() > 9 && accountPath[8] == '/' && accountPath.find('/', 9) == std::string::npos, "unexpected-account-file");
 			const uint32 id = Hex(std::string_view(accountPath).substr(0, 8));
 			RequireAccount(id >= Account::kMinPersistendId, "invalid-id");
 			RequireAccount(filename == "account.dat" || (filename.size() == 12 && filename.starts_with("miiimg0") && filename[7] >= '0' && filename[7] <= '8' && filename.substr(8) == ".dat"), "unexpected-account-file");
-			auto& candidate = found[id]; candidate.id = id;
+			auto& candidate = found[path.substr(0, path.find_last_of('/'))]; candidate.sourceId = id;
 			RequireAccount(candidate.files.emplace(filename, std::string(reinterpret_cast<const char*>(data.data()), data.size())).second, "duplicate-account");
 		}
 		RequireAccount(!found.empty() && found.size() <= 12, "no-accounts");
-		for (auto& [id, candidate] : found)
+		auto used = Occupied();
+		for (auto& [key, candidate] : found)
 		{
 			try
 			{
 				RequireAccount(candidate.files.contains("account.dat"), "incomplete-account");
 				const auto& bytes = candidate.files.at("account.dat");
-				const auto storedId = Hex(Fields(bytes).at("PersistentId"));
-				const auto account = ParseAccount(bytes, storedId);
+				candidate.internalId = Hex(Fields(bytes).at("PersistentId"));
+				const auto account = ParseAccount(bytes, candidate.internalId);
 				candidate.name = boost::nowide::narrow(account.GetMiiName());
-				RequireAccount(storedId == id, "persistent-id-mismatch");
-				const auto directory = File(id).parent_path();
-				if (fs::exists(directory))
-				{
-					candidate.state = fs::exists(File(id)) && Read(File(id)) == candidate.files.at("account.dat") ? "existing" : "collision";
-					candidate.reason = "persistent-id-exists";
-				}
-				else candidate.state = "new";
+				candidate.id = Allocate(used);
+				candidate.files["account.dat"] = Remap(bytes, candidate.id);
+				ParseAccount(candidate.files["account.dat"], candidate.id);
+				candidate.state = "new";
 			}
 			catch (const std::exception& error)
 			{
@@ -488,15 +634,31 @@ struct AccountService::Impl
 			}
 			candidates.push_back(std::move(candidate));
 		}
+		for (auto& [relative, bytes] : online)
+		{
+			OnlineFile file{relative, std::move(bytes), "new", std::nullopt};
+			bool valid = !file.bytes.empty();
+			if (relative == "otp.bin") valid = file.bytes.size() == 1024;
+			else if (relative == "seeprom.bin") valid = file.bytes.size() == 512;
+			else if (relative.ends_with(".der")) { const auto* ptr = reinterpret_cast<const unsigned char*>(file.bytes.data()); auto* cert = d2i_X509(nullptr, &ptr, static_cast<long>(file.bytes.size())); valid = cert && ptr == reinterpret_cast<const unsigned char*>(file.bytes.data() + file.bytes.size()); X509_free(cert); }
+			else if (relative.ends_with(".aes")) valid = file.bytes.size() % 16 == 0;
+			const auto target = portable / fs::u8path(relative); CheckPath(target);
+			if (fs::exists(target)) { file.before = Read(target); file.state = *file.before == file.bytes ? "identical" : "different"; }
+			if (!valid) file.state = "invalid";
+			onlineFiles.push_back(std::move(file));
+		}
+		onlineComplete = online.contains("otp.bin") && online.contains("seeprom.bin") && std::all_of(onlineFiles.begin(), onlineFiles.end(), [](const auto& f) { return f.state != "invalid"; });
+		for (const auto& cert : certificates) onlineComplete &= online.contains("mlc01/" + cert);
 		previewNotice = "preview-ready";
 	}
 };
 
-AccountService::AccountService() : m_impl(std::make_unique<Impl>()) { EnforceOffline(); }
+AccountService::AccountService() : m_impl(std::make_unique<Impl>()) {}
 AccountService::~AccountService() = default;
 bool AccountService::IsHealthy() const { return m_impl->healthy; }
 void AccountService::EnforceOffline()
 {
+	GetNetworkConfig().requireVerifiedTLS = true;
 	GetConfig().account.legacy_online_enabled = false;
 	for (auto& [id, service] : GetConfig().account.service_select) service = NetworkService::Offline;
 	GetConfig().SetAccountSelectedService(ActiveSettings::GetPersistentId(), NetworkService::Offline);
@@ -545,7 +707,7 @@ std::string AccountService::Command(std::string_view payload, bool canEdit)
 				const uint32 id = json["id"].GetUint(); state.Find(id);
 				ParseAccount(Read(state.File(id)), id);
 				state.Commit({{state.settings, state.Selection(id)}});
-				GetConfig().account.m_persistent_id = id;
+				GetConfig().account.m_persistent_id = id; state.connection = 0;
 			}
 			else if (op == "create")
 			{
@@ -634,44 +796,96 @@ std::string AccountService::Command(std::string_view payload, bool canEdit)
 				RequireAccount(list.size() > 1, "last-account");
 				ParseAccount(Read(state.File(id)), id);
 				const auto nextId = originalId == id ? std::find_if(list.begin(), list.end(), [id](const auto& a) { return a.GetPersistentId() != id; })->GetPersistentId() : originalId;
-				state.Commit({{state.settings, state.Selection(nextId)}}, id, true);
+				auto values = state.networks; values.erase(id);
+				state.Commit({{state.settings, state.Selection(nextId, &values)}, {state.preferences, state.Preferences(values)}}, id, true);
+				state.networks = std::move(values); state.connection = 0;
 				GetConfig().account.m_persistent_id = nextId;
 			}
 			else if (op == "network")
 			{
 				RequireAccount(json.MemberCount() == 3 && json.HasMember("value"), "invalid-request");
-				const auto value = String(json["value"]);
-				RequireAccount(value == "Offline" || value == "Pretendo" || value == "Custom", "invalid-network");
-				state.Commit({{state.preferences, "{\"version\":1,\"network\":\"" + value + "\"}"}});
-				state.network = value;
+				const auto value = String(json["value"]); Impl::Service(value);
+				auto values = state.networks; values[originalId] = value;
+				state.Commit({{state.preferences, state.Preferences(values)}, {state.settings, state.Selection(originalId, &values)}});
+				state.networks = std::move(values); state.connection = 0;
+			}
+			else if (op == "test")
+			{
+				RequireAccount(json.MemberCount() == 2 && state.Network() != "Offline" && state.Readiness() == "ready", "network-not-ready");
+				state.ApplyNetwork(); state.connection = 1;
 			}
 			else if (op == "import")
 			{
-				RequireAccount(json.MemberCount() == 4 && json.HasMember("preview") && json["preview"].IsUint64() && json["preview"].GetUint64() == state.preview && json.HasMember("ids") && json["ids"].IsArray(), "stale-preview");
+				RequireAccount(json.MemberCount() == 6 && json.HasMember("online") && json["online"].IsBool() && json.HasMember("replaceOnline") && json["replaceOnline"].IsBool() && json.HasMember("preview") && json["preview"].IsUint64() && json["preview"].GetUint64() == state.preview && json.HasMember("ids") && json["ids"].IsArray(), "stale-preview");
 				RequireAccount(json["ids"].Size() > 0 && Account::GetAccounts().size() + json["ids"].Size() <= 12, "account-limit");
 				std::set<uint32> selected;
+				const auto occupied = state.Occupied();
 				std::vector<Impl::Change> changes;
 				for (const auto& idValue : json["ids"].GetArray())
 				{
 					RequireAccount(idValue.IsUint() && selected.insert(idValue.GetUint()).second, "invalid-id");
 					const uint32 id = idValue.GetUint();
 					const auto it = std::find_if(state.candidates.begin(), state.candidates.end(), [id](const auto& c) { return c.id == id; });
-					RequireAccount(it != state.candidates.end() && it->state == "new" && !fs::exists(state.File(id).parent_path()), "persistent-id-exists");
+					RequireAccount(it != state.candidates.end() && it->state == "new" && !occupied.contains(id) && !fs::exists(state.File(id).parent_path()), "persistent-id-exists");
 					ParseAccount(it->files.at("account.dat"), id);
 					for (const auto& [filename, bytes] : it->files) changes.push_back({state.File(id).parent_path() / filename, bytes});
 				}
+				bool onlineChanged = false;
+				if (json["online"].GetBool())
+				{
+					RequireAccount(state.onlineComplete, "online-files-incomplete");
+					for (const auto& file : state.onlineFiles)
+					{
+						const auto target = state.portable / fs::u8path(file.relative); CheckPath(target);
+						RequireAccount(file.before ? fs::exists(target) && Read(target) == *file.before : !fs::exists(target), "stale-preview");
+						RequireAccount(file.state != "different" || json["replaceOnline"].GetBool(), "replacement-confirmation-required");
+						if (file.state != "identical") { changes.push_back({target, file.bytes}); onlineChanged = true; }
+					}
+				}
 				state.Commit(std::move(changes), std::nullopt, true);
+				state.restartRequired |= onlineChanged;
 				state.candidates.clear(); ++state.preview; state.previewNotice = "imported";
 			}
 			else RequireAccount(false, "invalid-request");
-			EnforceOffline();
+			state.ApplyNetwork();
 		}
 	}
 	catch (const std::exception& error)
 	{
 		// ファイルパスや account の値を例外から UI・ログへ流さない。
-		const std::set<std::string> safe{"not-ready", "stale-revision", "stale-preview", "invalid-request", "invalid-id", "invalid-name", "invalid-birthday", "invalid-value", "invalid-email", "invalid-field", "invalid-network", "account-not-found", "account-limit", "last-account", "id-unavailable", "persistent-id-exists", "recovery-required"};
+		const std::set<std::string> safe{"not-ready", "stale-revision", "stale-preview", "invalid-request", "invalid-id", "invalid-name", "invalid-birthday", "invalid-value", "invalid-email", "invalid-field", "invalid-network", "account-not-found", "account-limit", "last-account", "id-unavailable", "persistent-id-exists", "recovery-required", "online-files-incomplete", "replacement-confirmation-required", "network-not-ready", "custom-invalid"};
 		if (state.notice != "recovery-required" && state.notice != "save-failed") state.notice = safe.contains(error.what()) ? error.what() : "operation-failed";
 	}
 	return state.Snapshot(canEdit, details);
+}
+
+bool AccountService::IsTesting() const { return m_impl->connection == 1; }
+void AccountService::PrepareLaunch() { m_impl->ApplyNetwork(); }
+void AccountService::RunConnectionTest()
+{
+	if (!IsTesting()) return;
+	try
+	{
+		NAPI::AuthInfo auth;
+		if (!NAPI::NAPI_MakeAuthInfoFromCurrentAccount(auth)) { m_impl->connection = 3; return; }
+		auth.serviceOverwrite = ActiveSettings::GetNetworkService();
+		const auto result = NAPI::ACT_TestAccountLogin(auth, 0x00050000101dbe00ULL, 560);
+		m_impl->connection = result.isValid() ? 2 : 3;
+	}
+	catch (...) { m_impl->connection = 3; }
+}
+std::string AccountService::ImportCustom(const fs::path& selectedFile, bool canEdit, bool replaceExisting)
+{
+	try
+	{
+		RequireAccount(canEdit && IsHealthy(), "not-ready"); CheckPath(selectedFile);
+		RequireAccount(LowerPath(_pathToUtf8(selectedFile.extension())) == ".xml", "custom-invalid");
+		const auto bytes = Read(selectedFile, 64 * 1024); m_impl->ValidateCustom(bytes);
+		const auto path = m_impl->portable / "network_services.xml";
+		RequireAccount(!fs::exists(path) || Read(path) == bytes || replaceExisting, "replacement-confirmation-required");
+		if (!fs::exists(path) || Read(path) != bytes) { m_impl->Commit({{path, bytes}}); m_impl->restartRequired = true; }
+		m_impl->ApplyNetwork();
+	}
+	catch (...) { m_impl->notice = "custom-invalid"; }
+	return m_impl->Snapshot(canEdit);
 }

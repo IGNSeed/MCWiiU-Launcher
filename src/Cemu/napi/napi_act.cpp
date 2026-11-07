@@ -59,7 +59,7 @@ namespace NAPI
 					result.apiError = NAPI_RESULT::SERVICE_ERROR;
 					result.serviceError = (ACT_ERROR_CODE)errorCode;
 					cemuLog_log(LogType::Force, "Account response with error code {}", errorCode);
-					if(!errorCodeMsg.empty())
+					if(!GetNetworkConfig().requireVerifiedTLS && !errorCodeMsg.empty())
 						cemuLog_log(LogType::Force, "Message from server: {}", errorCodeMsg);
 				}
 			}
@@ -128,7 +128,7 @@ namespace NAPI
 	std::mutex g_oauthTokenCacheMtx;
 
 	// look up oauth token in cache, otherwise request from server
-	ACTOauthToken ACT_GetOauthToken_WithCache(AuthInfo& authInfo, uint64 titleId, uint16 titleVersion)
+	ACTOauthToken ACT_GetOauthToken_WithCache(AuthInfo& authInfo, uint64 titleId, uint16 titleVersion, bool testConnection = false)
 	{
 		ACTOauthToken result{};
 		
@@ -138,7 +138,7 @@ namespace NAPI
 		auto cacheItr = g_oauthTokenCache.begin();
 		while (cacheItr != g_oauthTokenCache.end())
 		{
-			if (cacheItr->CheckIfSameAccount(authInfo) && cacheItr->service == service)
+			if (!testConnection && cacheItr->CheckIfSameAccount(authInfo) && cacheItr->service == service)
 			{
 				if (cacheItr->CheckIfExpired())
 				{
@@ -158,6 +158,8 @@ namespace NAPI
 		CurlRequestHelper req;
 
 		req.initate(authInfo.GetService(), fmt::format("{}/v1/api/oauth20/access_token/generate", _getACTUrl(authInfo.GetService())), CurlRequestHelper::SERVER_SSL_CONTEXT::ACT);
+		if (testConnection) req.setTimeout(10);
+		curl_easy_setopt(req.getCURL(), CURLOPT_FOLLOWLOCATION, 0L);
 		_ACTSetCommonHeaderParameters(req, authInfo);
 		_ACTSetDeviceParameters(req, authInfo);
 		_ACTSetRegionAndCountryParameters(req, authInfo);
@@ -229,13 +231,20 @@ namespace NAPI
 		expiration = std::max(expiration - 30LL, 0LL); // subtract a few seconds to compensate for the web request delay
 
 		// update cache
-		if (expiration > 0)
+		// 接続テストのトークンは、繰返し操作で常用キャッシュへ蓄積させない。
+		if (expiration > 0 && !testConnection)
 		{
 			g_oauthTokenCacheMtx.lock();
 			g_oauthTokenCache.emplace_back(authInfo.accountId, authInfo.passwordHash, result.token, result.refreshToken, expiration, service);
 			g_oauthTokenCacheMtx.unlock();
 		}
 		return result;
+	}
+
+	_NAPI_CommonResultACT ACT_TestAccountLogin(AuthInfo& authInfo, uint64 titleId, uint16 titleVersion)
+	{
+		const auto result = ACT_GetOauthToken_WithCache(authInfo, titleId, titleVersion, true);
+		return {result.apiError, result.serviceError};
 	}
 
 	bool ACT_GetProfile(AuthInfo& authInfo, ACTGetProfileResult& result)

@@ -495,13 +495,13 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .av-slider input { flex:1; min-width:60px; }
 .av-slider output { min-width:58px; text-align:right; font-size:.8125rem; font-variant-numeric:tabular-nums; }
 .settings-content .setting-row>div:first-child { min-width:0; }
-.settings-content input[type="checkbox"] { width:18px; height:18px; flex-shrink:0; }
+.settings-content input[type="checkbox"]:not(.toggle) { width:18px; height:18px; flex-shrink:0; }
 
 .settings-title-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; flex-shrink:0; }
 #settings .settings-title-row h1 { margin-bottom:0; }
 [data-return-game][hidden] { display:none; }
 .settings-title-row button { padding:8px 14px; font-size:.8125rem; }
-#account-management { border:0; padding:0; margin:0; }
+#account-management,#account-management-actions { border:0; padding:0; margin:0; }
 .account-identity { display:flex; align-items:center; gap:16px; }
 .account-avatar { display:grid; place-items:center; width:46px; height:46px; border:1px solid #66666e; border-radius:50%; color:#aaaab3; font-size:22px; }
 .account-actions { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
@@ -519,7 +519,7 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .account-form-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin:16px 0; }
 .account-form-row label { font-size:.875rem; }
 .account-form-row input,.account-form-row select { width:280px; max-width:100%; min-height:40px; border:1px solid #55555e; border-radius:5px; padding:9px 12px; color:inherit; background:#131317; font:inherit; }
-.toggle-row { cursor:pointer; }
+.settings-content .toggle-row { cursor:pointer; flex-direction:row; align-items:center; }
 .toggle-row .toggle { appearance:none; width:42px; height:24px; border:1px solid #65656d; border-radius:13px; background:#27272c; position:relative; cursor:pointer; flex-shrink:0; transition:background .15s; }
 .toggle-row .toggle::before { content:""; position:absolute; width:16px; height:16px; top:3px; left:3px; border-radius:50%; background:#888890; transition:transform .15s,background .15s; }
 .toggle-row .toggle:checked { background:#e2e2e7; border-color:#e2e2e7; }
@@ -533,3 +533,8 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .overlay-color input[type="text"] { width:110px; font-variant-numeric:tabular-nums; }
 .overlay-color input[type="number"] { width:78px; }
 .overlay-color label { font-size:.75rem; color:#aaaab3; }
+
+#account-custom[hidden] { display:none; }
+#account-network-section { padding:0; margin-bottom:24px; }
+#account-custom label,#account-preview > label { display:block; margin:12px 0; }
+#account-online-files { overflow-wrap:anywhere; max-height:220px; overflow:auto; font-size:.8125rem; }

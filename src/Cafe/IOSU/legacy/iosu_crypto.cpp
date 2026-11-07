@@ -551,6 +551,8 @@ void iosuCrypto_loadSSLCertificates()
 	iosuCryptoCertificates.hasCertificates = hasAllCertificates; // true
 }
 
+bool iosuCrypto_hasValidCertificates() { return iosuCryptoCertificates.hasCertificates; }
+
 void iosuCrypto_init()
 {
 	// load OTP dump

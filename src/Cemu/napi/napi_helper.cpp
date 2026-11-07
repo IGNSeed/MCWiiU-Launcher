@@ -158,7 +158,15 @@ void CurlRequestHelper::initate(NetworkService service, std::string url, SERVER_
 
 	// SSL
 	curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYPEER, 1L);
-	if (IsNetworkServiceSSLDisabled(service))
+	if (GetNetworkConfig().requireVerifiedTLS && service != NetworkService::Nintendo)
+	{
+		curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYHOST, 2L);
+		curl_easy_setopt(m_curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+		curl_easy_setopt(m_curl, CURLOPT_CAINFO, nullptr);
+		curl_easy_setopt(m_curl, CURLOPT_FOLLOWLOCATION, 0L);
+		curl_easy_setopt(m_curl, CURLOPT_SSL_CTX_FUNCTION, nullptr);
+	}
+	else if (IsNetworkServiceSSLDisabled(service))
 	{
 		curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYPEER, 0L);
 	}
@@ -279,7 +287,7 @@ bool CurlRequestHelper::submitRequest(bool isPost)
 		cemuLog_log(LogType::Force, "HTTP request received response {} but expected 200", httpCode);
 		char* effectiveUrl = nullptr;
 		curl_easy_getinfo(m_curl, CURLINFO_EFFECTIVE_URL, &effectiveUrl);
-		if (effectiveUrl)
+		if (effectiveUrl && !GetNetworkConfig().requireVerifiedTLS)
 			cemuLog_log(LogType::Force, "Request: {}", effectiveUrl);
 		// error status codes (4xx or 5xx range) are always considered a failed request, except for code 400 which is usually returned as a response to failed logins etc.
 		if (httpCode >= 400 && httpCode <= 599 && httpCode != 400)
@@ -303,7 +311,14 @@ CurlSOAPHelper::CurlSOAPHelper(NetworkService service)
 	curl_easy_setopt(m_curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 
 	// SSL
-	if (!IsNetworkServiceSSLDisabled(service))
+	if (GetNetworkConfig().requireVerifiedTLS && service != NetworkService::Nintendo)
+	{
+		curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYPEER, 1L);
+		curl_easy_setopt(m_curl, CURLOPT_SSL_VERIFYHOST, 2L);
+		curl_easy_setopt(m_curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+		curl_easy_setopt(m_curl, CURLOPT_CAINFO, nullptr);
+	}
+	else if (!IsNetworkServiceSSLDisabled(service))
 	{
 		curl_easy_setopt(m_curl, CURLOPT_SSL_CTX_FUNCTION, _sslctx_function_SOAP);
 		curl_easy_setopt(m_curl, CURLOPT_SSL_CTX_DATA, NULL);

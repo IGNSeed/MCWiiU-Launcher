@@ -186,6 +186,16 @@
             <h2 class="settings-heading">Active Account</h2>
             <fieldset id="account-management" disabled>
               <div class="setting-row"><div class="account-identity"><span class="account-avatar" aria-hidden="true">●</span><div><label for="account-active">Active Account</label><p id="account-count">読み込み待ち</p></div></div><select id="account-active" aria-label="Active Account"></select></div>
+            </fieldset>
+            <section id="account-network-section">
+              <h2 class="settings-heading">Network Service</h2>
+              <div class="setting-row"><label for="account-network">Network Service</label><select id="account-network" disabled><option>Offline</option><option>Pretendo</option><option>Custom</option></select></div>
+              <p id="account-network-status" class="footnote" role="status"></p>
+              <div id="account-custom" hidden><button id="account-custom-select" type="button" disabled>Select network_services.xml</button><label class="footnote"><input id="account-custom-replace" type="checkbox"> 既存のCustom設定をバックアップして置換する</label></div>
+              <button id="account-test-connection" type="button" disabled>Test Connection</button>
+              <p class="footnote">選択したサービスへ認証情報を送信します。接続テストはボタン操作時、ゲーム通信はPlay後に開始します。</p>
+            </section>
+            <fieldset id="account-management-actions" disabled>
               <h2 class="settings-heading">Account Management</h2>
               <div class="account-actions"><button id="account-create" type="button">Create Account</button><button id="account-edit" type="button">Edit Account</button><button id="account-delete" type="button">Delete Account</button></div>
             </fieldset>
@@ -198,10 +208,7 @@
               <p>Import from Dumpling</p><p class="footnote">Drag and drop a Dumpling ZIP file</p>
               <button id="account-select-zip" type="button" disabled>Select ZIP File</button>
             </div>
-            <div id="account-preview" hidden><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
-            <h2 class="settings-heading">Network Service</h2>
-            <div class="setting-row"><label for="account-network">Network Service</label><select id="account-network" disabled><option>Offline</option><option>Pretendo</option><option>Custom</option></select></div>
-            <p class="footnote">Connection support planned for Phase 0.4P<br>希望設定を保存します。現在のゲーム通信はOfflineです。</p>
+            <div id="account-preview" hidden><label class="footnote" for="account-import-mode">Import Mode</label><select id="account-import-mode"><option value="account">Account Only</option><option value="online">Account + Online Files</option></select><label class="footnote"><input id="account-online-replace" type="checkbox"> 表示された異なるOnline Filesをバックアップして置換する</label><details><summary>Online Files</summary><ul id="account-online-files"></ul></details><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
             <p id="account-notice" class="footnote" role="status" aria-live="polite"></p>
           </div>
         </div>
