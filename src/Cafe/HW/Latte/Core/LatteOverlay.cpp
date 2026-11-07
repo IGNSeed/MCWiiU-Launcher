@@ -14,6 +14,30 @@
 #include "util/SystemInfo/SystemInfo.h"
 
 #include <cinttypes>
+#include <optional>
+
+namespace
+{
+	std::mutex s_settingsMutex;
+	std::optional<LatteOverlaySettings> s_settings;
+	std::atomic_uint s_controlInset{0};
+	std::atomic_uint64_t s_renderedRevision{0};
+	LatteOverlaySettings ReadOverlaySettings()
+	{
+		std::lock_guard lock(s_settingsMutex);
+		if (s_settings) return *s_settings;
+		return {GetConfig().overlay, GetConfig().notification};
+	}
+}
+
+void LatteOverlay_setSettings(const LatteOverlaySettings& settings)
+{
+	std::lock_guard lock(s_settingsMutex);
+	s_settings = settings;
+}
+bool LatteOverlay_friendsEnabled() { return ReadOverlaySettings().notification.friends; }
+void LatteOverlay_setControlInset(unsigned pixels) { s_controlInset = pixels; }
+uint64 LatteOverlay_getRenderedRevision() { return s_renderedRevision; }
 
 struct OverlayStats
 {
@@ -68,17 +92,15 @@ struct OverlayList
 const auto kPopupFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
 const float kBackgroundAlpha = 0.65f;
-void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 direction, float fontSize, bool pad)
+void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 direction, float fontSize, bool pad, const LatteOverlaySettings& config)
 {
-	auto& config = GetConfig();
-
 	const auto font = ImGui_GetFont(fontSize);
 	ImGui::PushFont(font);
 
 	const ImVec4 color = ImGui::ColorConvertU32ToFloat4(config.overlay.text_color);
 	ImGui::PushStyleColor(ImGuiCol_Text, color);
 	// stats overlay
-	if (config.overlay.fps || config.overlay.drawcalls || config.overlay.cpu_usage || config.overlay.cpu_per_core_usage || config.overlay.ram_usage)
+	if (config.overlay.fps || config.overlay.drawcalls || config.overlay.cpu_usage || config.overlay.cpu_per_core_usage || config.overlay.ram_usage || config.overlay.vram_usage || config.overlay.debug)
 	{
 		ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
 		ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
@@ -126,10 +148,8 @@ void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 directio
 	ImGui::PopFont();
 }
 
-void LatteOverlay_RenderNotifications(ImVec2& position, ImVec2& pivot, sint32 direction, float fontSize, bool pad)
+void LatteOverlay_RenderNotifications(ImVec2& position, ImVec2& pivot, sint32 direction, float fontSize, bool pad, const LatteOverlaySettings& config)
 {
-	auto& config = GetConfig();
-
 	const auto font = ImGui_GetFont(fontSize);
 	ImGui::PushFont(font);
 
@@ -490,7 +510,7 @@ void LatteOverlay_translateScreenPosition(ScreenPosition pos, const Vector2f& wi
 		direction = 1;
 		break;
 	case ScreenPosition::kTopRight:
-		position = { window_size.x - 10, 10 };
+		position = { window_size.x - 10, std::max(10.0f, static_cast<float>(s_controlInset.load())) };
 		pivot = { 1, 0 };
 		direction = 1;
 		break;
@@ -516,9 +536,12 @@ void LatteOverlay_translateScreenPosition(ScreenPosition pos, const Vector2f& wi
 
 void LatteOverlay_render(bool pad_view)
 {
-	const auto& config = GetConfig();
+	const auto config = ReadOverlaySettings();
 	if(config.overlay.position == ScreenPosition::kDisabled && config.notification.position == ScreenPosition::kDisabled)
+	{
+		s_renderedRevision = config.revision;
 		return;
+	}
 
 	sint32 w = 0, h = 0;
 	if (pad_view && WindowSystem::IsPadWindowOpen())
@@ -544,13 +567,14 @@ void LatteOverlay_render(bool pad_view)
 	if (!ImGui_GetFont(notificationsFontSize))
 		return;
 
+	s_renderedRevision = config.revision;
 	ImVec2 position{}, pivot{};
 	sint32 direction{};
 
 	if (config.overlay.position != ScreenPosition::kDisabled)
 	{
 		LatteOverlay_translateScreenPosition(config.overlay.position, window_size, position, pivot, direction);
-		LatteOverlay_renderOverlay(position, pivot, direction, overlayFontSize, pad_view);
+		LatteOverlay_renderOverlay(position, pivot, direction, overlayFontSize, pad_view, config);
 	}
 	
 
@@ -559,7 +583,7 @@ void LatteOverlay_render(bool pad_view)
 		if(config.overlay.position != config.notification.position)
 			LatteOverlay_translateScreenPosition(config.notification.position, window_size, position, pivot, direction);
 
-		LatteOverlay_RenderNotifications(position, pivot, direction, notificationsFontSize, pad_view);
+		LatteOverlay_RenderNotifications(position, pivot, direction, notificationsFontSize, pad_view, config);
 	}
 }
 
@@ -599,7 +623,7 @@ static void UpdateStats_CpuPerCore()
 
 void LatteOverlay_updateStats(double fps, sint32 drawcalls, sint32 fastDrawcalls)
 {
-	if (GetConfig().overlay.position == ScreenPosition::kDisabled)
+	if (ReadOverlaySettings().overlay.position == ScreenPosition::kDisabled)
 		return;
 
 	g_state.fps = fps;

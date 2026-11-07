@@ -37,13 +37,12 @@
           <div><h2>ゲームを準備しています</h2><p>起動状態を確認しています。</p></div>
           <button id="play" type="button" disabled aria-describedby="launch-note">Play</button>
         </div>
-        <button id="stop-game" type="button" disabled aria-describedby="stop-note">ゲームを終了</button>
-        <p id="stop-note" class="footnote">ゲームを停止する前に、Minecraft 内でセーブしてタイトル画面へ戻ってください。</p>
-        <p id="launch-note" class="footnote">F10：ランチャー画面へ戻る · F11：ゲームのフルスクリーン表示・解除</p>
+        <button id="return-home-game" type="button" data-return-game hidden>ゲームに戻る</button>
+        <p id="launch-note" class="footnote">F10：ゲーム終了の確認 · F11：ゲームのフルスクリーン表示・解除</p>
         <div class="details"><span>対象タイトル</span><strong>Minecraft: Wii U Edition</strong><span>対象バージョン</span><strong>v560</strong></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
-        <h1 id="settings-title">Settings</h1>
+        <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
         <div class="settings-tabs" role="tablist" aria-label="Settings">
           <button id="tab-general" type="button" role="tab" aria-selected="true" aria-controls="panel-general" data-tab="general" tabindex="0">General</button>
           <button id="tab-input" type="button" role="tab" aria-selected="false" aria-controls="panel-input" data-tab="input" tabindex="-1">Input</button>
@@ -85,7 +84,7 @@
                 <div id="input-reset-confirmation" hidden><p class="footnote">現在の割当と左右のデッドゾーンを既定値へ戻します。変更前の Profile はバックアップされます。</p><button id="input-reset-cancel" type="button">キャンセル</button> <button id="input-reset-confirm" type="button">既定値へ戻す</button></div>
               </fieldset>
             </fieldset>
-            <p id="input-note" class="footnote" role="status">ゲーム停止後、準備完了になると変更できます。</p>
+            <p id="input-note" class="footnote" role="status">準備完了後とゲーム実行中に変更できます。</p>
             <div id="capture-actions" hidden><button id="input-capture-skip" type="button">Skip</button> <button id="input-capture-cancel" type="button">Cancel</button> <button id="input-capture-finish" type="button">Finish</button></div>
             <h2 class="settings-heading">Controller Input Test</h2>
             <div class="stick-tests">
@@ -138,6 +137,7 @@
             <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
             <fieldset id="av-audio" disabled><legend class="visually-hidden">Audio Settings</legend>
             <h2 class="settings-heading">General</h2>
+              <label class="checkbox-row"><input id="av-introSound" type="checkbox">Enable Intro Sound</label>
               <div class="setting-row"><div><label for="av-audioApi">Audio API</label></div><select id="av-audioApi"></select></div>
               <div class="setting-row"><div><label for="av-latency">Audio Latency</label></div><div class="av-slider"><input id="av-latency" type="range" min="0" max="23" step="1"><output id="av-latency-value"></output></div></div>
             <h2 class="settings-heading">TV Output</h2>
@@ -153,13 +153,34 @@
               <div class="setting-row"><div><label for="av-micChannels">Channels</label></div><span>Mono</span></div>
               <div class="setting-row"><div><label for="av-micVolume">Input Volume</label></div><div class="av-slider"><input id="av-micVolume" type="range" min="0" max="100" step="1"><output id="av-micVolume-value"></output></div></div>
             </fieldset>
-            <p id="audio-settings-note" class="footnote" role="status">ゲーム停止後に変更できます。</p>
+            <p id="audio-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
             <p id="audio-stream-note" class="footnote"></p>
-            <p class="footnote">変更は次回Playで適用されます。Microphoneはゲームが入力を要求したときに使用します。</p>
+            <p class="footnote">音声設定は実行中にも反映されます。Intro Sound は次回Playから適用します。Microphoneはゲームが入力を要求したときに使用します。</p>
           </div>
           <div id="panel-overlay" role="tabpanel" aria-labelledby="tab-overlay" hidden>
-            <h2 class="settings-heading">Overlay</h2>
-            <p class="footnote">Cemu Overlay の FPS・Draw Calls・CPU・RAM・VRAM 表示、色・サイズ・位置、各種通知の設定は今後対応予定です。現在の設定は維持されます。</p>
+            <fieldset id="av-overlay" disabled><legend class="visually-hidden">Overlay Settings</legend>
+            <h2 class="settings-heading">Performance Overlay</h2>
+            <div class="setting-row"><label for="av-overlayPosition">Position</label><select id="av-overlayPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
+            <div class="setting-row"><label for="av-overlayColor">Text Color</label><div class="overlay-color"><input id="av-overlayColor" type="color" aria-label="Performance Overlay Color Picker"><input id="av-overlayColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Performance Overlay HEX" autocomplete="off" spellcheck="false"><label for="av-overlayColor-alpha">Alpha</label><input id="av-overlayColor-alpha" type="number" min="0" max="255" step="1"></div></div>
+            <div class="setting-row"><label for="av-overlayScale">Text Scale</label><div class="av-slider"><input id="av-overlayScale" type="range" min="50" max="300" step="25"><output id="av-overlayScale-value"></output></div></div>
+            <label class="checkbox-row"><input id="av-overlayFps" type="checkbox">FPS</label>
+            <label class="checkbox-row"><input id="av-overlayDrawCalls" type="checkbox">Draw Calls</label>
+            <label class="checkbox-row"><input id="av-overlayCpu" type="checkbox">CPU Usage</label>
+            <label class="checkbox-row"><input id="av-overlayCpuPerCore" type="checkbox">CPU per Core Usage</label>
+            <label class="checkbox-row"><input id="av-overlayRam" type="checkbox">RAM Usage</label>
+            <label class="checkbox-row"><input id="av-overlayVram" type="checkbox">VRAM Usage</label>
+            <label class="checkbox-row"><input id="av-overlayDebug" type="checkbox">Debug Information</label>
+            <h2 class="settings-heading">Notifications</h2>
+            <div class="setting-row"><label for="av-notificationPosition">Position</label><select id="av-notificationPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
+            <div class="setting-row"><label for="av-notificationColor">Text Color</label><div class="overlay-color"><input id="av-notificationColor" type="color" aria-label="Notifications Color Picker"><input id="av-notificationColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Notifications HEX" autocomplete="off" spellcheck="false"><label for="av-notificationColor-alpha">Alpha</label><input id="av-notificationColor-alpha" type="number" min="0" max="255" step="1"></div></div>
+            <div class="setting-row"><label for="av-notificationScale">Text Scale</label><div class="av-slider"><input id="av-notificationScale" type="range" min="50" max="300" step="25"><output id="av-notificationScale-value"></output></div></div>
+            <label class="checkbox-row"><input id="av-notificationProfiles" type="checkbox">Controller Profile</label>
+            <label class="checkbox-row"><input id="av-notificationBattery" type="checkbox">Controller Battery</label>
+            <label class="checkbox-row"><input id="av-notificationShaders" type="checkbox">Shader Compiling</label>
+            <label class="checkbox-row"><input id="av-notificationFriends" type="checkbox">Friends</label>
+            </fieldset>
+            <p id="overlay-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
+            <p class="footnote">変更はゲーム実行中にも反映され、自動保存されます。Debug Information は描画APIが提供する情報を表示します。Friends は通知の表示設定で、オンライン接続を開始しません。</p>
           </div>
           <div id="panel-account" role="tabpanel" aria-labelledby="tab-account" hidden>
             <h2 class="settings-heading">Account</h2>
@@ -172,11 +193,11 @@
     </main>
   </div>
   <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
-    <h2 id="stop-confirmation-title">Minecraft を終了しますか？</h2>
+    <h2 id="stop-confirmation-title">Minecraftを終了しますか？</h2>
     <p id="stop-confirmation-description">この操作ではゲームの進行状況を保存しません。<br>保存していない変更は失われる可能性があります。<br>先に Minecraft 内で「Exit and save」を実行してください。</p>
     <div class="dialog-actions">
       <button id="stop-cancel" type="button" autofocus>キャンセル</button>
-      <button id="stop-confirm" type="button">ゲームを停止する</button>
+      <button id="stop-confirm" type="button">ゲームを終了</button>
     </div>
   </dialog>
 </body>

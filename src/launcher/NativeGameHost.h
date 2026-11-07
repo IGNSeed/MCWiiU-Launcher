@@ -38,6 +38,7 @@ private:
 	static LRESULT CALLBACK ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
 	void UpdateLayout();
 	void UpdateControls();
+	LRESULT ControlMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	void Release();
 	bool OnUiThread() const;
 	void RestoreWebViewFocus();

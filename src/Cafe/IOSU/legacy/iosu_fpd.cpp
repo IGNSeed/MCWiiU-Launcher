@@ -4,6 +4,7 @@
 #include "Cemu/nex/nexFriends.h"
 #include "util/helpers/helpers.h"
 #include "config/CemuConfig.h"
+#include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/CafeSystem.h"
 #include "config/ActiveSettings.h"
 #include "Cemu/napi/napi.h"
@@ -86,7 +87,7 @@ namespace iosu
 		void OverlayNotificationHandler(NexFriends::NOTIFICATION_TYPE type, uint32 pid)
 		{
 			cemuLog_logDebug(LogType::Force, "Friends::Notification {:02x} pid {:08x}", type, pid);
-			if(!GetConfig().notification.friends)
+			if(!LatteOverlay_friendsEnabled())
 				return;
 			std::unique_lock lock(g_friend_notification_mutex);
 			std::string message;

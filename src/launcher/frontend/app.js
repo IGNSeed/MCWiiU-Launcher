@@ -28,14 +28,17 @@ play.addEventListener("click", () => {
   play.disabled = true;
   windowCommand("game:start");
 });
-const stopGame = document.getElementById("stop-game");
+let returnAfterSaves = false;
+document.querySelectorAll("[data-return-game]").forEach(button => button.addEventListener("click", () => {
+  if (window.launcherCoreState?.canStopGame !== true) return;
+  returnAfterSaves = true;
+  drainSaves();
+}));
 const stopDialog = document.getElementById("stop-confirmation");
 const stopCancel = document.getElementById("stop-cancel");
 const stopConfirm = document.getElementById("stop-confirm");
 let stopConfirmation = null;
-let stopRequestPending = false;
 let stopConfirmPending = false;
-let restoreStopFocus = false;
 function validId(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
@@ -43,17 +46,9 @@ function cancelStop() {
   if (!stopConfirmation || stopConfirmPending) return;
   const { sessionId, confirmationId } = stopConfirmation;
   stopConfirmation = null;
-  restoreStopFocus = true;
   stopDialog.close();
   windowCommand(`game:stop-cancel:${sessionId}:${confirmationId}`);
 }
-stopGame.addEventListener("click", () => {
-  const state = window.launcherCoreState;
-  if (stopGame.disabled || state?.canStopGame !== true || !validId(state.sessionId)) return;
-  stopRequestPending = true;
-  stopGame.disabled = true;
-  windowCommand(`game:stop-request:${state.sessionId}`);
-});
 stopCancel.addEventListener("click", cancelStop);
 stopDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
@@ -95,7 +90,6 @@ window.addEventListener("launcher-core-state", (event) => {
   document.querySelector(".launch-panel p").textContent = state.error || description;
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
-  stopRequestPending = false;
   if (hasConfirmation) {
     if (!stopConfirmation || stopConfirmation.confirmationId !== state.stopConfirmationId || stopConfirmation.sessionId !== state.sessionId) {
       stopConfirmation = { sessionId: state.sessionId, confirmationId: state.stopConfirmationId };
@@ -109,11 +103,8 @@ window.addEventListener("launcher-core-state", (event) => {
     stopConfirmation = null;
     stopConfirmPending = false;
     if (wasOpen) stopDialog.close();
-    stopGame.disabled = state.canStopGame !== true;
-    if ((wasOpen || restoreStopFocus) && !stopGame.disabled) stopGame.focus();
-    restoreStopFocus = false;
   }
-  stopGame.disabled = state.canStopGame !== true || hasConfirmation || stopRequestPending;
+  document.querySelectorAll("[data-return-game]").forEach(button => { button.hidden = state.canStopGame !== true || hasConfirmation; button.disabled = settingsBusy(); });
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
   const titleStopping = phase === "title-stopping" || phase === "title-stopped";
   navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
@@ -201,6 +192,7 @@ function drainSaves() {
   updatePlay();
   if (avQueue.length) { drainAv(); return; }
   if (closeAfterSaves) windowCommand("window:close-confirmed");
+  else if (returnAfterSaves) { returnAfterSaves = false; stopInputView(); windowCommand("game:return"); }
 }
 function renderNative(force = false) {
   const values = draft("native");
@@ -384,14 +376,14 @@ let inputSnapshot = null, pendingInput = null;
 let inputSequence = Date.now() * 1000, inputViewId = 1;
 let settingsTimer = null, inputTimer = null, inputPollPending = false, inputPollDeadline = 0, lastCaptureId = 0;
 const inputMessages = {
-  ready:"変更は自動保存されます。ゲーム実行中は編集できません。",
+  ready:"変更は自動保存されます。ゲームに戻ると新しい割当を使用します。",
   saved:"Profile を保存し、再読込を確認しました。",
   "saved-duplicate":"保存しました。同じ物理入力が複数の割当に設定されています。",
   "save-failed":"保存できませんでした。保存前の設定へ戻しました。もう一度操作すると再試行できます。",
   "recovery-required":"Profile の復旧が必要です。バックアップを保護してランチャーを終了してください。",
   "stale-request":"古い操作は反映しませんでした。画面の最新の設定を確認してください。",
   rejected:"操作を反映できませんでした。Profile 名・重複する名前・機器の接続状態を確認してください。",
-  "not-ready":"ゲーム停止後、準備完了になると変更できます。",
+  "not-ready":"起動・終了処理中は変更できません。",
   "release-inputs":"すべてのボタンとスティックを離してください（10秒以内）。",
   "press-input":"ボタンを押してください。スティック・トリガーは大きく動かしてください。",
   "capture-timeout":"入力待機を終了しました。もう一度割当を選択してください。",
@@ -405,7 +397,7 @@ const inputMessages = {
 };
 function inputActive() { return !document.getElementById("settings").hidden && selectedTab === "input" && !document.hidden && !closeAfterSaves; }
 function inputCommand(values) {
-  if (pendingInput || pendingSave || pendingAv || closeAfterSaves || window.launcherCoreState?.canEditNativeSettings !== true) return;
+  if (pendingInput || pendingSave || pendingAv || closeAfterSaves || window.launcherCoreState?.canEditInput !== true) return;
   pendingInput = ++inputSequence;
   inputControls.disabled = true;
   updatePlay();
@@ -422,7 +414,7 @@ function options(select, items, selectedValue) {
 function renderInput(info, state = window.launcherCoreState) {
   if (info?.mapping) inputSnapshot = info;
   const current = inputSnapshot;
-  const editable = state?.canEditNativeSettings === true && !pendingInput && !closeAfterSaves;
+  const editable = state?.canEditInput === true && !pendingInput && !closeAfterSaves;
   inputControls.disabled = !editable;
   inputEdit.disabled = !current?.connected;
   document.getElementById("deadzone-controls").disabled = !editable || !current?.connected;
@@ -545,14 +537,22 @@ document.addEventListener("visibilitychange", () => { stopInputView(); updateInp
 window.addEventListener("blur", () => { windowCommand("input:cancel"); clearLiveInput(); });
 
 const avKeys = ["graphicsApi","gpu","vsync","async","fullSync","upscale","downscale","scaling","audioApi","latency","tvDevice","tvChannels","tvVolume","padDevice","padVolume","micDevice","micVolume"];
+const graphicsAvKeys = avKeys.slice(0, 8);
+const overlayAvKeys = ["overlayPosition","overlayColor","overlayScale","overlayFps","overlayDrawCalls","overlayCpu","overlayCpuPerCore","overlayRam","overlayVram","overlayDebug","notificationPosition","notificationColor","notificationScale","notificationProfiles","notificationBattery","notificationShaders","notificationFriends"];
+avKeys.push("introSound", ...overlayAvKeys);
+function avCategory(key) { return graphicsAvKeys.includes(key) ? "graphics" : overlayAvKeys.includes(key) ? "overlay" : "audio"; }
+function canEditAv(key, state = window.launcherCoreState) { return state?.[avCategory(key) === "graphics" ? "canEditNativeSettings" : avCategory(key) === "overlay" ? "canEditOverlay" : "canEditAudio"] === true; }
+function colorHex(rgba) { return "#" + [rgba & 255, (rgba >>> 8) & 255, (rgba >>> 16) & 255].map(channel => channel.toString(16).padStart(2,"0")).join("").toUpperCase(); }
+function colorRgba(hex, alpha) { return (parseInt(hex.slice(1,3),16) | parseInt(hex.slice(3,5),16) << 8 | parseInt(hex.slice(5,7),16) << 16 | alpha << 24) >>> 0; }
+
 const avQueue = [];
 let avSnapshot = null, pendingAv = null, avSequence = Date.now() * 1000;
 const avLabels = ["DirectSound","XAudio2 2.7","XAudio2","Cubeb"];
-function avNote(key,text) { document.getElementById(avKeys.indexOf(key) < 8 ? "graphics-settings-note" : "audio-settings-note").textContent = text; }
+function avNote(key,text) { document.getElementById(avCategory(key) + "-settings-note").textContent = text; }
 function renderAv(info, state = window.launcherCoreState) {
   if (info?.values) avSnapshot = info;
-  const current = avSnapshot, editable = state?.canEditNativeSettings === true && !closeAfterSaves && !pendingAv;
-  document.getElementById("av-graphics").disabled = document.getElementById("av-audio").disabled = !editable;
+  const current = avSnapshot;
+  for (const [id,key] of [["av-graphics","graphicsApi"],["av-audio","audioApi"],["av-overlay","overlayPosition"]]) document.getElementById(id).disabled = !canEditAv(key,state) || closeAfterSaves || pendingAv !== null || !!state?.stopConfirmationId;
   if (!current) return;
   const values = current.values;
   const select = (key, items) => {
@@ -572,7 +572,13 @@ function renderAv(info, state = window.launcherCoreState) {
     if (key === "gpu" && values.graphicsApi === 0) continue;
     if (pendingAv?.key === key || avQueue.some(item => item.key === key)) continue;
     const control = document.getElementById("av-" + key);
-    if (control.type === "checkbox") control.checked = values[key];
+    if (control.type === "color") {
+      control.value = colorHex(values[key]);
+      const hex = document.getElementById(control.id + "-hex"), alpha = document.getElementById(control.id + "-alpha");
+      if (document.activeElement !== hex) { hex.value = control.value.toUpperCase(); hex.setCustomValidity(""); }
+      if (document.activeElement !== alpha) alpha.value = String(values[key] >>> 24);
+    }
+    else if (control.type === "checkbox") control.checked = values[key];
     else if (control.type !== "range" || document.activeElement !== control || ["save-failed","rejected"].includes(current.notice)) control.value = String(values[key]);
     if (control.type === "range") document.getElementById("av-" + key + "-value").value = Number(control.value) * (key === "latency" ? 12 : 1) + (key === "latency" ? " ms" : "%");
   }
@@ -581,12 +587,13 @@ function renderAv(info, state = window.launcherCoreState) {
   const missing = ["gpu","tvDevice","padDevice","micDevice"].filter(key => values[key] === -1);
   if (!pendingAv && current.notice !== "save-failed" && current.notice !== "rejected") {
     document.getElementById("graphics-settings-note").textContent = missing.includes("gpu") ? "保存したGPUが見つかりません。設定を保持し、起動時は既定GPUを使用します。" : "自動保存 · Applies on Next Play";
-    document.getElementById("audio-settings-note").textContent = missing.some(key => key !== "gpu") ? "保存した音声デバイスが見つかりません。設定を保持しています。接続または選択を確認してください。" : current.enumerationNotice ? "デバイス一覧を取得できませんでした。再接続を確認してください。" : "自動保存 · Applies on Next Play";
+    document.getElementById("audio-settings-note").textContent = missing.some(key => key !== "gpu") ? "保存した音声デバイスが見つかりません。設定を保持しています。接続または選択を確認してください。" : current.enumerationNotice ? "デバイス一覧を取得できませんでした。再接続を確認してください。" : state?.phase === "running" ? "自動保存 · 実行中の音声へ反映します。" : "自動保存";
+    document.getElementById("overlay-settings-note").textContent = "自動保存 · ゲーム実行中にも反映されます。";
   }
   document.getElementById("audio-stream-note").textContent = state?.phase === "running" ? `TV Stream: ${current.tvStream ? "作成済み" : values.tvDevice === 0 ? "Disabled" : "未初期化・出力を確認してください"} · GamePad Stream: ${current.padStream ? "作成済み" : values.padDevice === 0 ? "Disabled" : "未初期化"}` : "";
 }
 function avCommand(key,value) {
-  if (!avSnapshot || closeAfterSaves || window.launcherCoreState?.canEditNativeSettings !== true) return;
+  if (!avSnapshot || closeAfterSaves || !canEditAv(key)) return;
   const existing = avQueue.find(item => item.key === key);
   if (existing) existing.value = value; else avQueue.push({key,value});
   updatePlay(); drainSaves();
@@ -594,13 +601,24 @@ function avCommand(key,value) {
 function drainAv() {
   if (pendingAv || pendingSave || pendingInput || !avQueue.length) return;
   pendingAv = {...avQueue.shift(),requestId:++avSequence};
-  avNote(pendingAv.key,"Saving…");
+  avNote(pendingAv.key,"適用・保存しています…");
   windowCommand("av:command:" + pendingAv.requestId + ":" + JSON.stringify({key:pendingAv.key,value:pendingAv.value,revision:avSnapshot.revision}));
   renderAv(); updatePlay();
 }
 for (const key of avKeys) {
   const control = document.getElementById("av-" + key);
-  control.addEventListener("change", () => avCommand(key,control.type === "checkbox" ? control.checked : Number(control.value)));
+  if (control.type === "color") {
+    const hex = document.getElementById(control.id + "-hex"), alpha = document.getElementById(control.id + "-alpha");
+    const commit = value => {
+      const opacity = Number(alpha.value);
+      if (alpha.value === "" || !/^#[0-9A-Fa-f]{6}$/.test(value) || !Number.isInteger(opacity) || opacity < 0 || opacity > 255) { avNote(key,"#RRGGBB と Alpha 0〜255 を入力してください。無効な値は保存しません。"); return; }
+      hex.setCustomValidity(""); control.value = hex.value = value.toUpperCase(); avCommand(key,colorRgba(value,opacity));
+    };
+    control.addEventListener("change", () => commit(control.value));
+    hex.addEventListener("change", () => commit(hex.value));
+    hex.addEventListener("input", () => hex.setCustomValidity(/^#[0-9A-Fa-f]{6}$/.test(hex.value) ? "" : "#RRGGBB を入力してください。"));
+    alpha.addEventListener("change", () => commit(control.value));
+  } else control.addEventListener("change", () => avCommand(key,control.type === "checkbox" ? control.checked : Number(control.value)));
   if (control.type === "range") control.addEventListener("input", () => {
     document.getElementById("av-" + key + "-value").value = Number(control.value) * (key === "latency" ? 12 : 1) + (key === "latency" ? " ms" : "%");
   });
@@ -611,6 +629,6 @@ window.addEventListener("launcher-av-result", event => {
   if (result.values) avSnapshot = result;
   pendingAv = null;
   renderAv();
-  avNote(key,result.notice === "saved" ? "Saved · Applies on Next Play" : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  avNote(key,result.notice === "saved" ? (avCategory(key) === "graphics" || key === "introSound" ? "Saved · 次回Playで適用されます。" : "Applied · Saved") : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
   drainSaves(); updatePlay();
 });

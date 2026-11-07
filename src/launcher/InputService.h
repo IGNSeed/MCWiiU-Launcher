@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -14,6 +15,7 @@ public:
 	std::string Command(std::string_view payload);
 	std::string Poll();
 	void CancelCapture();
+	bool RefreshConnection(const std::function<void()>& beforeReconnect);
 	bool IsHealthy() const;
 
 private:

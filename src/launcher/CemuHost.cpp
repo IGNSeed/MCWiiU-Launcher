@@ -36,6 +36,7 @@ void requireConsole()
 namespace
 {
 	WindowSystem::WindowInfo s_windowInfo{};
+	std::atomic_bool s_inputRecoveryPending{false};
 	struct HostState;
 	std::weak_ptr<HostState> s_currentHost;
 	HostState* s_vulkanHost = nullptr;
@@ -100,6 +101,7 @@ namespace
 		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
 		std::string activeRenderer, rendererDevice;
 		std::string corePhase = "initializing", titlePhase = "idle", stopReason;
+		std::atomic_uint64_t inputReconnectCount{0};
 		std::atomic_uint64_t presents{0}, acquires{0}, swapchainCreates{0}, swapchainDestroys{0}, surfaceDestroys{0}, gameListRevision{0};
 		std::atomic<double> fps{0};
 		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
@@ -168,6 +170,22 @@ namespace
 			return request ? request->result.get() : true;
 		}
 
+		void RefreshInputConnection()
+		{
+			std::lock_guard workLock(workMutex);
+			std::lock_guard statusLock(statusMutex);
+			if (phase != "running" || !CanEditInputLocked()) return;
+			const bool neutral = input->RefreshConnection([] {
+				s_inputRecoveryPending = true;
+				s_windowInfo.set_keystatesup();
+			});
+			if (neutral && s_inputRecoveryPending.exchange(false))
+			{
+				++inputReconnectCount;
+				cemuLog_log(LogType::Force, "NativeHost controller reconnected without Settings: session={}", sessionId.load());
+			}
+		}
+
 		bool CanStopGameLocked() const
 		{
 			return corePhase == "ready" && phase == "running" && titlePhase == "running" && launch && !stop && !titleStop && !stopped && !failed;
@@ -176,6 +194,12 @@ namespace
 		{
 			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy());
 		}
+		bool CanEditLiveSettingsLocked() const
+		{
+			return corePhase == "ready" && (phase == "ready" || phase == "running") && !stop && !titleStop && !stopped && !failed && !confirmationId;
+		}
+		bool CanEditInputLocked() const { return CanEditLiveSettingsLocked() && input && input->IsHealthy(); }
+		bool CanEditAudioLocked() const { return CanEditLiveSettingsLocked() && av && av->IsHealthy(); }
 		void ClearStopConfirmationLocked()
 		{
 			confirmationId = confirmationSession = confirmationGeneration = 0;
@@ -197,6 +221,11 @@ namespace
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
 				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
+				writer.Key("inputRecoveryPending"); writer.Bool(s_inputRecoveryPending);
+				writer.Key("inputReconnectCount"); writer.Uint64(inputReconnectCount);
+				writer.Key("canEditInput"); writer.Bool(CanEditInputLocked());
+				writer.Key("canEditAudio"); writer.Bool(CanEditAudioLocked());
+				writer.Key("canEditOverlay"); writer.Bool(CanEditAudioLocked());
 				writer.Key("nativeSettings");
 				const auto settings = nativeSettings.Json();
 				writer.RawValue(settings.data(), settings.size(), rapidjson::kObjectType);
@@ -686,6 +715,8 @@ struct CemuHost::Impl
 							std::lock_guard workLock(state->workMutex);
 							std::lock_guard statusLock(state->statusMutex);
 							state->launch = false;
+							state->titleStop = false;
+							s_inputRecoveryPending = false;
 							state->titlePhase = "stopped";
 							if (!state->stop) state->phase = "ready";
 						}
@@ -796,7 +827,7 @@ bool CemuHost::BeginStopGameConfirmation(uint64_t sessionId)
 		if (m_impl->state->CanStopGameLocked() && sessionId == m_impl->state->sessionId && !m_impl->state->confirmationId)
 		{
 			m_impl->state->confirmationId = ++m_impl->state->confirmationCounter;
-			m_impl->state->confirmationSession = sessionId;
+			m_impl->state->confirmationSession = m_impl->state->sessionId;
 			m_impl->state->confirmationGeneration = m_impl->state->generation;
 			accepted = true;
 		}
@@ -834,6 +865,7 @@ bool CemuHost::IsRunning() const
 	return m_impl->state->phase == "running" && !m_impl->state->stop;
 }
 bool CemuHost::IsTitleStopping() const { return m_impl->state->titleStop && m_impl->state->launch; }
+uint64_t CemuHost::SessionId() const { return m_impl->state->sessionId; }
 bool CemuHost::HasFailed() const { return m_impl->state->failed; }
 std::string CemuHost::StatusJson() const { return m_impl->state->Json(); }
 
@@ -871,8 +903,8 @@ std::string CemuHost::InputCommand(uint64_t requestId, std::string_view payload)
 	if (!state.input) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastInputRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastInputRequest = requestId;
-	if (payload == "{\"op\":\"cancel\"}") { state.input->CancelCapture(); return state.input->Snapshot(state.CanEditSettingsLocked()); }
-	if (!state.CanEditSettingsLocked()) { state.input->CancelCapture(); return "{\"notice\":\"not-ready\"}"; }
+	if (payload == "{\"op\":\"cancel\"}") { state.input->CancelCapture(); return state.input->Snapshot(state.CanEditInputLocked() && (state.phase != "running" || !s_windowInfo.app_active)); }
+	if (!state.CanEditInputLocked() || (state.phase == "running" && s_windowInfo.app_active)) { state.input->CancelCapture(); return "{\"notice\":\"not-ready\"}"; }
 	return state.input->Command(payload);
 }
 
@@ -882,7 +914,7 @@ std::string CemuHost::PollInput()
 	std::lock_guard workLock(state.workMutex);
 	std::lock_guard statusLock(state.statusMutex);
 	if (!state.input || state.stop || state.failed || (state.phase != "ready" && state.phase != "running")) return "{}";
-	if (!state.CanEditSettingsLocked()) state.input->CancelCapture();
+	if (!state.CanEditInputLocked() || (state.phase == "running" && s_windowInfo.app_active)) state.input->CancelCapture();
 	return state.input->Poll();
 }
 
@@ -902,8 +934,8 @@ std::string CemuHost::AvCommand(uint64_t requestId, std::string_view payload)
 	if (!state.av) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastAvRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastAvRequest = requestId;
-	if (!state.CanEditSettingsLocked()) return "{\"notice\":\"not-ready\"}";
-	return state.av->Command(payload);
+	if (!state.CanEditAudioLocked()) return "{\"notice\":\"not-ready\"}";
+	return state.av->Command(payload, state.phase == "running");
 }
 
 void CemuHost::RefreshSettingsInfo()
@@ -958,7 +990,7 @@ void CemuHost::RefreshSettingsInfo()
 		}
 		writer.EndArray();
 		if (state.av) { writer.Key("av"); const auto snapshot = state.av->Snapshot(); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
-		if (state.input) { writer.Key("input"); const auto snapshot = state.input->Snapshot(state.CanEditSettingsLocked()); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
+		if (state.input) { writer.Key("input"); const auto snapshot = state.input->Snapshot(state.CanEditInputLocked() && (state.phase != "running" || !s_windowInfo.app_active)); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
 		writer.EndObject();
 		changed = state.settingsInfo != buffer.GetString();
 		state.settingsInfo = buffer.GetString();
@@ -977,6 +1009,7 @@ void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused
 	}
 	s_windowInfo.dpi_scale = scale;
 	s_windowInfo.is_fullscreen = fullscreen;
+	LatteOverlay_setControlInset(!fullscreen && visible ? MulDiv(56, dpi, 96) : 0);
 	s_windowInfo.app_active = visible && focused && IsRunning() && !m_impl->state->titleStop;
 	if (!s_windowInfo.app_active) s_windowInfo.set_keystatesup();
 }
@@ -1009,7 +1042,7 @@ namespace WindowSystem
 	bool InputConfigWindowHasFocus()
 	{
 		// ゲーム以外が入力を所有する間は、既存の VPAD/KPAD 抑止経路を使う。
-		return !s_windowInfo.app_active;
+		return !s_windowInfo.app_active || s_inputRecoveryPending;
 	}
 	bool IsKeyDown(uint32 key) { return s_windowInfo.get_keystate(key); }
 	bool IsKeyDown(PlatformKeyCodes key)
@@ -1050,6 +1083,7 @@ namespace WindowSystem
 			if (state->titleStop || state->stop) return;
 			state->fps = fps;
 			state->Dispatch([state, idle, loading, fps] {
+				state->RefreshInputConnection();
 				const auto title = idle ? L"MCWiiU Launcher" : loading ? L"MCWiiU Launcher - Loading" :
 					boost::nowide::widen(fmt::format("MCWiiU Launcher - FPS: {:.2f} [{}] [TitleId: 00050000-101dbe00] [JP v560]", fps, state->activeRenderer));
 				SetWindowTextW(state->root, title.c_str());

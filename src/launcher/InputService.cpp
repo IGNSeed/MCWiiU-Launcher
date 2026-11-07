@@ -188,7 +188,7 @@ struct InputService::Impl
 		}
 		catch (...) { selected = previous; throw; }
 	}
-	void RefreshDevices()
+	void RefreshDevices(const std::function<void()>& beforeReconnect = {})
 	{
 		if (std::chrono::steady_clock::now() < nextDevices) return;
 		nextDevices = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -203,9 +203,9 @@ struct InputService::Impl
 			fresh.push_back(old == devices.end() ? Device{++tokenCounter, c} : *old);
 		}
 		devices = std::move(fresh);
-		AutoConnect();
+		AutoConnect(beforeReconnect);
 	}
-	void AutoConnect()
+	void AutoConnect(const std::function<void()>& beforeReconnect = {})
 	{
 		if (!initialized || !autoSelect || notice == "recovery-required" || (selected && selected->is_connected())) return;
 		captureId = 0; continuous = advancing = false;
@@ -221,7 +221,7 @@ struct InputService::Impl
 		const auto candidate = serialMatches.size() == 1 ? serialMatches.front() : selectedSerial.empty() && modelMatches.size() == 1 ? modelMatches.front() : valid.size() == 1 ? valid.front() : nullptr;
 		if (candidate && editable)
 		{
-			try { Select(candidate); if (notice == "saved") notice = "reconnected"; }
+			try { if (beforeReconnect) beforeReconnect(); Select(candidate); if (notice == "saved") notice = "reconnected"; }
 			catch (...) { if (notice != "recovery-required") notice = "save-failed"; }
 		}
 		else notice = valid.empty() ? "disconnected" : "select-controller";
@@ -400,6 +400,17 @@ void InputService::CancelCapture()
 {
 	if (m_impl->captureId) m_impl->notice = "capture-cancelled";
 	m_impl->captureId = 0; m_impl->continuous = m_impl->advancing = false;
+}
+// 既存の native status 周期から呼び、Settings の表示状態に依存せず再接続する。
+bool InputService::RefreshConnection(const std::function<void()>& beforeReconnect)
+{
+	auto& s = *m_impl;
+	s.editable = true;
+	if (s.autoSelect && (!s.selected || !s.selected->is_connected())) beforeReconnect();
+	s.RefreshDevices(beforeReconnect);
+	if (!s.selected || !s.selected->is_connected()) return false;
+	const auto raw = s.Raw();
+	return raw.buttons.IsIdle() && glm::length(raw.axis) < 0.2f && glm::length(raw.rotation) < 0.2f && glm::length(raw.trigger) < 0.2f;
 }
 bool InputService::IsHealthy() const { return m_impl->notice != "recovery-required"; }
 

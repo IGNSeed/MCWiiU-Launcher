@@ -12,6 +12,7 @@ class BootSoundReader
   private:
 	FSCVirtualFile* bootsndFile{};
 	sint32 blockSize{};
+	bool valid = false;
 
 	uint32be muteBits{};
 	uint32be loopPoint{};

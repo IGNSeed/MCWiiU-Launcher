@@ -27,6 +27,7 @@ namespace snd_core
 		// 1,2 -> stereo
 		// 3 -> surround
 		// 4 -> unknown mode
+		const std::shared_lock lock(g_audioMutex);
 		switch (GetConfig().tv_channels)
 		{
 		case kMono:

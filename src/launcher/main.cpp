@@ -98,6 +98,7 @@ namespace
 		bool m_transitioning = false, m_stopping = false, m_settingsSelected = false;
 		bool m_webViewWasVisible = true, m_restoreGameFocus = false;
 		bool m_launcherVisible = false, m_stopConfirmation = false, m_boundsSyncPending = false;
+		bool m_confirmationFullscreen = false;
 		std::optional<WINDOWPLACEMENT> m_maximizedPlacement;
 
 		bool IsFullscreen() const { return m_mode == Mode::GameFullscreen; }
@@ -238,10 +239,30 @@ namespace
 			m_webview.execute("window.dispatchEvent(new Event('launcher-show-home'));");
 			if (FAILED(m_webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC))) Fail();
 		}
+		void ReturnToGame()
+		{
+			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning() || m_core.IsTitleStopping()) return;
+			m_core.CancelInputCapture();
+			m_settingsSelected = m_launcherVisible = false;
+			m_host.SetVisible(true);
+			m_host.Focus();
+			SyncWebViewBounds();
+		}
 		void SetStopConfirmation(bool active)
 		{
-			if (active && !m_stopConfirmation) ShowLauncherHome();
+			if (active == m_stopConfirmation) return;
+			if (active)
+			{
+				m_confirmationFullscreen = IsFullscreen();
+				ShowLauncherHome();
+			}
 			m_stopConfirmation = active;
+			if (!active && m_core.IsRunning() && !m_core.IsTitleStopping())
+			{
+				ReturnToGame();
+				if (m_confirmationFullscreen) SetFullscreen(true);
+			}
+			if (!active) m_confirmationFullscreen = false;
 		}
 
 		bool ReturnHome()
@@ -275,13 +296,16 @@ namespace
 			return success;
 		}
 
-		void Shortcut(UINT key)
+		void Shortcut(UINT key, uint64_t expectedSession)
 		{
-			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning()) return;
+			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning() || m_core.SessionId() != expectedSession) return;
 			if (key == VK_F11)
 				SetFullscreen(!IsFullscreen());
 			else if (key == VK_F10)
-				ShowLauncherHome();
+			{
+				m_core.CancelInputCapture();
+				m_core.BeginStopGameConfirmation(expectedSession);
+			}
 		}
 	};
 #endif
@@ -407,7 +431,7 @@ namespace
 				};
 				gameHost.input = [&](UINT message, WPARAM key, LPARAM value) { core->InputMessage(message, key, value); };
 				display = std::make_unique<GameDisplayState>(*window, webview, gameHost, *core);
-				gameHost.shortcut = [&](UINT key) { app->post([&, key] { display->Shortcut(key); }); };
+				gameHost.shortcut = [&](UINT key) { const auto session = core->SessionId(); app->post([&, key, session] { display->Shortcut(key, session); }); };
 			}
 #endif
 			notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
@@ -443,13 +467,13 @@ namespace
 					UINT key = 0;
 					COREWEBVIEW2_KEY_EVENT_KIND kind{};
 					COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
-					if (FAILED(args->get_VirtualKey(&key)) || key != VK_F11) return S_OK;
+					if (FAILED(args->get_VirtualKey(&key)) || (key != VK_F11 && key != VK_F10)) return S_OK;
 					args->put_Handled(TRUE);
 					if (SUCCEEDED(args->get_KeyEventKind(&kind)) && SUCCEEDED(args->get_PhysicalKeyStatus(&physical)) &&
 						(kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) && !physical.WasKeyDown)
 					{
 #ifdef CEMU_NATIVE_HOST
-						if (display && !notifications.m_closing) app->post([&] { display->Shortcut(VK_F11); });
+						if (display && !notifications.m_closing) { const auto session = core->SessionId(); app->post([&, key, session] { display->Shortcut(key, session); }); }
 #endif
 					}
 					return S_OK;
@@ -544,6 +568,8 @@ namespace
 					if (const auto id = ParseStopId(message.substr(std::string_view("input:poll:").size())); id && *id <= 9007199254740991ULL)
 						webview.execute("window.dispatchEvent(new CustomEvent('launcher-input-live', {detail:{viewId:" + std::to_string(*id) + ",state:" + core->PollInput() + "}}));");
 				}
+				else if (core && message == "game:return")
+					display->ReturnToGame();
 				else if (core && message == "settings:get")
 					core->RefreshSettingsInfo();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
@@ -571,11 +597,14 @@ namespace
 					core->CancelInputCapture();
 					display->m_settingsSelected = message == "page:settings";
 					if (display->m_settingsSelected) core->RefreshSettingsInfo();
-					display->m_launcherVisible = display->m_settingsSelected;
+					display->m_launcherVisible = true;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
 					const bool running = core->IsRunning();
-					gameHost.SetVisible(running && !display->m_settingsSelected);
-					if (running && !display->m_settingsSelected) gameHost.Focus();
+					// HWND を隠しても物理寸法と GPU の Present/SwapBuffers 経路は保持する。
+					// Launcher の入力 gate だけを閉じ、Core の実行状態は変更しない。
+					core->InputMessage(WM_CANCELMODE, 0, 0);
+					gameHost.SetVisible(false);
+					if (running) webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 				}
 #endif
 				else if (message == "window:start-drag")

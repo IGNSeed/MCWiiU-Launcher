@@ -11,7 +11,7 @@ public:
 	AvSettings();
 	~AvSettings();
 	std::string Snapshot();
-	std::string Command(std::string_view payload);
+	std::string Command(std::string_view payload, bool running = false);
 	void PrepareLaunch();
 	void EndTitle();
 	bool IsHealthy() const;

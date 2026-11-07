@@ -7,8 +7,9 @@ BootSoundReader::BootSoundReader(FSCVirtualFile* bootsndFile, sint32 blockSize) 
 	cemu_assert(blockSize % (sizeof(sint16be) * 2) == 0);
 
 	fsc_setFileSeek(bootsndFile, 0);
-	fsc_readFile(bootsndFile, &muteBits, 4);
-	fsc_readFile(bootsndFile, &loopPoint, 4);
+	const auto size = fsc_getFileSize(bootsndFile);
+	if (size < 12 || (size - 8) % 4 != 0 || fsc_readFile(bootsndFile, &muteBits, 4) != 4 || fsc_readFile(bootsndFile, &loopPoint, 4) != 4)
+		return;
 
 	buffer.resize(blockSize / sizeof(sint16));
 	bufferBE.resize(blockSize / sizeof(sint16be));
@@ -17,12 +18,14 @@ BootSoundReader::BootSoundReader(FSCVirtualFile* bootsndFile, sint32 blockSize) 
 	const auto titleId = CafeSystem::GetForegroundTitleId();
 	if(titleId == 0x0005000010145D00 || titleId == 0x0005000010145C00 || titleId == 0x0005000010106100)
 		loopPoint = 113074;
+	valid = uint64(loopPoint) < (uint64(size) - 8) / 4;
 }
 
 sint16* BootSoundReader::getSamples()
 {
+	if (!valid) return nullptr;
 	size_t totalRead = 0;
-	const size_t loopPointOffset = 8 + loopPoint * 4;
+	const uint64 loopPointOffset = 8 + uint64(loopPoint) * 4;
 	while (totalRead < blockSize)
 	{
 		auto read = fsc_readFile(bootsndFile, bufferBE.data(), blockSize - totalRead);

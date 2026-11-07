@@ -107,6 +107,38 @@ void mic_feedSamples(uint32 drcIndex, sint16* sampleData, sint32 numSamples)
 	MICStatus.drc[0].writeIndex = writeIndex;
 }
 
+// g_audioInputMutex の所有者だけが Stream を作成する。失敗時もゲームを継続する。
+static void mic_createInputDevice()
+{
+	auto& config = GetConfig();
+	const auto audio_api = IAudioInputAPI::Cubeb; // change this if more input apis get implemented
+
+	if (!g_inputAudio)
+	{
+		IAudioInputAPI::DeviceDescriptionPtr device_description;
+		if (IAudioInputAPI::IsAudioInputAPIAvailable(audio_api))
+		{
+			auto devices = IAudioInputAPI::GetDevices(audio_api);
+			const auto it = std::find_if(devices.begin(), devices.end(), [&config](const auto& d) {return d->GetIdentifier() == config.input_device; });
+			if (it != devices.end())
+				device_description = *it;
+		}
+
+		if (device_description)
+		{
+			try
+			{
+				g_inputAudio = IAudioInputAPI::CreateDevice(audio_api, device_description, MIC_SAMPLERATE, 1, MIC_SAMPLES_PER_3MS_32KHZ, 16);
+				g_inputAudio->SetVolume(config.input_volume);
+			}
+			catch (std::runtime_error& ex)
+			{
+				cemuLog_log(LogType::Force, "can't initialize audio input: {}", ex.what());
+			}
+		}
+	}
+}
+
 void micExport_MICInit(PPCInterpreter_t* hCPU)
 {
 	debug_printf("MICInit(%d,%d,0x%08x,0x%08x)\n", hCPU->gpr[3], hCPU->gpr[4], hCPU->gpr[5], hCPU->gpr[6]);
@@ -143,35 +175,8 @@ void micExport_MICInit(PPCInterpreter_t* hCPU)
 	memory_writeU32(hCPU->gpr[6], 0); // no error
 	osLib_returnFromFunction(hCPU, (drcIndex==0)?MIC_HANDLE_DRC0:MIC_HANDLE_DRC1); // success
 
-	auto& config = GetConfig();
-	const auto audio_api = IAudioInputAPI::Cubeb; // change this if more input apis get implemented
-
 	std::unique_lock lock(g_audioInputMutex);
-	if (!g_inputAudio)
-	{
-		IAudioInputAPI::DeviceDescriptionPtr device_description;
-		if (IAudioInputAPI::IsAudioInputAPIAvailable(audio_api))
-		{
-			auto devices = IAudioInputAPI::GetDevices(audio_api);
-			const auto it = std::find_if(devices.begin(), devices.end(), [&config](const auto& d) {return d->GetIdentifier() == config.input_device; });
-			if (it != devices.end())
-				device_description = *it;
-		}
-
-		if (device_description)
-		{
-			try
-			{
-				g_inputAudio = IAudioInputAPI::CreateDevice(audio_api, device_description, MIC_SAMPLERATE, 1, MIC_SAMPLES_PER_3MS_32KHZ, 16);
-				g_inputAudio->SetVolume(config.input_volume);
-			}
-			catch (std::runtime_error& ex)
-			{
-				cemuLog_log(LogType::Force, "can't initialize audio input: {}", ex.what());
-				exit(0);
-			}
-		}
-	}
+	mic_createInputDevice();
 }
 
 void micExport_MICOpen(PPCInterpreter_t* hCPU)
@@ -426,7 +431,16 @@ void mic_updateOnAXFrame()
 		}
 	}
 
-	std::shared_lock lock(g_audioInputMutex);
+	std::unique_lock lock(g_audioInputMutex);
+	// Disabled から再選択した場合も、ゲームが Capture を要求しているときだけ作る。
+	static std::wstring lastDevice;
+	static std::chrono::steady_clock::time_point nextRetry{};
+	const auto now = std::chrono::steady_clock::now();
+	if (!g_inputAudio && !GetConfig().input_device.empty() && (lastDevice != GetConfig().input_device || now >= nextRetry))
+	{
+		lastDevice = GetConfig().input_device; nextRetry = now + std::chrono::seconds(1);
+		mic_createInputDevice();
+	}
 	mic_updateDevicePlayState(true);
 	if (g_inputAudio)
 	{

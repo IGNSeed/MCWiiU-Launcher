@@ -60,6 +60,7 @@ void ImGui_PrecacheFonts()
 	{
 		const int size = g_font_requests.top();
 		g_font_requests.pop();
+		if (g_imgui_fonts.contains(size)) continue;
 		
 		auto& io = ImGui::GetIO();
 		cemu_assert(io.Fonts->Locked == false);
@@ -111,6 +112,7 @@ void ImGui_PrecacheFonts()
 void ImGui_ClearFonts()
 {
     g_imgui_fonts.clear();
+	while (!g_font_requests.empty()) g_font_requests.pop();
 }
 
 ImFont* ImGui_GetFont(float size)
@@ -129,6 +131,7 @@ void ImGui_UpdateWindowInformation(bool mainWindow)
 	auto& windowInfo = WindowSystem::GetWindowInfo();
 	static uint32 current_key = 0;
 	ImGuiIO& io = ImGui::GetIO();
+	const bool suppressInput = WindowSystem::InputConfigWindowHasFocus();
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 #if BOOST_OS_WINDOWS
@@ -142,11 +145,11 @@ void ImGui_UpdateWindowInformation(bool mainWindow)
 	auto& instance = InputManager::instance();
 
 	const auto mousePos = instance.get_mouse_position(!mainWindow);
-	io.MousePos = { (float)mousePos.x, (float)mousePos.y };
+	if (!suppressInput) io.MousePos = { (float)mousePos.x, (float)mousePos.y };
 
 	bool padDown;
 	const auto pos = instance.get_left_down_mouse_info(&padDown);
-	io.MouseDown[0] = padDown != mainWindow && pos.has_value();
+	io.MouseDown[0] = !suppressInput && padDown != mainWindow && pos.has_value();
 	auto get_mapping = [&](uint32 key_code)
 	{
 		auto key = keyboard_mapping.find(key_code);
@@ -157,9 +160,14 @@ void ImGui_UpdateWindowInformation(bool mainWindow)
 		keyboard_mapping[key_code] = mapped_key;
 		return mapped_key;
 	};
-	windowInfo.iter_keystates([&](auto&& el){ io.AddKeyEvent(get_mapping(el.first), el.second); });
+	windowInfo.iter_keystates([&](auto&& el){ io.AddKeyEvent(get_mapping(el.first), !suppressInput && el.second); });
 
-	// printf("%f %f %d\n", io.MousePos.x, io.MousePos.y, io.MouseDown[0]);
+	// 設定編集中は、既存 ImGui のソフトウェアキーボード等にも入力を渡さない。
+	if (suppressInput)
+	{
+		std::fill(std::begin(io.NavInputs), std::end(io.NavInputs), 0.0f);
+		return;
+	}
 
 	for (auto i = 0; i < InputManager::kMaxController; ++i)
 	{

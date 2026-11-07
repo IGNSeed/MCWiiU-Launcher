@@ -360,7 +360,7 @@ footer {
   }
 }
 
-#stop-game {
+#return-home-game {
   margin-top:16px;
   padding:10px 16px;
 }
@@ -496,3 +496,13 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .av-slider output { min-width:58px; text-align:right; font-size:.8125rem; font-variant-numeric:tabular-nums; }
 .settings-content .setting-row>div:first-child { min-width:0; }
 .settings-content input[type="checkbox"] { width:18px; height:18px; flex-shrink:0; }
+
+.settings-title-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; flex-shrink:0; }
+#settings .settings-title-row h1 { margin-bottom:0; }
+[data-return-game][hidden] { display:none; }
+.settings-title-row button { padding:8px 14px; font-size:.8125rem; }
+.overlay-color { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+.overlay-color input[type="color"] { width:42px; height:40px; border:1px solid #55555e; border-radius:5px; background:#131317; padding:4px; }
+.overlay-color input[type="text"] { width:110px; font-variant-numeric:tabular-nums; }
+.overlay-color input[type="number"] { width:78px; }
+.overlay-color label { font-size:.75rem; color:#aaaab3; }

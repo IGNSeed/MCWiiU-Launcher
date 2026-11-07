@@ -169,19 +169,28 @@ class BootSoundPlayer
 	BootSoundPlayer() = default;
 	~BootSoundPlayer()
 	{
-		m_stopRequested = true;
+		StopSound();
 	}
 
+	void StopSound()
+	{
+		m_stopRequested = true;
+		if (m_bootSndPlayThread.joinable())
+		{
+			m_bootSndPlayThread.join();
+			cemuLog_log(LogType::Force, "Intro sound thread joined");
+		}
+	}
 	void StartSound()
 	{
-		if (!m_bootSndPlayThread.joinable())
-		{
-			m_fadeOutRequested = false;
-			m_stopRequested = false;
-			m_bootSndPlayThread = std::thread{[this]() {
-				StreamBootSound();
-			}};
-		}
+		StopSound();
+		m_fadeOutRequested = false;
+		m_stopRequested = false;
+		m_bootSndPlayThread = std::thread{[this]() {
+			try { StreamBootSound(); }
+			catch (...) { cemuLog_log(LogType::Force, "Intro sound failed; continuing title launch"); }
+			cemuLog_log(LogType::Force, "Intro sound thread finished");
+		}};
 	}
 
 	void FadeOutSound()
@@ -214,6 +223,7 @@ class BootSoundPlayer
 
 		try
 		{
+			std::shared_lock lock(g_audioMutex);
 			bootSndAudioDev = IAudioAPI::CreateDeviceFromConfig(IAudioAPI::AudioType::TV, sampleRate, nChannels, samplesPerBlock, bitsPerSample);
 			if(!bootSndAudioDev)
 				return;
@@ -240,13 +250,15 @@ class BootSoundPlayer
 		}
 
 		constexpr sint32 audioBlockSize = samplesPerBlock * (bitsPerSample/8) * nChannels;
-		BootSoundReader bootSndFileReader(bootSndFileHandle, audioBlockSize);
+		std::unique_ptr<FSCVirtualFile, decltype(&fsc_close)> file(bootSndFileHandle, fsc_close);
+		BootSoundReader bootSndFileReader(file.get(), audioBlockSize);
+		cemuLog_log(LogType::Force, "Intro sound playback started");
 
 		uint64 fadeOutSample = 0; // track how far into the fadeout
 		constexpr uint64 fadeOutDuration = sampleRate * 2; // fadeout should last 2 seconds
 		while(fadeOutSample < fadeOutDuration && !m_stopRequested)
 		{
-			while (bootSndAudioDev->NeedAdditionalBlocks())
+			while (!m_stopRequested && fadeOutSample < fadeOutDuration && bootSndAudioDev->NeedAdditionalBlocks())
 			{
 				sint16* data = bootSndFileReader.getSamples();
 				if(data == nullptr)
@@ -264,8 +276,8 @@ class BootSoundPlayer
 			std::this_thread::sleep_for(std::chrono::milliseconds(samplesPerBlock / (sampleRate/ 1'000)));
 		}
 
-		if(bootSndFileHandle)
-			fsc_close(bootSndFileHandle);
+		bootSndAudioDev->Stop();
+		cemuLog_log(LogType::Force, "Intro sound playback stopped: faded={}", fadeOutSample >= fadeOutDuration);
 	}
 
   private:
@@ -965,6 +977,8 @@ bool LatteShaderCache_readSeparableShader(uint8* shaderInfoData, sint32 shaderIn
 
 void LatteShaderCache_Close()
 {
+	// GPU join より前、仮想 filesystem の unmount より前に所有 thread を閉じる。
+	g_bootSndPlayer.StopSound();
     if(s_shaderCacheGeneric)
     {
         delete s_shaderCacheGeneric;

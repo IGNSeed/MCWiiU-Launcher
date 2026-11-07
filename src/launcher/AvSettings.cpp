@@ -3,6 +3,7 @@
 #include "config/ActiveSettings.h"
 #include "audio/IAudioAPI.h"
 #include "audio/IAudioInputAPI.h"
+#include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -74,6 +75,9 @@ struct AvSettings::Impl
 	std::wstring channelDevice;
 	int channelApi = -1;
 	std::vector<int> channels;
+	LatteOverlaySettings overlay{GetConfig().overlay, GetConfig().notification, 1};
+	uint64 appliedRevision = 1;
+	std::string applyNotice = "ready";
 
 	template<typename Descriptions>
 	void UpdateDevices(std::vector<Device>& target, const Descriptions& descriptions)
@@ -151,7 +155,8 @@ struct AvSettings::Impl
 			RequireAv(validation.Load() && ReadAv(temporary) == bytes);
 			RequireAv(MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH));
 			replaced = true;
-			RequireAv(ReadAv(path) == bytes && GetConfigHandle().Load());
+			pugi::xml_document verified;
+			RequireAv(ReadAv(path) == bytes && verified.load_file(path.c_str()));
 			++revision; notice = "saved";
 		}
 		catch (...)
@@ -161,7 +166,7 @@ struct AvSettings::Impl
 			if (replaced)
 			{
 				const auto rollback = fs::path(path.wstring() + L".rollback-" + _utf8ToPath(suffix).wstring());
-				try { WriteAv(rollback, original); restored = MoveFileExW(rollback.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) && GetConfigHandle().Load() && ReadAv(path) == original; }
+				try { WriteAv(rollback, original); restored = MoveFileExW(rollback.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) && ReadAv(path) == original; }
 				catch (...) { restored = false; }
 			}
 			notice = restored ? "save-failed" : "recovery-required";
@@ -184,6 +189,11 @@ AvSettings::AvSettings() : m_impl(std::make_unique<Impl>())
 			m_impl->gpu.push_back({++m_impl->tokenCounter, boost::nowide::widen(UuidText(device.uuid)), device.name});
 	}
 	catch (...) {}
+	// Launcher 専用既定値。明示された OFF は保持する。
+	pugi::xml_document stored;
+	if (stored.load_file(m_impl->path.c_str()) && !stored.child("content").child("play_boot_sound"))
+		GetConfig().play_boot_sound = true;
+	LatteOverlay_setSettings(m_impl->overlay);
 	m_impl->Refresh();
 	m_impl->RefreshChannels();
 }
@@ -197,16 +207,30 @@ std::string AvSettings::Snapshot()
 	rapidjson::StringBuffer buffer; Writer w(buffer); w.StartObject();
 	w.Key("revision"); w.Uint64(s.revision); w.Key("notice"); w.String(s.notice.c_str());
 	w.Key("enumerationNotice"); w.String(s.enumerationNotice.c_str());
+	w.Key("overlayPublishedRevision"); w.Uint64(s.overlay.revision);
+	w.Key("overlayRenderedRevision"); w.Uint64(LatteOverlay_getRenderedRevision());
+	w.Key("appliedRevision"); w.Uint64(s.appliedRevision); w.Key("applyNotice"); w.String(s.applyNotice.c_str());
 	w.Key("values"); w.StartObject();
 	w.Key("graphicsApi"); w.Int(c.graphic_api);
 	const auto uuid = UuidText(c.vk_graphic_device_uuid);
 	w.Key("gpu"); w.Int(uuid == std::string(32, '0') ? 0 : Impl::Token(s.gpu, boost::nowide::widen(uuid)));
 	w.Key("vsync"); w.Int(c.vsync); w.Key("async"); w.Bool(c.async_compile); w.Key("fullSync"); w.Bool(c.gx2drawdone_sync);
 	w.Key("upscale"); w.Int(c.upscale_filter); w.Key("downscale"); w.Int(c.downscale_filter); w.Key("scaling"); w.Int(c.fullscreen_scaling);
+	w.Key("introSound"); w.Bool(c.play_boot_sound);
 	w.Key("audioApi"); w.Int(c.audio_api); w.Key("latency"); w.Int(c.audio_delay);
 	w.Key("tvDevice"); w.Int(Impl::Token(s.output, c.tv_device)); w.Key("tvChannels"); w.Int(c.tv_channels); w.Key("tvVolume"); w.Int(c.tv_volume);
 	w.Key("padDevice"); w.Int(Impl::Token(s.output, c.pad_device)); w.Key("padVolume"); w.Int(c.pad_volume);
 	w.Key("micDevice"); w.Int(Impl::Token(s.input, c.input_device)); w.Key("micVolume"); w.Int(c.input_volume);
+	const auto& o = s.overlay.overlay; const auto& n = s.overlay.notification;
+	w.Key("overlayPosition"); w.Int(static_cast<int>(o.position));
+	w.Key("overlayColor"); w.Uint(o.text_color); w.Key("overlayScale"); w.Int(o.text_scale);
+	w.Key("overlayFps"); w.Bool(o.fps); w.Key("overlayDrawCalls"); w.Bool(o.drawcalls);
+	w.Key("overlayCpu"); w.Bool(o.cpu_usage); w.Key("overlayCpuPerCore"); w.Bool(o.cpu_per_core_usage);
+	w.Key("overlayRam"); w.Bool(o.ram_usage); w.Key("overlayVram"); w.Bool(o.vram_usage); w.Key("overlayDebug"); w.Bool(o.debug);
+	w.Key("notificationPosition"); w.Int(static_cast<int>(n.position));
+	w.Key("notificationColor"); w.Uint(n.text_color); w.Key("notificationScale"); w.Int(n.text_scale);
+	w.Key("notificationProfiles"); w.Bool(n.controller_profiles); w.Key("notificationBattery"); w.Bool(n.controller_battery);
+	w.Key("notificationShaders"); w.Bool(n.shader_compiling); w.Key("notificationFriends"); w.Bool(n.friends);
 	w.EndObject();
 	const auto list = [&](const char* key, const auto& devices) {
 		w.Key(key); w.StartArray();
@@ -218,6 +242,9 @@ std::string AvSettings::Snapshot()
 	w.Key("tvChannels"); w.StartArray(); for (auto channel : s.channels) w.Int(channel); w.EndArray();
 	{
 		std::shared_lock lock(g_audioMutex);
+		w.Key("activeTvVolume"); if (g_tvAudio) w.Int(g_tvAudio->GetVolume()); else w.Null();
+		w.Key("activeTvChannels"); if (g_tvAudio) w.Int(g_tvAudio->GetChannels()); else w.Null();
+		w.Key("activePadVolume"); if (g_padAudio) w.Int(g_padAudio->GetVolume()); else w.Null();
 		w.Key("tvStream"); w.Bool(bool(g_tvAudio)); w.Key("padStream"); w.Bool(bool(g_padAudio));
 		w.Key("activeAudioApi"); if (g_tvAudio) w.Int(g_tvAudio->GetType()); else w.Null();
 	}
@@ -228,7 +255,7 @@ std::string AvSettings::Snapshot()
 	w.EndObject(); return buffer.GetString();
 }
 
-std::string AvSettings::Command(std::string_view payload)
+std::string AvSettings::Command(std::string_view payload, bool running)
 {
 	auto& s = *m_impl;
 	try
@@ -244,6 +271,8 @@ std::string AvSettings::Command(std::string_view payload)
 		}
 		const std::string key(request["key"].GetString(), request["key"].GetStringLength());
 		const auto& value = request["value"];
+		const bool graphics = key == "graphicsApi" || key == "gpu" || key == "vsync" || key == "async" || key == "fullSync" || key == "upscale" || key == "downscale" || key == "scaling";
+		RequireAv(!running || !graphics);
 		const auto integer = [&](int lo, int hi) { RequireAv(value.IsInt() && value.GetInt() >= lo && value.GetInt() <= hi); return value.GetInt(); };
 		const auto boolean = [&] { RequireAv(value.IsBool()); return value.GetBool() ? "true" : "false"; };
 		s.Refresh(true);
@@ -253,7 +282,23 @@ std::string AvSettings::Command(std::string_view payload)
 		auto graphic = root.child("Graphic"), audio = root.child("Audio"); RequireAv(graphic && audio);
 		const auto& c = GetConfig();
 		s.notice = "ready";
-		if (key == "graphicsApi")
+		if (key == "introSound") SetAv(root, "play_boot_sound", boolean());
+		else if (key.starts_with("overlay") || key.starts_with("notification"))
+		{
+			const bool performance = key.starts_with("overlay");
+			auto node = graphic.child(performance ? "Overlay" : "Notification");
+			if (!node) node = graphic.append_child(performance ? "Overlay" : "Notification");
+			const auto suffix = key.substr(performance ? 7 : 12);
+			if (suffix == "Position") SetAv(node, "Position", std::to_string(integer(0, 6)));
+			else if (suffix == "Scale") { const auto scale = integer(50, 300); RequireAv(scale % 25 == 0); SetAv(node, "TextScale", std::to_string(scale)); }
+			else if (suffix == "Color") { RequireAv(value.IsUint()); SetAv(node, "TextColor", std::to_string(value.GetUint())); }
+			else
+			{
+				const std::map<std::string, const char*> fields = performance ? std::map<std::string, const char*>{{"Fps","FPS"},{"DrawCalls","DrawCalls"},{"Cpu","CPUUsage"},{"CpuPerCore","CPUPerCoreUsage"},{"Ram","RAMUsage"},{"Vram","VRAMUsage"},{"Debug","Debug"}} : std::map<std::string, const char*>{{"Profiles","ControllerProfiles"},{"Battery","ControllerBattery"},{"Shaders","ShaderCompiling"},{"Friends","FriendService"}};
+				const auto field = fields.find(suffix); RequireAv(field != fields.end()); SetAv(node, field->second, boolean());
+			}
+		}
+		else if (key == "graphicsApi")
 		{
 			const auto api = integer(0, 1); SetAv(graphic, "api", std::to_string(api));
 			if (api == kOpenGL && c.vsync > 1) SetAv(graphic, "VSync", "1");
@@ -317,9 +362,77 @@ std::string AvSettings::Command(std::string_view payload)
 				RequireAv(bool(probe));
 			}
 		}
-		s.Persist(document); s.Refresh(true); s.RefreshChannels();
+		// 候補だけを reload し、Core が読む unrelated 設定には触れない。
+		const auto candidatePath = fs::path(s.path.wstring() + L".validate-" + std::to_wstring(GetCurrentProcessId()));
+		std::ostringstream serialized; document.save(serialized);
+		WriteAv(candidatePath, serialized.str());
+		CemuConfig candidate;
+		XMLConfig<CemuConfig> validation(candidate, candidatePath.wstring());
+		const bool valid = validation.Load(); DeleteFileW(candidatePath.c_str()); RequireAv(valid);
+		s.applyNotice = "applying";
+		// AX の Feed/Play と MIC の Capture に対する既存の所有 mutex を利用する。
+		std::unique_lock audioLock(g_audioMutex);
+		std::unique_lock micLock(g_audioInputMutex);
+		AudioAPIPtr tv, pad; AudioInputAPIPtr mic;
+		const bool replaceTv = running && (key == "audioApi" || key == "tvDevice" || key == "tvChannels");
+		const bool replacePad = running && (key == "audioApi" || key == "padDevice");
+		const bool replaceMic = running && key == "micDevice" && bool(g_inputAudio);
+		const auto createOutput = [&](const std::wstring& identifier, AudioChannels channels, int volume) -> AudioAPIPtr {
+			if (identifier.empty()) return {};
+			const auto api = static_cast<IAudioAPI::AudioAPI>(candidate.audio_api);
+			const auto descriptions = IAudioAPI::GetDevices(api);
+			const auto found = std::find_if(descriptions.begin(), descriptions.end(), [&](const auto& d) { return d->GetIdentifier() == identifier; });
+			RequireAv(found != descriptions.end());
+			auto stream = IAudioAPI::CreateDevice(api, *found, 48000, CemuConfig::AudioChannelsToNChannels(channels), 576, 16);
+			RequireAv(bool(stream)); stream->SetVolume(volume); return stream;
+		};
+		if (replaceTv) tv = createOutput(candidate.tv_device, candidate.tv_channels, candidate.tv_volume);
+		if (replacePad) pad = createOutput(candidate.pad_device, kStereo, candidate.pad_volume);
+		if (replaceMic && !candidate.input_device.empty())
+		{
+			const auto descriptions = IAudioInputAPI::GetDevices(IAudioInputAPI::Cubeb);
+			const auto found = std::find_if(descriptions.begin(), descriptions.end(), [&](const auto& d) { return d->GetIdentifier() == candidate.input_device; });
+			RequireAv(found != descriptions.end());
+			mic = IAudioInputAPI::CreateDevice(IAudioInputAPI::Cubeb, *found, 32000, 1, 96, 16); RequireAv(bool(mic));
+			mic->SetVolume(candidate.input_volume);
+			// 既に Capture 中の場合だけ再開し、設定操作によって新しい録音は開始しない。
+			if (g_inputAudio->IsPlaying()) RequireAv(mic->Play());
+		}
+		if (replaceTv && tv) RequireAv(tv->Play());
+		if (replacePad && pad) RequireAv(pad->Play());
+		s.applyNotice = "applied";
+		// 元 Stream はまだ保持し、保存が失敗した場合にも元の出力を継続する。
+		s.Persist(document);
+		if (replaceTv) { if (g_tvAudio) g_tvAudio->Stop(); g_tvAudio = std::move(tv); }
+		if (replacePad) { if (g_padAudio) g_padAudio->Stop(); g_padAudio = std::move(pad); }
+		if (replaceMic) { g_inputAudio->Stop(); g_inputAudio = std::move(mic); }
+		auto& applied = GetConfig();
+		if (graphics)
+		{
+			applied.graphic_api = candidate.graphic_api; applied.vk_graphic_device_uuid = candidate.vk_graphic_device_uuid;
+			applied.vsync = candidate.vsync; applied.async_compile = candidate.async_compile; applied.gx2drawdone_sync = candidate.gx2drawdone_sync;
+			applied.upscale_filter = candidate.upscale_filter; applied.downscale_filter = candidate.downscale_filter; applied.fullscreen_scaling = candidate.fullscreen_scaling;
+		}
+		else if (key.starts_with("overlay") || key.starts_with("notification"))
+		{
+			s.overlay = {candidate.overlay, candidate.notification, s.revision}; LatteOverlay_setSettings(s.overlay);
+		}
+		else if (key == "introSound") applied.play_boot_sound = candidate.play_boot_sound;
+		else
+		{
+			applied.audio_api = candidate.audio_api; applied.audio_delay = candidate.audio_delay;
+			applied.tv_channels = candidate.tv_channels; applied.tv_device = candidate.tv_device; applied.pad_device = candidate.pad_device; applied.input_device = candidate.input_device;
+			applied.tv_volume = candidate.tv_volume; applied.pad_volume = candidate.pad_volume; applied.input_volume = candidate.input_volume;
+			if (g_tvAudio) g_tvAudio->SetVolume(applied.tv_volume);
+			if (g_padAudio) g_padAudio->SetVolume(applied.pad_volume);
+			if (g_inputAudio) g_inputAudio->SetVolume(applied.input_volume);
+			g_padVolume = applied.pad_volume; IAudioAPI::UpdateAudioDelay();
+		}
+		s.appliedRevision = s.revision; s.applyNotice = "applied-and-saved";
+		micLock.unlock(); audioLock.unlock();
+		s.Refresh(true); s.RefreshChannels();
 	}
-	catch (...) { if (s.notice != "save-failed" && s.notice != "recovery-required") s.notice = "rejected"; }
+	catch (...) { s.applyNotice = s.notice == "recovery-required" ? "recovery-failed" : "previous-settings-retained"; if (s.notice != "save-failed" && s.notice != "recovery-required") s.notice = "rejected"; }
 	return Snapshot();
 }
 

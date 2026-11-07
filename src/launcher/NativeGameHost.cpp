@@ -48,19 +48,19 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 		m_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
 			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_child, nullptr, m_instance, nullptr);
 		if (!m_tooltip) throw std::runtime_error("Unable to create game control tooltips");
-		const wchar_t* labels[]{L"Launcherへ戻る (F10)", L"フルスクリーン (F11)"};
+		const wchar_t* labels[]{L"Minecraftを終了 (F10)", L"フルスクリーン (F11)"};
 		for (unsigned index = 0; index < 2; ++index)
 		{
-			// Vulkan の非redirect描画面上でも GDI 記号が見えるよう、この小領域だけに描画面を持たせる。
+			// Vulkan WSI の子ではなく root の sibling にし、Present による上書きを避ける。
 			m_controls[index] = CreateWindowExW(WS_EX_LAYERED, L"BUTTON", labels[index], WS_CHILD | BS_OWNERDRAW | BS_NOTIFY,
-				0, 0, 0, 0, m_child, reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + index)), m_instance, nullptr);
+				0, 0, 0, 0, m_parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + index)), m_instance, nullptr);
 			if (!m_controls[index] || !SetLayeredWindowAttributes(m_controls[index], 0, 245, LWA_ALPHA) ||
 				!SetWindowSubclass(m_controls[index], ControlProc, s_subclassId, reinterpret_cast<DWORD_PTR>(this)))
 				throw std::runtime_error("Unable to create game controls");
 			// 既存 manifest の Common Controls v5 でも受け付ける構造体サイズ。
 			TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
 			tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-			tool.hwnd = m_child;
+			tool.hwnd = m_parent;
 			tool.uId = reinterpret_cast<UINT_PTR>(m_controls[index]);
 			tool.lpszText = const_cast<wchar_t*>(labels[index]);
 			if (!SendMessageW(m_tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)))
@@ -145,6 +145,7 @@ void NativeGameHost::Release()
 	if (m_subclassed)
 		RemoveWindowSubclass(m_parent, ParentProc, s_subclassId);
 	m_subclassed = false;
+	for (auto& control : m_controls) { if (control) DestroyWindow(control); control = nullptr; }
 	if (m_tooltip) DestroyWindow(m_tooltip);
 	m_tooltip = nullptr;
 	if (m_child)
@@ -185,8 +186,8 @@ bool NativeGameHost::SetBounds(const RECT& bounds)
 	if (!OnUiThread() || !m_child || !GetClientRect(m_parent, &client) || bounds.left < 0 || bounds.top < 0 ||
 		bounds.right < bounds.left || bounds.bottom < bounds.top || bounds.right > client.right || bounds.bottom > client.bottom)
 		return false;
-	return SetWindowPos(m_child, HWND_TOP, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
-		SWP_NOACTIVATE) != FALSE;
+	return SetWindowPos(m_child, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+		SWP_NOACTIVATE | SWP_NOZORDER) != FALSE;
 }
 
 void NativeGameHost::RestoreWebViewFocus()
@@ -201,6 +202,7 @@ void NativeGameHost::SetVisible(bool visible)
 		return;
 	if (!visible)
 		RestoreWebViewFocus();
+	if (visible && !m_visible) SetWindowPos(m_child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 	m_visible = visible;
 	UpdateLayout();
 }
@@ -242,12 +244,23 @@ void NativeGameHost::UpdateControls()
 	const auto dpi = GetDpiForWindow(m_child);
 	const auto size = MulDiv(32, dpi, 96), gap = MulDiv(6, dpi, 96), margin = MulDiv(12, dpi, 96);
 	const auto client = GetClientSize();
+	POINT origin{}; MapWindowPoints(m_child, m_parent, &origin, 1);
 	for (unsigned index = 0; index < 2; ++index)
 	{
 		if (!m_controls[index]) continue;
 		if (visible)
-			SetWindowPos(m_controls[index], HWND_TOP, client.cx - margin - size * (2 - index) - gap * (1 - index),
-				margin, size, size, SWP_NOACTIVATE);
+		{
+			const LONG x = origin.x + client.cx - margin - size * (2 - index) - gap * (1 - index), y = origin.y + margin;
+			RECT previous{}; GetWindowRect(m_controls[index], &previous); MapWindowPoints(nullptr, m_parent, reinterpret_cast<POINT*>(&previous), 2);
+			if (previous.left != x || previous.top != y || previous.right - previous.left != size || previous.bottom - previous.top != size)
+			{
+				SetWindowPos(m_controls[index], HWND_TOP, x, y, size, size, SWP_NOACTIVATE);
+				const auto region = CreateRoundRectRgn(0, 0, size + 1, size + 1, MulDiv(8, dpi, 96), MulDiv(8, dpi, 96));
+				if (region && !SetWindowRgn(m_controls[index], region, TRUE)) DeleteObject(region);
+			}
+			else if (!IsWindowVisible(m_controls[index]))
+				SetWindowPos(m_controls[index], HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW);
+		}
 		if (bool(GetWindowLongPtrW(m_controls[index], GWL_STYLE) & WS_VISIBLE) != visible)
 			ShowWindow(m_controls[index], visible ? SW_SHOWNA : SW_HIDE);
 	}
@@ -358,6 +371,9 @@ LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wPar
 			return 0;
 		}
 	}
+	if ((message == WM_DRAWITEM && (reinterpret_cast<DRAWITEMSTRUCT*>(lParam)->hwndItem == self->m_controls[0] || reinterpret_cast<DRAWITEMSTRUCT*>(lParam)->hwndItem == self->m_controls[1])) ||
+		(message == WM_COMMAND && (reinterpret_cast<HWND>(lParam) == self->m_controls[0] || reinterpret_cast<HWND>(lParam) == self->m_controls[1])))
+		return self->ControlMessage(message, wParam, lParam);
 	const auto result = DefSubclassProc(hwnd, message, wParam, lParam);
 	if (message == WM_SIZE || message == WM_DPICHANGED || message == WM_SHOWWINDOW)
 		self->UpdateLayout();
@@ -370,27 +386,19 @@ LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wPar
 	return result;
 }
 
-LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+LRESULT NativeGameHost::ControlMessage(UINT message, WPARAM wParam, LPARAM lParam)
 {
-	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-	if (message == WM_NCCREATE)
-	{
-		self = static_cast<NativeGameHost*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
-		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-	}
-	if (!self)
-		return DefWindowProcW(hwnd, message, wParam, lParam);
 	switch (message)
 	{
 	case WM_COMMAND:
-		if (HIWORD(wParam) == BN_CLICKED && (reinterpret_cast<HWND>(lParam) == self->m_controls[0] || reinterpret_cast<HWND>(lParam) == self->m_controls[1]))
+		if (HIWORD(wParam) == BN_CLICKED && (reinterpret_cast<HWND>(lParam) == m_controls[0] || reinterpret_cast<HWND>(lParam) == m_controls[1]))
 		{
-			if (self->m_controlsVisible && !self->m_fullscreenLayout && self->IsRenderable())
+			if (m_controlsVisible && !m_fullscreenLayout && IsRenderable())
 			{
 				// キー操作と同じ game focus を保存し、F11 解除後も入力を復帰する。
-				self->Focus();
-				if (self->input) self->input(WM_CANCELMODE, 0, 0);
-				if (self->shortcut) self->shortcut(reinterpret_cast<HWND>(lParam) == self->m_controls[0] ? VK_F10 : VK_F11);
+				Focus();
+				if (input) input(WM_CANCELMODE, 0, 0);
+				if (shortcut) shortcut(reinterpret_cast<HWND>(lParam) == m_controls[0] ? VK_F10 : VK_F11);
 			}
 			return 0;
 		}
@@ -398,10 +406,10 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 	case WM_DRAWITEM:
 	{
 		const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
-		if (item->hwndItem != self->m_controls[0] && item->hwndItem != self->m_controls[1]) break;
+		if (item->hwndItem != m_controls[0] && item->hwndItem != m_controls[1]) break;
 		// stock object と DC 内の色だけを使い、再Playごとの GDI allocation を避ける。
 		const auto saved = SaveDC(item->hDC);
-		const bool hovered = self->m_hoveredControl == item->hwndItem;
+		const bool hovered = m_hoveredControl == item->hwndItem;
 		SetDCBrushColor(item->hDC, hovered ? RGB(48, 48, 54) : RGB(24, 24, 28));
 		SelectObject(item->hDC, GetStockObject(DC_BRUSH));
 		const auto r = item->rcItem;
@@ -417,10 +425,18 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 			const RECT part{x, y, x + w, y + h};
 			FillRect(item->hDC, &part, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 		};
-		if (item->hwndItem == self->m_controls[0])
+		if (item->hwndItem == m_controls[0])
 		{
+			// Exit の枠と右向き矢印。
 			fill(left, top, stroke, glyph);
-			fill(left + glyph - stroke, top, stroke, glyph);
+			fill(left, top, glyph / 2, stroke);
+			fill(left, top + glyph - stroke, glyph / 2, stroke);
+			fill(left + glyph / 3, top + glyph / 2 - stroke / 2, glyph * 2 / 3, stroke);
+			for (LONG step = 0; step < glyph / 3; ++step)
+			{
+				fill(left + glyph - stroke - step, top + glyph / 2 - stroke / 2 - step, stroke, stroke);
+				fill(left + glyph - stroke - step, top + glyph / 2 - stroke / 2 + step, stroke, stroke);
+			}
 		}
 		else
 		{
@@ -432,6 +448,22 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		RestoreDC(item->hDC, saved);
 		return TRUE;
 	}
+	}
+	return 0;
+}
+
+LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+	if (message == WM_NCCREATE)
+	{
+		self = static_cast<NativeGameHost*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+	}
+	if (!self)
+		return DefWindowProcW(hwnd, message, wParam, lParam);
+	switch (message)
+	{
 	case WM_NCDESTROY:
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
 		self->m_child = nullptr;

@@ -36,6 +36,7 @@ public:
 	void ReportDisplayFailure();
 	bool IsStopped() const;
 	bool IsRunning() const;
+	uint64_t SessionId() const;
 	bool IsTitleStopping() const;
 	bool HasFailed() const;
 	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
