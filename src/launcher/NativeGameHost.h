@@ -3,6 +3,8 @@
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <functional>
+#include <memory>
+#include "NativeExitDialog.h"
 
 struct ICoreWebView2Controller;
 
@@ -27,6 +29,9 @@ public:
 	bool SetFullscreenLayout(bool enabled);
 	bool SetOpenGLComposition(bool enabled);
 	void SetControlsVisible(bool visible);
+	void SetExitConfirmation(bool visible);
+	void CancelTouch();
+	std::function<void(bool)> exitResult;
 	std::function<void()> stateChanged;
 	std::function<void(UINT, WPARAM, LPARAM)> input;
 	std::function<void(UINT)> shortcut;
@@ -36,6 +41,8 @@ private:
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
 	static LRESULT CALLBACK ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
+	bool MouseMessage(HWND hwnd, UINT message, WPARAM key, LPARAM position);
+	RECT GameBounds() const;
 	void UpdateLayout();
 	void UpdateControls();
 	LRESULT ControlMessage(UINT message, WPARAM wParam, LPARAM lParam);
@@ -43,6 +50,9 @@ private:
 	bool OnUiThread() const;
 	void RestoreWebViewFocus();
 
+	std::unique_ptr<NativeExitDialog> m_exitDialog;
+	bool m_exitVisible = false;
+	HWND m_touchCapture = nullptr;
 	HWND m_parent = nullptr;
 	HWND m_child = nullptr;
 	HWND m_controls[2]{};

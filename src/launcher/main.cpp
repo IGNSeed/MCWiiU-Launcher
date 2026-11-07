@@ -9,6 +9,7 @@
 #endif
 
 #include <Windows.h>
+#include <shobjidl.h>
 #include <wrl.h>
 #include <charconv>
 #include <cstdint>
@@ -51,10 +52,13 @@ namespace
 		std::optional<size_t> m_closeListener;
 		ICoreWebView2Controller* m_controller = nullptr;
 		std::optional<EventRegistrationToken> m_acceleratorListener;
+		ICoreWebView2* m_nativeWebView = nullptr;
+		std::optional<EventRegistrationToken> m_dropListener;
 
 		~WindowNotifications()
 		{
 			m_closing = true;
+			if (m_dropListener) m_nativeWebView->remove_WebMessageReceived(*m_dropListener);
 			if (m_acceleratorListener)
 				m_controller->remove_AcceleratorKeyPressed(*m_acceleratorListener);
 			if (m_maximizeListener)
@@ -69,6 +73,20 @@ namespace
 	};
 
 #ifdef CEMU_NATIVE_HOST
+	std::optional<std::wstring> SelectDumplingZip(HWND owner)
+	{
+		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
+		const COMDLG_FILTERSPEC types[]{{L"Dumpling ZIP", L"*.zip"}};
+		if (FAILED(dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT)) ||
+			FAILED(dialog->SetFileTypes(1, types)) || FAILED(dialog->SetTitle(L"Select Dumpling ZIP")) || FAILED(dialog->Show(owner))) return std::nullopt;
+		Microsoft::WRL::ComPtr<IShellItem> item;
+		PWSTR path = nullptr;
+		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return std::nullopt;
+		std::wstring result(path); CoTaskMemFree(path);
+		return result;
+	}
+
 	std::optional<uint64_t> ParseStopId(std::string_view value)
 	{
 		uint64_t id = 0;
@@ -98,7 +116,7 @@ namespace
 		bool m_transitioning = false, m_stopping = false, m_settingsSelected = false;
 		bool m_webViewWasVisible = true, m_restoreGameFocus = false;
 		bool m_launcherVisible = false, m_stopConfirmation = false, m_boundsSyncPending = false;
-		bool m_confirmationFullscreen = false;
+		uint64_t m_confirmationSession = 0, m_confirmationId = 0;
 		std::optional<WINDOWPLACEMENT> m_maximizedPlacement;
 
 		bool IsFullscreen() const { return m_mode == Mode::GameFullscreen; }
@@ -125,6 +143,7 @@ namespace
 			m_transitioning = true;
 			auto* controller = m_webview.native().controller;
 			// held key と VPAD/KPAD gate を閉じてから表示・フォーカスを変更する。
+			m_host.CancelTouch();
 			m_core.InputMessage(WM_CANCELMODE, 0, 0);
 			bool success = true;
 			if (enabled)
@@ -244,6 +263,7 @@ namespace
 			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning() || m_core.IsTitleStopping()) return;
 			m_core.CancelInputCapture();
 			m_settingsSelected = m_launcherVisible = false;
+			m_webview.execute("window.dispatchEvent(new Event('launcher-return-game'));");
 			m_host.SetVisible(true);
 			m_host.Focus();
 			SyncWebViewBounds();
@@ -251,23 +271,28 @@ namespace
 		void SetStopConfirmation(bool active)
 		{
 			if (active == m_stopConfirmation) return;
+			m_stopConfirmation = active;
 			if (active)
 			{
-				m_confirmationFullscreen = IsFullscreen();
-				ShowLauncherHome();
+				m_confirmationSession = m_core.SessionId();
+				m_confirmationId = m_core.StopConfirmationId();
+				m_core.CancelInputCapture();
+				m_host.CancelTouch();
+				m_core.InputMessage(WM_CANCELMODE, 0, 0);
+				m_settingsSelected = m_launcherVisible = false;
+				m_webview.execute("window.dispatchEvent(new Event('launcher-return-game'));");
+				m_host.SetVisible(true);
 			}
-			m_stopConfirmation = active;
-			if (!active && m_core.IsRunning() && !m_core.IsTitleStopping())
-			{
-				ReturnToGame();
-				if (m_confirmationFullscreen) SetFullscreen(true);
-			}
-			if (!active) m_confirmationFullscreen = false;
+			m_host.SetExitConfirmation(active);
+			if (!active && m_core.IsRunning() && !m_core.IsTitleStopping()) ReturnToGame();
+			if (!active) m_confirmationSession = m_confirmationId = 0;
 		}
 
 		bool ReturnHome()
 		{
 			if (m_stopping) return true;
+			m_host.CancelTouch();
+			m_host.SetExitConfirmation(false);
 			m_core.InputMessage(WM_CANCELMODE, 0, 0);
 			m_transitioning = true;
 			bool success = true;
@@ -298,10 +323,16 @@ namespace
 
 		void Shortcut(UINT key, uint64_t expectedSession)
 		{
-			if (m_stopping || m_transitioning || m_stopConfirmation || !m_core.IsRunning() || m_core.SessionId() != expectedSession) return;
+			if (m_stopping || m_transitioning || !m_core.IsRunning() || m_core.SessionId() != expectedSession) return;
+			if (m_stopConfirmation)
+			{
+				if (key == VK_ESCAPE) m_core.CancelStopGameConfirmation(m_confirmationSession, m_confirmationId);
+				return;
+			}
+			if (key == VK_ESCAPE && IsFullscreen()) { SetFullscreen(false); return; }
 			if (key == VK_F11)
 				SetFullscreen(!IsFullscreen());
-			else if (key == VK_F10)
+			else if (key == VK_F10 || (key == VK_ESCAPE && !m_settingsSelected && !m_launcherVisible))
 			{
 				m_core.CancelInputCapture();
 				m_core.BeginStopGameConfirmation(expectedSession);
@@ -425,12 +456,19 @@ namespace
 					if (display && !display->m_transitioning && core->IsRunning() && gameHost.HasLayoutFailed()) display->Fail();
 					core->UpdateWindowState(gameHost.GetClientSize(), GetDpiForWindow(gameHost.GetHandle()),
 						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd &&
-							!(display && display->m_transitioning),
+							!(display && (display->m_transitioning || display->m_stopConfirmation)),
 						display && display->IsFullscreen());
 					if (display && !display->m_transitioning && !notifications.m_closing) display->Publish();
 				};
 				gameHost.input = [&](UINT message, WPARAM key, LPARAM value) { core->InputMessage(message, key, value); };
 				display = std::make_unique<GameDisplayState>(*window, webview, gameHost, *core);
+				gameHost.exitResult = [&](bool confirm) {
+					const auto session = display->m_confirmationSession, confirmation = display->m_confirmationId;
+					app->post([&, confirm, session, confirmation] {
+						if (confirm) core->ConfirmStopGame(session, confirmation);
+						else core->CancelStopGameConfirmation(session, confirmation);
+					});
+				};
 				gameHost.shortcut = [&](UINT key) { const auto session = core->SessionId(); app->post([&, key, session] { display->Shortcut(key, session); }); };
 			}
 #endif
@@ -467,7 +505,12 @@ namespace
 					UINT key = 0;
 					COREWEBVIEW2_KEY_EVENT_KIND kind{};
 					COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
-					if (FAILED(args->get_VirtualKey(&key)) || (key != VK_F11 && key != VK_F10)) return S_OK;
+					if (FAILED(args->get_VirtualKey(&key)) || (key != VK_F11 && key != VK_F10 && key != VK_ESCAPE)) return S_OK;
+#ifdef CEMU_NATIVE_HOST
+					if (key == VK_ESCAPE && (!display || (!display->m_stopConfirmation && (display->m_settingsSelected || display->m_launcherVisible)))) return S_OK;
+#else
+					if (key == VK_ESCAPE) return S_OK;
+#endif
 					args->put_Handled(TRUE);
 					if (SUCCEEDED(args->get_KeyEventKind(&kind)) && SUCCEEDED(args->get_PhysicalKeyStatus(&physical)) &&
 						(kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) && !physical.WasKeyDown)
@@ -494,6 +537,44 @@ namespace
 				if (display) display->Publish();
 #endif
 			});
+#ifdef CEMU_NATIVE_HOST
+			// File は OS が作った WebView2 object からだけ取得する。JS の path 文字列は受け付けない。
+			notifications.m_nativeWebView = webview.native().webview;
+			EventRegistrationToken dropToken{};
+			const auto dropHandler = Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+				[&](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+					if (!core || !display || notifications.m_closing || !display->m_settingsSelected) return S_OK;
+					PWSTR source = nullptr, message = nullptr;
+					if (FAILED(args->get_Source(&source))) return S_OK;
+					const bool embedded = std::wstring_view(source) == L"saucer://embedded/index.html"; CoTaskMemFree(source);
+					if (!embedded || FAILED(args->TryGetWebMessageAsString(&message))) return S_OK;
+					const std::wstring command(message); CoTaskMemFree(message);
+					const std::wstring prefix = L"account:drop:";
+					if (!command.starts_with(prefix)) return S_OK;
+					const auto tail = command.substr(prefix.size());
+					if (tail.empty() || tail.size() > 16 || tail.find_first_not_of(L"0123456789") != std::wstring::npos) return S_OK;
+					uint64_t requestId = 0;
+					for (auto digit : tail) requestId = requestId * 10 + digit - L'0';
+					if (!requestId || requestId > 9007199254740991ULL) return S_OK;
+					Microsoft::WRL::ComPtr<ICoreWebView2WebMessageReceivedEventArgs2> extended;
+					Microsoft::WRL::ComPtr<ICoreWebView2ObjectCollectionView> objects;
+					Microsoft::WRL::ComPtr<IUnknown> object;
+					Microsoft::WRL::ComPtr<ICoreWebView2File> file;
+					UINT count = 0; PWSTR path = nullptr;
+					if (FAILED(args->QueryInterface(IID_PPV_ARGS(&extended))) || FAILED(extended->get_AdditionalObjects(&objects)) ||
+						FAILED(objects->get_Count(&count)) || count != 1 || FAILED(objects->GetValueAtIndex(0, &object)) ||
+						FAILED(object.As(&file)) || FAILED(file->get_Path(&path))) return S_OK;
+					std::wstring selected(path); CoTaskMemFree(path);
+					app->post([&, requestId, selected] {
+						if (notifications.m_closing) return;
+						const auto snapshot = core->PreviewAccountZip(requestId, selected);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(requestId) + ",account:" + snapshot + "}}));");
+					});
+					return S_OK;
+				});
+			if (FAILED(notifications.m_nativeWebView->add_WebMessageReceived(dropHandler.Get(), &dropToken))) throw std::runtime_error("Unable to register account drop");
+			 notifications.m_dropListener = dropToken;
+#endif
 			webview.on<saucer::webview::event::message>([&](std::string_view message) {
 				const auto url = webview.url();
 				if (notifications.m_closing || url.scheme() != "saucer" || url.host() != "embedded" || url.path() != "/index.html")
@@ -542,6 +623,27 @@ namespace
 							std::to_string(request->first) + ",state:" + core->StatusJson() + "}}));");
 					}
 					else core->SaveNativeSettings(payload);
+				}
+				else if (core && message.starts_with("account:select-zip:") && display->m_settingsSelected && !display->m_stopping)
+				{
+					if (const auto id = ParseStopId(message.substr(std::string_view("account:select-zip:").size())); id && *id <= 9007199254740991ULL)
+					{
+						app->post([&, requestId = *id] {
+							if (notifications.m_closing || display->m_stopping) return;
+							const auto selected = SelectDumplingZip(window->native().hwnd);
+							const auto snapshot = selected ? core->PreviewAccountZip(requestId, *selected) : core->AccountCommand(requestId, "{\"op\":\"list\"}");
+							webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(requestId) + ",account:" + snapshot + "}}));");
+						});
+					}
+				}
+				else if (core && message.starts_with("account:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("account:command:").size())))
+					{
+						const auto snapshot = core->AccountCommand(request->first, request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(request->first) + ",account:" + snapshot + "}}));");
+						publishCore(core->StatusJson());
+					}
 				}
 				else if (core && message.starts_with("av:command:"))
 				{
@@ -595,6 +697,7 @@ namespace
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();
+					if (message == "page:home" && core->IsRunning()) { display->ReturnToGame(); return saucer::status::handled; }
 					display->m_settingsSelected = message == "page:settings";
 					if (display->m_settingsSelected) core->RefreshSettingsInfo();
 					display->m_launcherVisible = true;
@@ -628,6 +731,7 @@ namespace
 #ifdef CEMU_NATIVE_HOST
 			gameHost.input = {};
 			gameHost.stateChanged = {};
+			gameHost.exitResult = {};
 			gameHost.shortcut = {};
 #endif
 		} catch (const std::exception& error)

@@ -12,13 +12,59 @@ public:
 		std::string_view filename;
 	};
 
-	ZipArchive(const fs::path& path)
+	ZipArchive(const fs::path& path, bool strict = false)
 	{
 		m_zipPath = _pathToUtf8(path);
 		int zeError{0};
-		m_zip = zip_open(m_zipPath.c_str(), ZIP_RDONLY, &zeError);
-		if (!m_zip)
+		m_zip = zip_open(m_zipPath.c_str(), ZIP_RDONLY | (strict ? ZIP_CHECKCONS : 0), &zeError);
+		if (!m_zip && !strict)
 			cemuLog_log(LogType::Force, "Opening zip \"{}\" failed with error code {}", m_zipPath, zeError);
+	}
+
+	ZipArchive(const ZipArchive&) = delete;
+	ZipArchive& operator=(const ZipArchive&) = delete;
+
+	struct EntryInfo
+	{
+		std::string_view path;
+		uint64 size = 0, compressedSize = 0;
+		uint32 attributes = 0;
+		uint8 operatingSystem = 0;
+		uint16 encryption = 0;
+	};
+
+	bool GetEntryInfo(size_t index, EntryInfo& info) const
+	{
+		zip_stat_t stat{};
+		uint8 os = 0;
+		uint32 attributes = 0;
+		constexpr auto required = ZIP_STAT_NAME | ZIP_STAT_SIZE | ZIP_STAT_COMP_SIZE | ZIP_STAT_ENCRYPTION_METHOD;
+		if (!m_zip || zip_stat_index(m_zip, index, 0, &stat) != 0 || (stat.valid & required) != required ||
+			zip_file_get_external_attributes(m_zip, index, 0, &os, &attributes) != 0) return false;
+		info = {stat.name, stat.size, stat.comp_size, attributes, os, stat.encryption_method};
+		return true;
+	}
+
+	// 非信頼 ZIP 用。宣言値と実読取量の両方を制限し、CRC エラーも失敗にする。
+	bool ExtractIntoMemoryBounded(size_t index, std::vector<uint8>& data, size_t limit) const
+	{
+		data.clear();
+		EntryInfo info;
+		if (!GetEntryInfo(index, info) || info.size > limit) return false;
+		auto* file = zip_fopen_index(m_zip, index, 0);
+		if (!file) return false;
+		bool ok = true;
+		uint8 buffer[4096];
+		for (;;)
+		{
+			const auto count = zip_fread(file, buffer, sizeof(buffer));
+			if (count == 0) break;
+			if (count < 0 || static_cast<uint64>(count) > limit - data.size()) { ok = false; break; }
+			data.insert(data.end(), buffer, buffer + count);
+		}
+		ok = zip_fclose(file) == 0 && ok && data.size() == info.size;
+		if (!ok) data.clear();
+		return ok;
 	}
 
 	~ZipArchive()

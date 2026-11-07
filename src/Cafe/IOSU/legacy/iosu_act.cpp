@@ -49,7 +49,7 @@ struct actAccountData_t
 	// country & language
 	uint32 countryIndex;
 	char country[8];
-	char timeZoneId[16];
+	char timeZoneId[65];
 	sint64 utcOffset;
 	// Mii
 	FFLData_t miiData;
@@ -81,12 +81,16 @@ void FillAccountData(const Account& account, const bool online_enabled, int inde
 	data.simpleAddressId = account.GetSimpleAddressId();
 	data.principalId = account.GetPrincipalId();
 	// NNID
-	std::copy(account.GetAccountId().begin(), account.GetAccountId().end(), data.accountId);
+	const auto accountIdLength = std::min(account.GetAccountId().size(), sizeof(data.accountId) - 1);
+	std::copy_n(account.GetAccountId().data(), accountIdLength, data.accountId);
+	data.accountId[accountIdLength] = '\0';
 	std::copy(account.GetAccountPasswordCache().begin(), account.GetAccountPasswordCache().end(), data.accountPasswordCache);
 	// country & language
 	data.countryIndex = account.GetCountry();
 	strcpy(data.country, NCrypto::GetCountryAsString(data.countryIndex));
-	std::copy(account.GetTimeZoneId().cbegin(), account.GetTimeZoneId().cend(), data.timeZoneId);
+	const auto timeZoneIdLength = std::min(account.GetTimeZoneId().size(), sizeof(data.timeZoneId) - 1);
+	std::copy_n(account.GetTimeZoneId().data(), timeZoneIdLength, data.timeZoneId);
+	data.timeZoneId[timeZoneIdLength] = '\0';
 	data.utcOffset = account.GetUtcOffset() / 1'000'000;
 	// Mii
 	std::copy(account.GetMiiData().begin(), account.GetMiiData().end(), (uint8*)&data.miiData);
@@ -102,14 +106,23 @@ void FillAccountData(const Account& account, const bool online_enabled, int inde
 	}
 }
 
+void iosuAct_invalidateAccountCache()
+{
+	std::lock_guard lock(iosuAct.actMutex);
+	_actAccountDataInitialized = false;
+}
+
 void iosuAct_loadAccounts()
 {
+	std::lock_guard lock(iosuAct.actMutex);
 	if (_actAccountDataInitialized)
 		return;
 
 	const bool online_enabled = ActiveSettings::IsOnlineEnabled();
 	const auto persistent_id = ActiveSettings::GetPersistentId();
 
+	// 前タイトルの短い文字列や認証情報が残らないよう、再読込前に全スロットを初期化する。
+	std::fill(std::begin(_actAccountData), std::end(_actAccountData), actAccountData_t{});
 	// first account is always our selected one
 	int counter = 0;
 	const auto& first_acc = Account::GetAccount(persistent_id);
@@ -125,13 +138,14 @@ void iosuAct_loadAccounts()
 	//	}
 	//}
 
-	cemuLog_log(LogType::Force, "IOSU_ACT: using account {} in first slot", boost::nowide::narrow(first_acc.GetMiiName()));
+	cemuLog_log(LogType::Force, "IOSU_ACT: selected account loaded in first slot");
 	
 	_actAccountDataInitialized = true;
 }
 
 bool iosuAct_isAccountDataLoaded()
 {
+	std::lock_guard lock(iosuAct.actMutex);
 	return _actAccountDataInitialized;
 }
 

@@ -37,6 +37,7 @@ public:
 	bool IsStopped() const;
 	bool IsRunning() const;
 	uint64_t SessionId() const;
+	uint64_t StopConfirmationId() const;
 	bool IsTitleStopping() const;
 	bool HasFailed() const;
 	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
@@ -48,6 +49,8 @@ public:
 	std::string PollInput();
 	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();
+	std::string AccountCommand(uint64_t requestId, std::string_view payload);
+	std::string PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile);
 
 private:
 	struct Impl;

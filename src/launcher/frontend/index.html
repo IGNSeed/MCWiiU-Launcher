@@ -67,7 +67,7 @@
           </div>
           <div id="panel-input" role="tabpanel" aria-labelledby="tab-input" hidden>
             <h2 class="settings-heading">Controller</h2>
-            <dl class="settings-info"><dt>Emulated Controller</dt><dd>Wii U GamePad（固定）</dd><dt>Input API</dt><dd>SDLController（固定）</dd></dl>
+            <dl class="settings-info"><dt>Emulated Controller</dt><dd>Wii U GamePad</dd><dt>Input API</dt><dd>SDLController</dd></dl>
             <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
             <fieldset id="input-controls" disabled>
               <legend class="visually-hidden">コントローラー設定</legend>
@@ -163,35 +163,71 @@
             <div class="setting-row"><label for="av-overlayPosition">Position</label><select id="av-overlayPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
             <div class="setting-row"><label for="av-overlayColor">Text Color</label><div class="overlay-color"><input id="av-overlayColor" type="color" aria-label="Performance Overlay Color Picker"><input id="av-overlayColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Performance Overlay HEX" autocomplete="off" spellcheck="false"><label for="av-overlayColor-alpha">Alpha</label><input id="av-overlayColor-alpha" type="number" min="0" max="255" step="1"></div></div>
             <div class="setting-row"><label for="av-overlayScale">Text Scale</label><div class="av-slider"><input id="av-overlayScale" type="range" min="50" max="300" step="25"><output id="av-overlayScale-value"></output></div></div>
-            <label class="checkbox-row"><input id="av-overlayFps" type="checkbox">FPS</label>
-            <label class="checkbox-row"><input id="av-overlayDrawCalls" type="checkbox">Draw Calls</label>
-            <label class="checkbox-row"><input id="av-overlayCpu" type="checkbox">CPU Usage</label>
-            <label class="checkbox-row"><input id="av-overlayCpuPerCore" type="checkbox">CPU per Core Usage</label>
-            <label class="checkbox-row"><input id="av-overlayRam" type="checkbox">RAM Usage</label>
-            <label class="checkbox-row"><input id="av-overlayVram" type="checkbox">VRAM Usage</label>
-            <label class="checkbox-row"><input id="av-overlayDebug" type="checkbox">Debug Information</label>
+            <label class="setting-row toggle-row" for="av-overlayFps"><span>FPS</span><input id="av-overlayFps" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayDrawCalls"><span>Draw Calls</span><input id="av-overlayDrawCalls" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayCpu"><span>CPU Usage</span><input id="av-overlayCpu" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayCpuPerCore"><span>CPU per Core Usage</span><input id="av-overlayCpuPerCore" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayRam"><span>RAM Usage</span><input id="av-overlayRam" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayVram"><span>VRAM Usage</span><input id="av-overlayVram" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayDebug"><span>Debug Information</span><input id="av-overlayDebug" class="toggle" type="checkbox" role="switch"></label>
             <h2 class="settings-heading">Notifications</h2>
             <div class="setting-row"><label for="av-notificationPosition">Position</label><select id="av-notificationPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
             <div class="setting-row"><label for="av-notificationColor">Text Color</label><div class="overlay-color"><input id="av-notificationColor" type="color" aria-label="Notifications Color Picker"><input id="av-notificationColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Notifications HEX" autocomplete="off" spellcheck="false"><label for="av-notificationColor-alpha">Alpha</label><input id="av-notificationColor-alpha" type="number" min="0" max="255" step="1"></div></div>
             <div class="setting-row"><label for="av-notificationScale">Text Scale</label><div class="av-slider"><input id="av-notificationScale" type="range" min="50" max="300" step="25"><output id="av-notificationScale-value"></output></div></div>
-            <label class="checkbox-row"><input id="av-notificationProfiles" type="checkbox">Controller Profile</label>
-            <label class="checkbox-row"><input id="av-notificationBattery" type="checkbox">Controller Battery</label>
-            <label class="checkbox-row"><input id="av-notificationShaders" type="checkbox">Shader Compiling</label>
-            <label class="checkbox-row"><input id="av-notificationFriends" type="checkbox">Friends</label>
+            <label class="setting-row toggle-row" for="av-notificationProfiles"><span>Controller Profile</span><input id="av-notificationProfiles" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationBattery"><span>Controller Battery</span><input id="av-notificationBattery" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationShaders"><span>Shader Compiling</span><input id="av-notificationShaders" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationFriends"><span>Friends</span><input id="av-notificationFriends" class="toggle" type="checkbox" role="switch"></label>
             </fieldset>
             <p id="overlay-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
             <p class="footnote">変更はゲーム実行中にも反映され、自動保存されます。Debug Information は描画APIが提供する情報を表示します。Friends は通知の表示設定で、オンライン接続を開始しません。</p>
           </div>
           <div id="panel-account" role="tabpanel" aria-labelledby="tab-account" hidden>
-            <h2 class="settings-heading">Account</h2>
-            <p class="footnote">アカウント情報は非表示です。プロフィール表示・切替・Mii・ローカルユーザー管理・Dumpling インポートは今後対応予定です。</p>
-            <p class="footnote">現在は Offline 専用です。Pretendo / Custom 接続は今後対応予定です。</p>
+            <h2 class="settings-heading">Active Account</h2>
+            <fieldset id="account-management" disabled>
+              <div class="setting-row"><div class="account-identity"><span class="account-avatar" aria-hidden="true">●</span><div><label for="account-active">Active Account</label><p id="account-count">読み込み待ち</p></div></div><select id="account-active" aria-label="Active Account"></select></div>
+              <h2 class="settings-heading">Account Management</h2>
+              <div class="account-actions"><button id="account-create" type="button">Create Account</button><button id="account-edit" type="button">Edit Account</button><button id="account-delete" type="button">Delete Account</button></div>
+            </fieldset>
+            <p id="account-lock-note" class="footnote">Coreの準備を待っています。</p>
+            <h2 class="settings-heading">Account Information</h2>
+            <button id="account-details-toggle" type="button" aria-expanded="false" aria-controls="account-details" disabled>Show Details</button>
+            <dl id="account-details" class="settings-info" hidden></dl>
+            <h2 class="settings-heading">Import Account</h2>
+            <div id="account-drop" class="account-drop" role="region" aria-label="Dumpling ZIP import">
+              <p>Import from Dumpling</p><p class="footnote">Drag and drop a Dumpling ZIP file</p>
+              <button id="account-select-zip" type="button" disabled>Select ZIP File</button>
+            </div>
+            <div id="account-preview" hidden><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
+            <h2 class="settings-heading">Network Service</h2>
+            <div class="setting-row"><label for="account-network">Network Service</label><select id="account-network" disabled><option>Offline</option><option>Pretendo</option><option>Custom</option></select></div>
+            <p class="footnote">Connection support planned for Phase 0.4P<br>希望設定を保存します。現在のゲーム通信はOfflineです。</p>
+            <p id="account-notice" class="footnote" role="status" aria-live="polite"></p>
           </div>
         </div>
       </section>
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>
   </div>
+  <dialog id="account-editor" aria-labelledby="account-editor-title">
+    <form id="account-editor-form">
+      <h2 id="account-editor-title">Create Account</h2>
+      <div class="account-form-row"><label for="account-name">Mii Name</label><input id="account-name" type="text" maxlength="10" required autocomplete="off"></div>
+      <div id="account-edit-fields" hidden>
+        <div class="account-form-row"><label for="account-birthday">Birthday</label><input id="account-birthday" type="date" min="1900-01-01" max="9999-12-31"></div>
+        <div class="account-form-row"><label for="account-gender">Gender</label><select id="account-gender"><option value="0">Male</option><option value="1">Female</option></select></div>
+        <div class="account-form-row"><label for="account-country">Country / Region Code</label><input id="account-country" type="number" min="0" max="255" step="1"></div>
+        <div class="account-form-row"><label for="account-email">Email</label><input id="account-email" type="email" maxlength="254" autocomplete="off"></div>
+        <p class="footnote">入力確定時に自動保存されます。</p>
+      </div>
+      <p id="account-editor-note" class="footnote" role="status"></p>
+      <div class="dialog-actions"><button id="account-editor-cancel" type="button">Close</button><button id="account-editor-submit" type="submit">Create Account</button></div>
+    </form>
+  </dialog>
+  <dialog id="account-confirmation" aria-labelledby="account-confirmation-title">
+    <h2 id="account-confirmation-title"></h2><p id="account-confirmation-text"></p>
+    <div class="dialog-actions"><button id="account-confirmation-cancel" type="button" autofocus>キャンセル</button><button id="account-confirmation-accept" type="button">続行</button></div>
+  </dialog>
   <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
     <h2 id="stop-confirmation-title">Minecraftを終了しますか？</h2>
     <p id="stop-confirmation-description">この操作ではゲームの進行状況を保存しません。<br>保存していない変更は失われる可能性があります。<br>先に Minecraft 内で「Exit and save」を実行してください。</p>

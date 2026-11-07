@@ -52,6 +52,8 @@ public:
 
 	std::error_code Load();
 	std::error_code Save();
+	std::error_code SaveToFile(const fs::path& path) const;
+	static Account FromStorage(std::string_view bytes);
 
 	[[nodiscard]] std::wstring ToString() const { return fmt::format(L"{} ({:x})", GetMiiName(), GetPersistentId()); }
 
@@ -92,7 +94,7 @@ public:
 	void SetUtcOffset(sint64 utc_offset) { m_utc_offset = utc_offset; }
 
 	// this will always return at least one account (default one)
-	static const std::vector<Account>& RefreshAccounts();
+	static const std::vector<Account>& RefreshAccounts(bool updateStorage = true);
 	static void UpdatePersisidDat();
 	
 	[[nodiscard]] static bool HasFreeAccountSlots();
@@ -107,6 +109,7 @@ private:
 
 	[[nodiscard]] std::error_code CheckValid() const;
 	void ParseFile(class FileStream* file);
+	void ParseStorage(std::string_view bytes);
 
 	uint32 m_persistent_id = 0;
 	uint64 m_transferable_id_base = 0;
@@ -124,7 +127,7 @@ private:
 	uint32 m_country = 0;
 	uint32 m_simple_address_id = 0;
 	std::string m_timezone_id;
-	sint64 m_utc_offset;
+	sint64 m_utc_offset = 0;
 	uint32 m_principal_id = 0;
 	uint8 m_password_cache_enabled = 0;
 	std::array<uint8, 32> m_account_password_cache{};

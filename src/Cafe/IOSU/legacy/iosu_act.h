@@ -1,6 +1,8 @@
 #pragma once
 
 void iosuAct_init_depr();
+// 前タイトルの停止完了後、次タイトルの準備前にだけ呼び出す。
+void iosuAct_invalidateAccountCache();
 bool iosuAct_isInitialized();
 
 #define ACT_ACCOUNTID_LENGTH 	(17) // includes '\0'

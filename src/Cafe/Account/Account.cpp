@@ -183,12 +183,16 @@ std::error_code Account::Save()
 			return ec;
 	}
 		
-	path /= "account.dat";
+	return SaveToFile(path / "account.dat");
+}
 
+std::error_code Account::SaveToFile(const fs::path& path) const
+{
+	if (const auto error = CheckValid()) return error;
 	try
 	{
 		std::ofstream file;
-		file.exceptions(std::ios::badbit);
+		file.exceptions(std::ios::badbit | std::ios::failbit);
 		file.open(path);
 	
 		file << "AccountInstance_20120705" << std::endl;
@@ -298,7 +302,7 @@ void Account::SetMiiName(std::wstring_view name)
 	std::copy(name.data(), name.data() + std::min(name.size(), m_mii_name.size() - 1), m_mii_name.begin());
 }
 
-const std::vector<Account>& Account::RefreshAccounts()
+const std::vector<Account>& Account::RefreshAccounts(bool updateStorage)
 {
 	std::vector<Account> result;
 	const fs::path path = ActiveSettings::GetMlcPath("usr/save/system/act");
@@ -325,14 +329,14 @@ const std::vector<Account>& Account::RefreshAccounts()
 	}
 	
 	// we always force at least one account
-	if (result.empty())
+	if (result.empty() && updateStorage)
 	{
 		result.emplace_back(kMinPersistendId, L"default");
 		result.begin()->Save();
 	}
 
 	s_account_list = result;
-	UpdatePersisidDat();
+	if (updateStorage) UpdatePersisidDat();
 	return s_account_list;
 }
 
@@ -465,7 +469,20 @@ void Account::ParseFile(class FileStream* file)
 	buffer.resize(file->GetSize());
 	if( file->readData(buffer.data(), buffer.size()) != buffer.size())
 		throw std::system_error(AccountErrc::ParseError);
-	for (const auto& s : StringHelpers::StringLineIterator(buffer))
+	ParseStorage(std::string_view(reinterpret_cast<const char*>(buffer.data()), buffer.size()));
+}
+
+Account Account::FromStorage(std::string_view bytes)
+{
+	Account result(0);
+	result.ParseStorage(bytes);
+	if (const auto error = result.CheckValid()) throw std::system_error(error);
+	return result;
+}
+
+void Account::ParseStorage(std::string_view bytes)
+{
+	for (const auto& s : StringHelpers::StringLineIterator(bytes))
 	{
 		std::string_view view = s;
 		const auto find = view.find('=');

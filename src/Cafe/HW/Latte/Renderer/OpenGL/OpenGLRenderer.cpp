@@ -182,7 +182,11 @@ bool OpenGLRenderer::ImguiBegin(bool mainWindow)
 void OpenGLRenderer::ImguiEnd()
 {
 	ImGui::Render();
+	// Vulkan の UNORM swapchain と同じ表示値の空間で Overlay を合成する。
+	const GLboolean framebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+	glDisable(GL_FRAMEBUFFER_SRGB);
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	if (framebufferSrgb) glEnable(GL_FRAMEBUFFER_SRGB);
 
 	if (m_isPadViewContext)
 	{

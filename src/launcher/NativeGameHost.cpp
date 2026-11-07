@@ -1,6 +1,7 @@
 #include "NativeGameHost.h"
 
 #include <WebView2.h>
+#include <windowsx.h>
 #include <algorithm>
 #include <exception>
 #include <stdexcept>
@@ -71,6 +72,8 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 		m_subclassed = SetWindowSubclass(parent, ParentProc, s_subclassId, reinterpret_cast<DWORD_PTR>(this)) != FALSE;
 		if (!m_subclassed || (diagnostics && failAfterCreate))
 			throw std::runtime_error("Unable to attach native game host");
+		m_exitDialog = std::make_unique<NativeExitDialog>(m_parent);
+		m_exitDialog->result = [this](bool confirm) { if (exitResult) exitResult(confirm); };
 		UpdateLayout();
 		if (m_layoutFailed)
 			throw std::runtime_error("Unable to initialize native game host layout");
@@ -119,7 +122,7 @@ LRESULT CALLBACK NativeGameHost::OpenGLProc(HWND hwnd, UINT message, WPARAM wPar
 	if (message == WM_NCCREATE)
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams));
 	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-	if (self && message == WM_LBUTTONDOWN) { self->Focus(); return 0; }
+	if (self && self->MouseMessage(hwnd, message, wParam, lParam)) return 0;
 	if (message == WM_ERASEBKGND) return 1;
 	if (message == WM_PAINT) { PAINTSTRUCT paint; BeginPaint(hwnd, &paint); EndPaint(hwnd, &paint); return 0; }
 	if (message == WM_NCDESTROY) SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
@@ -141,6 +144,8 @@ void NativeGameHost::Release()
 	// 所有者は UI STA 内に固定する。破棄後に subclass から this を参照させない。
 	if (!OnUiThread())
 		std::terminate();
+	CancelTouch();
+	m_exitDialog.reset();
 	SetOpenGLComposition(false);
 	if (m_subclassed)
 		RemoveWindowSubclass(m_parent, ParentProc, s_subclassId);
@@ -201,7 +206,10 @@ void NativeGameHost::SetVisible(bool visible)
 	if (!OnUiThread() || !m_child)
 		return;
 	if (!visible)
+	{
+		CancelTouch();
 		RestoreWebViewFocus();
+	}
 	if (visible && !m_visible) SetWindowPos(m_child, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 	m_visible = visible;
 	UpdateLayout();
@@ -225,6 +233,7 @@ void NativeGameHost::SetGameLayout(bool enabled)
 bool NativeGameHost::SetFullscreenLayout(bool enabled)
 {
 	if (!OnUiThread()) return false;
+	CancelTouch();
 	m_fullscreenLayout = enabled;
 	UpdateLayout();
 	return !m_layoutFailed;
@@ -235,6 +244,69 @@ void NativeGameHost::SetControlsVisible(bool visible)
 	if (!OnUiThread()) return;
 	m_controlsVisible = visible;
 	UpdateControls();
+}
+
+RECT NativeGameHost::GameBounds() const
+{
+	RECT rect{}; GetWindowRect(m_child, &rect);
+	MapWindowPoints(nullptr, m_parent, reinterpret_cast<POINT*>(&rect), 2);
+	return rect;
+}
+
+void NativeGameHost::SetExitConfirmation(bool visible)
+{
+	if (!OnUiThread() || visible == m_exitVisible) return;
+	CancelTouch();
+	m_exitVisible = visible;
+	if (m_exitDialog) m_exitDialog->Show(visible, GameBounds());
+}
+
+void NativeGameHost::CancelTouch()
+{
+	const auto captured = m_touchCapture;
+	m_touchCapture = nullptr;
+	if (captured && GetCapture() == captured) ReleaseCapture();
+	if (input) input(WM_CAPTURECHANGED, 0, 0);
+}
+
+bool NativeGameHost::MouseMessage(HWND hwnd, UINT message, WPARAM key, LPARAM position)
+{
+	switch (message)
+	{
+	case WM_LBUTTONDOWN:
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONUP:
+	{
+		if (!IsRenderable() || m_exitVisible) { CancelTouch(); return true; }
+		if (message == WM_LBUTTONDOWN)
+		{
+			if (!Focus()) return true;
+			SetCapture(hwnd);
+			if (GetCapture() != hwnd) return true;
+			m_touchCapture = hwnd;
+			TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0}; TrackMouseEvent(&track);
+		}
+		POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
+		MapWindowPoints(hwnd, m_child, &point, 1);
+		if (input) input(message, key, MAKELPARAM(point.x, point.y));
+		if (message == WM_LBUTTONUP)
+		{
+			const auto captured = m_touchCapture;
+			m_touchCapture = nullptr;
+			if (captured && GetCapture() == captured) ReleaseCapture();
+		}
+		return true;
+	}
+	case WM_MOUSELEAVE:
+	case WM_CANCELMODE:
+	case WM_KILLFOCUS:
+		CancelTouch();
+		return message == WM_MOUSELEAVE || message == WM_CAPTURECHANGED;
+	case WM_CAPTURECHANGED:
+		if (m_touchCapture) CancelTouch();
+		return true;
+	}
+	return false;
 }
 
 void NativeGameHost::UpdateControls()
@@ -319,6 +391,7 @@ void NativeGameHost::UpdateLayout()
 	}
 	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 	UpdateControls();
+	if (m_exitDialog) m_exitDialog->Layout(GameBounds());
 	if (stateChanged) stateChanged();
 }
 
@@ -379,8 +452,11 @@ LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wPar
 		self->UpdateLayout();
 	if (message == WM_MOVE && self->m_diagnostics && self->m_controller)
 		self->m_controller->NotifyParentWindowPositionChanged();
-	if (message == WM_ACTIVATEAPP && !wParam && self->input)
-		self->input(WM_KILLFOCUS, 0, 0);
+	if (message == WM_ACTIVATEAPP && !wParam)
+	{
+		self->CancelTouch();
+		if (self->input) self->input(WM_KILLFOCUS, 0, 0);
+	}
 	if (message == WM_ACTIVATEAPP && self->stateChanged)
 		self->stateChanged();
 	return result;
@@ -469,11 +545,15 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		self->m_child = nullptr;
 		break;
 	case WM_LBUTTONDOWN:
-		self->Focus();
+	case WM_LBUTTONUP:
+	case WM_MOUSEMOVE:
+	case WM_MOUSELEAVE:
+	case WM_CAPTURECHANGED:
+		self->MouseMessage(hwnd, message, wParam, lParam);
 		return 0;
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		if (wParam == VK_F11 || (wParam == VK_F10 && !(lParam & (1LL << 29))))
+		if ((!self->m_diagnostics && wParam == VK_ESCAPE) || wParam == VK_F11 || (wParam == VK_F10 && !(lParam & (1LL << 29))))
 		{
 			// 両側の down/up を消費し、フォーカス変更後のリピートも再配送しない。
 			if (!(lParam & (1LL << 30)))
@@ -497,12 +577,13 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		return message == WM_SYSKEYDOWN ? DefWindowProcW(hwnd, message, wParam, lParam) : 0;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
-		if (wParam == VK_F10 || wParam == VK_F11) return 0;
+		if ((!self->m_diagnostics && wParam == VK_ESCAPE) || wParam == VK_F10 || wParam == VK_F11) return 0;
 		if (self->input) self->input(message, wParam, lParam);
 		return 0;
 	case WM_SETFOCUS:
 	case WM_KILLFOCUS:
 	case WM_CANCELMODE:
+		if (message != WM_SETFOCUS) self->CancelTouch();
 		if (self->input) self->input(message, wParam, lParam);
 		if (self->m_diagnostics) InvalidateRect(hwnd, nullptr, FALSE);
 		return 0;

@@ -2,11 +2,13 @@
 #include "NativeSettings.h"
 #include "InputService.h"
 #include "AvSettings.h"
+#include "AccountService.h"
 #include "NativeOpenGL.h"
 
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/IOSU/legacy/iosu_act.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
@@ -15,6 +17,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #include "config/ActiveSettings.h"
 #include "input/InputManager.h"
+#include <windowsx.h>
 #include "input/api/Controller.h"
 #include "audio/IAudioAPI.h"
 #include "WindowSystem.h"
@@ -96,6 +99,7 @@ namespace
 		uint64 confirmationCounter = 0, confirmationId = 0, confirmationSession = 0, confirmationGeneration = 0;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
 		std::atomic_bool titleStop{false};
+		std::atomic_bool inputReady{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
 		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
@@ -110,6 +114,8 @@ namespace
 		NativeSettings nativeSettings;
 		std::unique_ptr<InputService> input;
 		std::unique_ptr<AvSettings> av;
+		std::unique_ptr<AccountService> accounts;
+		uint64_t lastAccountRequest = 0;
 		uint64_t lastAvRequest = 0;
 		uint64_t lastInputRequest = 0;
 		std::string settingsNotice = "loading", settingsInfo = "{}";
@@ -192,7 +198,7 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy());
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || accounts->IsHealthy());
 		}
 		bool CanEditLiveSettingsLocked() const
 		{
@@ -220,6 +226,8 @@ namespace
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
+				writer.Key("canEditAccounts"); writer.Bool(CanEditSettingsLocked() && accounts != nullptr);
+				writer.Key("nativeExitConfirmation"); writer.Bool(true);
 				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
 				writer.Key("inputRecoveryPending"); writer.Bool(s_inputRecoveryPending);
 				writer.Key("inputReconnectCount"); writer.Uint64(inputReconnectCount);
@@ -571,6 +579,8 @@ struct CemuHost::Impl
 			state->Phase("validating");
 			state->runtime = ValidateRuntime();
 			const auto portable = state->runtime / "portable";
+			// 中断した取引がある場合は、Default Account 作成を含む共通初期化より前に止める。
+			Require(!fs::exists(portable / ".launcher-account-transaction"), "Account recovery is required before starting Core");
 			const auto nativePath = portable / "launcher-native-settings.json";
 			if (fs::exists(nativePath)) NoReparsePoints(nativePath);
 			{
@@ -582,6 +592,7 @@ struct CemuHost::Impl
 			Require(failedPaths.empty(), "Isolated runtime is not writable");
 			GetConfigHandle().SetFilename((portable / "settings.xml").wstring());
 			GetConfigHandle().Load();
+			AccountService::EnforceOffline();
 			NetworkConfig::LoadOnce();
 			ActiveSettings::Init();
 			state->logReady = true;
@@ -592,10 +603,11 @@ struct CemuHost::Impl
 			commonStarted = true;
 			++state->commonInitCount;
 			CemuCommonInit(state->runtime, false);
+			state->inputReady = true;
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			InitializeGlobalVulkan();
-			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>(); state->corePhase = "ready"; }
+			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>(); state->accounts = std::make_unique<AccountService>(); state->corePhase = "ready"; }
 			state->Phase("ready");
 			while (!state->stop)
 			{
@@ -615,6 +627,9 @@ struct CemuHost::Impl
 						}
 						if (!state->stop && !state->titleStop)
 						{
+							AccountService::EnforceOffline();
+							// Coreは同一プロセスに残るため、ACTだけ次の初期化で選択Accountを再読込する。
+							iosuAct_invalidateAccountCache();
 							state->av->PrepareLaunch();
 							{ std::lock_guard lock(state->statusMutex); state->error.clear(); }
 							auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
@@ -741,7 +756,7 @@ struct CemuHost::Impl
 			MinecraftNativeResolution::End();
 			LatteTiming_disableCustomVsyncFrequency();
 			state->appliedVsync = 0;
-			{ std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->input.reset(); state->av.reset(); }
+			{ std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->inputReady = false; state->accounts.reset(); state->input.reset(); state->av.reset(); }
 			InputManager::instance().Shutdown();
 			cemuLog_log(LogType::Force, "NativeHost input shutdown complete; presents={} acquires={} swapchainsReleased={} surfacesReleased={}",
 				state->presents.load(), state->acquires.load(), state->swapchainDestroys.load(), state->surfaceDestroys.load());
@@ -938,6 +953,28 @@ std::string CemuHost::AvCommand(uint64_t requestId, std::string_view payload)
 	return state.av->Command(payload, state.phase == "running");
 }
 
+std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastAccountRequest = requestId;
+	return state.accounts->Command(payload, state.CanEditSettingsLocked());
+}
+
+std::string CemuHost::PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastAccountRequest = requestId;
+	return state.accounts->PreviewZip(selectedFile, state.CanEditSettingsLocked());
+}
+
 void CemuHost::RefreshSettingsInfo()
 {
 	auto& state = *m_impl->state;
@@ -1010,13 +1047,39 @@ void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused
 	s_windowInfo.dpi_scale = scale;
 	s_windowInfo.is_fullscreen = fullscreen;
 	LatteOverlay_setControlInset(!fullscreen && visible ? MulDiv(56, dpi, 96) : 0);
-	s_windowInfo.app_active = visible && focused && IsRunning() && !m_impl->state->titleStop;
-	if (!s_windowInfo.app_active) s_windowInfo.set_keystatesup();
+	s_windowInfo.app_active = visible && focused && IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation();
+	if (!s_windowInfo.app_active) InputMessage(WM_CANCELMODE, 0, 0);
 }
+uint64_t CemuHost::StopConfirmationId() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	return m_impl->state->confirmationId;
+}
+
 void CemuHost::InputMessage(UINT message, WPARAM key, LPARAM value)
 {
+	// マウスは既存 VPAD の image-area 変換に渡す。KBM の割当は追加しない。
+	if (m_impl->state->inputReady && (message == WM_LBUTTONDOWN || message == WM_MOUSEMOVE || message == WM_LBUTTONUP || message == WM_CAPTURECHANGED || message == WM_KILLFOCUS || message == WM_CANCELMODE))
+	{
+		auto& mouse = InputManager::instance().m_main_mouse;
+		std::unique_lock lock(mouse.m_mutex);
+		if (message == WM_CAPTURECHANGED || message == WM_KILLFOCUS || message == WM_CANCELMODE)
+			mouse.left_down = mouse.left_down_toggle = false;
+		else if (message == WM_LBUTTONUP)
+			mouse.left_down = false;
+		else if (s_windowInfo.app_active && IsRunning() && !m_impl->state->titleStop)
+		{
+			const glm::ivec2 point{GET_X_LPARAM(value), GET_Y_LPARAM(value)};
+			int x = 0, y = 0, width = 0, height = 0;
+			LatteRenderTarget_getScreenImageArea(&x, &y, &width, &height, nullptr, nullptr, false);
+			const bool inside = width > 0 && height > 0 && point.x >= x && point.y >= y && point.x < x + width && point.y < y + height;
+			mouse.position = point;
+			if (!inside) mouse.left_down = mouse.left_down_toggle = false;
+			else if (message == WM_LBUTTONDOWN) mouse.left_down = mouse.left_down_toggle = true;
+		}
+	}
 	if (message == WM_KILLFOCUS || message == WM_CANCELMODE) { s_windowInfo.set_keystatesup(); s_windowInfo.app_active = false; return; }
-	if (message == WM_SETFOCUS) { s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop; return; }
+	if (message == WM_SETFOCUS) { s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation(); return; }
 	if ((message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && s_windowInfo.app_active)
 	{
 		UINT code = static_cast<UINT>(key);
