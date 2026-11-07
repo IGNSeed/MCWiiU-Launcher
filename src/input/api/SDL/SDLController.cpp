@@ -52,21 +52,29 @@ bool SDLController::connect()
 		return true;
 
 	m_has_rumble = false;
-	const auto index = m_provider->get_index(m_guid_index, m_guid);
+	const auto index = m_pinnedInstance ? -1 : m_provider->get_index(m_guid_index, m_guid);
 	std::scoped_lock lock(m_controller_mutex);
 
-	int gamepad_count = 0;
-
-	SDL_JoystickID *gamepad_ids = SDL_GetGamepads(&gamepad_count);
-
-	if (!gamepad_ids || index < 0 || index >= gamepad_count)
+	if (m_pinnedInstance)
 	{
-		SDL_free(gamepad_ids);
-		return false;
+		m_diid = *m_pinnedInstance;
+		if (!SDL_IsGamepad(m_diid) || !(SDL_GetGamepadGUIDForID(m_diid) == m_guid)) return false;
 	}
+	else
+	{
+		int gamepad_count = 0;
 
-	m_diid = gamepad_ids[index];
-	SDL_free(gamepad_ids);
+		SDL_JoystickID *gamepad_ids = SDL_GetGamepads(&gamepad_count);
+
+		if (!gamepad_ids || index < 0 || index >= gamepad_count)
+		{
+			SDL_free(gamepad_ids);
+			return false;
+		}
+
+		m_diid = gamepad_ids[index];
+		SDL_free(gamepad_ids);
+	}
 
 	m_controller = SDL_OpenGamepad(m_diid);
 
@@ -86,6 +94,27 @@ bool SDLController::connect()
 		m_has_gyro = SDL_SetGamepadSensorEnabled(m_controller, SDL_SENSOR_GYRO, true);
 	m_has_rumble = SDL_RumbleGamepad(m_controller, 0, 0, 0);
 	return true;
+}
+
+void SDLController::pin_instance(SDL_JoystickID instance)
+{
+	std::scoped_lock lock(m_controller_mutex);
+	if (m_controller && m_diid != instance) { SDL_CloseGamepad(m_controller); m_controller = nullptr; }
+	m_pinnedInstance = instance;
+}
+
+SDL_JoystickID SDLController::instance_id()
+{
+	std::scoped_lock lock(m_controller_mutex);
+	return m_pinnedInstance ? (SDL_IsGamepad(*m_pinnedInstance) ? *m_pinnedInstance : 0) : (is_connected() ? m_diid : 0);
+}
+
+std::string SDLController::serial()
+{
+	std::scoped_lock lock(m_controller_mutex);
+	if (is_connected())
+		if (const auto value = SDL_GetGamepadSerial(m_controller)) return value;
+	return {};
 }
 
 void SDLController::start_rumble()

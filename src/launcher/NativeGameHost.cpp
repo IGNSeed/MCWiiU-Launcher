@@ -236,8 +236,14 @@ void NativeGameHost::UpdateLayout()
 	else if (m_gameLayout && !IsIconic(m_parent) && client.right > 0 && client.bottom > 0)
 	{
 		const auto dpi = GetDpiForWindow(m_parent);
-		const RECT bounds{m_fullscreenLayout ? 0 : std::min(client.right, static_cast<LONG>(MulDiv(210, dpi, 96))),
-			m_fullscreenLayout ? 0 : std::min(client.bottom, static_cast<LONG>(MulDiv(48, dpi, 96))), client.right, client.bottom};
+		RECT bounds = client;
+		if (!m_fullscreenLayout)
+		{
+			const LONG sidebar = std::min(client.right - 1, static_cast<LONG>(MulDiv(210, dpi, 96)));
+			const LONG top = std::min(client.bottom - 1, static_cast<LONG>(MulDiv(48, dpi, 96)));
+			const LONG inset = std::max<LONG>(0, std::min({static_cast<LONG>(MulDiv(24, dpi, 96)), (client.right - sidebar - 1) / 2, (client.bottom - top - 1) / 2}));
+			bounds = {sidebar + inset, top + inset, client.right - inset, client.bottom - inset};
+		}
 		m_layoutFailed = !SetBounds(bounds);
 	}
 	if (!active || m_layoutFailed)
@@ -339,29 +345,32 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		if (item->hwndItem != self->m_controls[0] && item->hwndItem != self->m_controls[1]) break;
 		// stock object と DC 内の色だけを使い、再Playごとの GDI allocation を避ける。
 		const auto saved = SaveDC(item->hDC);
-		SetDCBrushColor(item->hDC, self->m_hoveredControl == item->hwndItem ? RGB(65, 65, 72) : RGB(24, 24, 28));
-		SetDCPenColor(item->hDC, RGB(190, 190, 198));
+		const bool hovered = self->m_hoveredControl == item->hwndItem;
+		SetDCBrushColor(item->hDC, hovered ? RGB(48, 48, 54) : RGB(24, 24, 28));
 		SelectObject(item->hDC, GetStockObject(DC_BRUSH));
-		SelectObject(item->hDC, GetStockObject(DC_PEN));
 		const auto r = item->rcItem;
-		const auto unit = std::max<LONG>(1, (r.right - r.left) / 8);
-		RoundRect(item->hDC, r.left, r.top, r.right, r.bottom, unit, unit);
-		const auto x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+		// 全画素を塗ってから矩形の枠を描き、layered 面の四隅を未描画にしない。
+		FillRect(item->hDC, &r, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		SetDCBrushColor(item->hDC, hovered ? RGB(130, 130, 140) : RGB(90, 90, 98));
+		FrameRect(item->hDC, &r, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		SetDCBrushColor(item->hDC, RGB(225, 225, 232));
+		const LONG width = r.right - r.left, height = r.bottom - r.top;
+		const LONG stroke = std::max<LONG>(2, width / 12), glyph = std::max<LONG>(8, width / 2);
+		const LONG left = r.left + (width - glyph) / 2, top = r.top + (height - glyph) / 2;
+		const auto fill = [&](LONG x, LONG y, LONG w, LONG h) {
+			const RECT part{x, y, x + w, y + h};
+			FillRect(item->hDC, &part, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+		};
 		if (item->hwndItem == self->m_controls[0])
 		{
-			SetDCBrushColor(item->hDC, RGB(235, 235, 240));
-			RECT left{x - unit, y - unit * 2, x, y + unit * 2}, right{x + unit, y - unit * 2, x + unit * 2, y + unit * 2};
-			FillRect(item->hDC, &left, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-			FillRect(item->hDC, &right, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+			fill(left, top, stroke, glyph);
+			fill(left + glyph - stroke, top, stroke, glyph);
 		}
 		else
 		{
-			for (const int dx : {-1, 1}) for (const int dy : {-1, 1})
-			{
-				MoveToEx(item->hDC, x + dx * unit, y + dy * unit * 2, nullptr);
-				LineTo(item->hDC, x + dx * unit * 2, y + dy * unit * 2);
-				LineTo(item->hDC, x + dx * unit * 2, y + dy * unit);
-			}
+			const LONG arm = std::max<LONG>(stroke + 1, glyph / 3);
+			for (const LONG x : {left, left + glyph - arm}) for (const LONG y : {top, top + glyph - stroke}) fill(x, y, arm, stroke);
+			for (const LONG x : {left, left + glyph - stroke}) for (const LONG y : {top, top + glyph - arm}) fill(x, y, stroke, arm);
 		}
 		if (item->itemState & ODS_FOCUS) DrawFocusRect(item->hDC, &item->rcItem);
 		RestoreDC(item->hDC, saved);

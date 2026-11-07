@@ -42,6 +42,9 @@ public:
 	std::string StatusJson() const;
 	void SaveNativeSettings(std::string_view payload);
 	void RefreshSettingsInfo();
+	std::string InputCommand(uint64_t requestId, std::string_view payload);
+	std::string PollInput();
+	void CancelInputCapture();
 
 private:
 	struct Impl;

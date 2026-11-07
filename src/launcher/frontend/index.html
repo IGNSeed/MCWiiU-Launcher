@@ -70,8 +70,29 @@
             <h2 class="settings-heading">Controller</h2>
             <dl class="settings-info"><dt>Emulated Controller</dt><dd>Wii U GamePad（固定）</dd><dt>Input API</dt><dd>SDLController（固定）</dd></dl>
             <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-            <button class="settings-refresh" type="button" disabled>情報を更新</button>
-            <p class="footnote">コントローラー選択・Profile 切替・ボタン割当・スティック調整・入力テストは今後対応予定です。</p>
+            <fieldset id="input-controls" disabled>
+              <legend class="visually-hidden">コントローラー設定</legend>
+              <div class="input-row"><label for="physical-controller">Physical Controller</label><select id="physical-controller"><option value="">コントローラーを選択</option></select></div>
+              <fieldset id="input-edit" disabled>
+                <legend class="visually-hidden">割当とProfile</legend>
+                <div class="input-row"><label for="controller-profile">Controller Profile</label><select id="controller-profile"><option value="">Profile を選択</option></select><button id="profile-load" type="button">読込</button></div>
+                <div class="input-row"><label for="profile-name">新しい Profile 名</label><input id="profile-name" type="text" maxlength="64" autocomplete="off" spellcheck="false"><button id="profile-save-as" type="button">新しい名前で保存</button></div>
+                <h2 class="settings-heading">Stick Deadzone</h2>
+                <div class="input-row"><label for="left-deadzone">Left Stick</label><input id="left-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="left-deadzone-value" for="left-deadzone">0.25</output></div>
+                <div class="input-row"><label for="right-deadzone">Right Stick</label><input id="right-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="right-deadzone-value" for="right-deadzone">0.25</output></div>
+                <h2 class="settings-heading">Button Mapping</h2>
+                <div id="controller-mapping" class="mapping-grid"></div>
+                <button id="input-reset" type="button">Reset to Default</button>
+                <div id="input-reset-confirmation" hidden><p class="footnote">現在の割当と左右のデッドゾーンを既定値へ戻します。変更前の Profile はバックアップされます。</p><button id="input-reset-cancel" type="button">キャンセル</button> <button id="input-reset-confirm" type="button">既定値へ戻す</button></div>
+              </fieldset>
+            </fieldset>
+            <p id="input-note" class="footnote" role="status">ゲーム停止後、準備完了になると変更できます。</p>
+            <button id="input-capture-cancel" type="button" hidden>入力待機をキャンセル</button>
+            <h2 class="settings-heading">Controller Input Test</h2>
+            <div class="stick-tests"><div><div id="left-stick-test" class="stick-test" aria-label="左スティック"><span></span></div><output id="left-stick-value">0.00 / 0.00</output></div><div><div id="right-stick-test" class="stick-test" aria-label="右スティック"><span></span></div><output id="right-stick-value">0.00 / 0.00</output></div></div>
+            <p id="trigger-test" class="footnote">ZL 0.00 / ZR 0.00</p>
+            <p id="button-test" class="footnote">未接続</p>
+            <p class="footnote">接続中の1台をプレイヤー1へ割り当てます。同型機器は接続IDで区別します。識別できない再接続では、もう一度選択してください。入力テストは SDL の値に現在のデッドゾーンを適用して表示します。</p>
           </div>
           <div id="panel-graphics" role="tabpanel" aria-labelledby="tab-graphics" hidden>
             <h2 class="settings-heading">Native Graphics</h2>
@@ -95,7 +116,6 @@
           <div id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
             <h2 class="settings-heading">Audio</h2>
             <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-            <button class="settings-refresh" type="button" disabled>情報を更新</button>
             <p class="footnote">Audio API・出力デバイス・音量・Microphone の変更は今後対応予定です。</p>
           </div>
           <div id="panel-overlay" role="tabpanel" aria-labelledby="tab-overlay" hidden>

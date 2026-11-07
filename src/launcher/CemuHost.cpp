@@ -1,5 +1,6 @@
 #include "CemuHost.h"
 #include "NativeSettings.h"
+#include "InputService.h"
 
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
@@ -101,6 +102,8 @@ namespace
 		std::string phase = "idle", error;
 		fs::path runtime;
 		NativeSettings nativeSettings;
+		std::unique_ptr<InputService> input;
+		uint64_t lastInputRequest = 0;
 		std::string settingsNotice = "loading", settingsInfo = "{}";
 		std::mutex imageMutex;
 		std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, uint64_t> images;
@@ -161,7 +164,7 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed;
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy());
 		}
 		void ClearStopConfirmationLocked()
 		{
@@ -179,7 +182,7 @@ namespace
 				writer.Key("corePhase"); writer.String(corePhase.c_str());
 				writer.Key("titlePhase"); writer.String(titlePhase.c_str());
 				writer.Key("stopReason"); writer.String(stopReason.c_str());
-				writer.Key("canLaunch"); writer.Bool(phase == "ready" && !launch && !stop && !stopped && !failed);
+				writer.Key("canLaunch"); writer.Bool(CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
@@ -544,7 +547,7 @@ struct CemuHost::Impl
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
-			{ std::lock_guard lock(state->statusMutex); state->corePhase = "ready"; }
+			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->corePhase = "ready"; }
 			state->Phase("ready");
 			while (!state->stop)
 			{
@@ -658,6 +661,7 @@ struct CemuHost::Impl
 			MinecraftNativeResolution::End();
 			LatteTiming_disableCustomVsyncFrequency();
 			state->appliedVsync = 0;
+			{ std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->input.reset(); }
 			InputManager::instance().Shutdown();
 			cemuLog_log(LogType::Force, "NativeHost input shutdown complete; presents={} acquires={} swapchainsReleased={} surfacesReleased={}",
 				state->presents.load(), state->acquires.load(), state->swapchainDestroys.load(), state->surfaceDestroys.load());
@@ -718,7 +722,7 @@ void CemuHost::LaunchGame()
 	{
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
-		if (m_impl->state->phase != "ready" || m_impl->state->stop || m_impl->state->launch || m_impl->state->failed) return;
+		if (!m_impl->state->CanEditSettingsLocked()) return;
 		m_impl->state->launch = true;
 		m_impl->state->titleStop = false;
 		m_impl->state->ClearStopConfirmationLocked();
@@ -809,9 +813,41 @@ void CemuHost::SaveNativeSettings(std::string_view payload)
 	state.Publish();
 }
 
+std::string CemuHost::InputCommand(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.input) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastInputRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastInputRequest = requestId;
+	if (payload == "{\"op\":\"cancel\"}") { state.input->CancelCapture(); return state.input->Snapshot(); }
+	if (!state.CanEditSettingsLocked()) { state.input->CancelCapture(); return "{\"notice\":\"not-ready\"}"; }
+	return state.input->Command(payload);
+}
+
+std::string CemuHost::PollInput()
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.input || state.stop || state.failed || (state.phase != "ready" && state.phase != "running")) return "{}";
+	if (!state.CanEditSettingsLocked()) state.input->CancelCapture();
+	return state.input->Poll();
+}
+
+void CemuHost::CancelInputCapture()
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (state.input) state.input->CancelCapture();
+}
+
 void CemuHost::RefreshSettingsInfo()
 {
 	auto& state = *m_impl->state;
+	bool changed = false;
 	{
 		std::lock_guard workLock(state.workMutex);
 		std::lock_guard statusLock(state.statusMutex);
@@ -858,10 +894,13 @@ void CemuHost::RefreshSettingsInfo()
 				writer.EndObject();
 			}
 		}
-		writer.EndArray(); writer.EndObject();
+		writer.EndArray();
+		if (state.input) { writer.Key("input"); const auto snapshot = state.input->Snapshot(); writer.RawValue(snapshot.data(), snapshot.size(), rapidjson::kObjectType); }
+		writer.EndObject();
+		changed = state.settingsInfo != buffer.GetString();
 		state.settingsInfo = buffer.GetString();
 	}
-	state.Publish();
+	if (changed) state.Publish();
 }
 void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused, bool fullscreen)
 {

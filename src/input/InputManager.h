@@ -43,6 +43,7 @@ public:
 
 	void save() noexcept;
 	bool save(size_t player_index, std::string_view filename = {});
+	std::optional<std::string> serialize_profile(size_t player_index, std::string_view profile_name) const;
 
 	bool is_gameprofile_set(size_t player_index) const;
 

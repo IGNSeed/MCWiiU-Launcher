@@ -207,6 +207,7 @@ namespace
 		void SyncWebViewBounds()
 		{
 			if (m_transitioning || m_stopping || IsFullscreen() || IsIconic(m_window.native().hwnd) || !IsWindowVisible(m_window.native().hwnd)) return;
+			m_webview.execute(std::string("document.documentElement.dataset.gameVisible='") + ((!m_launcherVisible && !m_settingsSelected && m_core.IsRunning()) ? "true" : "false") + "';");
 			RECT client{}, bounds{};
 			BOOL visible = FALSE;
 			auto* controller = m_webview.native().controller;
@@ -423,6 +424,7 @@ namespace
 					gameHost.SetControlsVisible(false);
 					if (!core->IsStopped())
 					{
+						core->CancelInputCapture();
 						core->RequestStop();
 						publishCore(core->StatusJson());
 						return saucer::policy::block;
@@ -515,6 +517,22 @@ namespace
 					}
 					else core->SaveNativeSettings(payload);
 				}
+				else if (core && message.starts_with("input:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("input:command:").size())))
+					{
+						const auto snapshot = core->InputCommand(request->first, request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-input-result', {detail:{requestId:" + std::to_string(request->first) + ",input:" + snapshot + "}}));");
+						core->RefreshSettingsInfo();
+					}
+				}
+				else if (core && message == "input:cancel")
+					core->CancelInputCapture();
+				else if (core && message.starts_with("input:poll:") && display->m_settingsSelected && !IsIconic(window->native().hwnd))
+				{
+					if (const auto id = ParseStopId(message.substr(std::string_view("input:poll:").size())); id && *id <= 9007199254740991ULL)
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-input-live', {detail:{viewId:" + std::to_string(*id) + ",state:" + core->PollInput() + "}}));");
+				}
 				else if (core && message == "settings:get")
 					core->RefreshSettingsInfo();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
@@ -539,6 +557,7 @@ namespace
 				else if (core && (message == "page:home" || message == "page:settings"))
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
+					core->CancelInputCapture();
 					display->m_settingsSelected = message == "page:settings";
 					if (display->m_settingsSelected) core->RefreshSettingsInfo();
 					display->m_launcherVisible = display->m_settingsSelected;

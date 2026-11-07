@@ -57,6 +57,16 @@ SDLControllerProvider::~SDLControllerProvider()
 
 std::vector<std::shared_ptr<ControllerBase>> SDLControllerProvider::get_controllers()
 {
+	return enumerate_controllers(false);
+}
+
+std::vector<std::shared_ptr<ControllerBase>> SDLControllerProvider::get_pinned_controllers()
+{
+	return enumerate_controllers(true);
+}
+
+std::vector<std::shared_ptr<ControllerBase>> SDLControllerProvider::enumerate_controllers(bool pinInstances)
+{
 	std::vector<std::shared_ptr<ControllerBase>> result;
 
 	std::unordered_map<SDL_GUID, size_t, SDL_JoystickGUIDHash> guid_counter;
@@ -74,6 +84,7 @@ std::vector<std::shared_ptr<ControllerBase>> SDLControllerProvider::get_controll
 				result.emplace_back(std::make_shared<SDLController>(guid, it.first->second, name));
 			else
 				result.emplace_back(std::make_shared<SDLController>(guid, it.first->second));
+			if (pinInstances) std::static_pointer_cast<SDLController>(result.back())->pin_instance(gamepad_ids[i]);
 			++it.first->second;
 		}
 		SDL_free(gamepad_ids);

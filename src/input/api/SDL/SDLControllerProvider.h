@@ -19,6 +19,7 @@ public:
 	InputAPI::Type api() const override { return kAPIType; }
 
 	std::vector<std::shared_ptr<ControllerBase>> get_controllers() override;
+	std::vector<std::shared_ptr<ControllerBase>> get_pinned_controllers();
 	
 	int get_index(size_t guid_index, const SDL_GUID& guid) const;
 
@@ -32,6 +33,7 @@ public:
 #endif
 
 private:
+	std::vector<std::shared_ptr<ControllerBase>> enumerate_controllers(bool pinInstances);
 	void event_thread();
 	static void HandleSDLEvent(union SDL_Event& event);
 #if !BOOST_OS_MACOS

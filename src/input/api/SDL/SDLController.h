@@ -22,6 +22,10 @@ public:
 
 	bool is_connected() override;
 	bool connect() override;
+	// Launcher の明示選択は接続順ではなく、この接続中の機器だけに固定する。
+	void pin_instance(SDL_JoystickID instance);
+	SDL_JoystickID instance_id();
+	std::string serial();
 	
 	bool has_motion() override { return m_has_gyro && m_has_accel; }
 	bool has_rumble() override { return m_has_rumble; }
@@ -49,6 +53,7 @@ private:
 	std::recursive_mutex m_controller_mutex;
 	SDL_Gamepad* m_controller = nullptr;
 	SDL_JoystickID m_diid = -1;
+	std::optional<SDL_JoystickID> m_pinnedInstance;
 
 	bool m_has_gyro = false;
 	bool m_has_accel = false;

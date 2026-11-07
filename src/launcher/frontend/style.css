@@ -428,4 +428,31 @@ input { accent-color:#dedee5; }
 #native-fps { width:72px; padding:8px; border:1px solid #777781; border-radius:3px; background:#131317; color:inherit; }
 #native-fps:disabled { color:#707078; }
 #fps-error { color:#e4b5b5; }
-.settings-refresh { padding:10px 16px; margin-top:12px; }
+
+
+body { user-select:none; -webkit-user-select:none; }
+input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:text; }
+[role="tabpanel"]:not([hidden]) { animation:settings-enter 180ms ease-out; }
+@keyframes settings-enter { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) { [role="tabpanel"]:not([hidden]) { animation:none; } }
+#input-controls,#input-edit { border:0; padding:0; margin:0; min-width:0; }
+.input-row { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:18px 0; }
+.input-row label { flex:0 0 140px; font-size:.875rem; }
+.input-row select,.input-row input[type="text"] { min-width:140px; max-width:100%; flex:1; color:inherit; background:#131317; border:1px solid #777781; border-radius:3px; padding:8px; font:inherit; }
+.input-row input[type="range"] { flex:1; min-width:90px; }
+.input-row output { width:40px; font-variant-numeric:tabular-nums; }
+#panel-input button { padding:8px 12px; font-size:.8125rem; }
+.mapping-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:8px 16px; margin:16px 0; }
+.mapping-row { display:flex; align-items:center; gap:10px; font-size:.8125rem; }
+.mapping-row span { flex:1; }
+.mapping-row button { min-width:110px; overflow-wrap:anywhere; }
+.mapping-row[data-pressed="true"] { color:#fff; background:#303038; }
+.stick-tests { display:flex; flex-wrap:wrap; gap:32px; font-size:.8125rem; color:#aaaab3; }
+.stick-test { position:relative; width:100px; height:100px; border:1px solid #5a5a62; border-radius:50%; margin-bottom:8px; background:linear-gradient(transparent 49%,#303038 49%,#303038 51%,transparent 51%),linear-gradient(90deg,transparent 49%,#303038 49%,#303038 51%,transparent 51%); }
+.stick-test span { position:absolute; width:10px; height:10px; left:45px; top:45px; border-radius:50%; background:#dedee5; }
+#input-reset-confirmation[hidden],#input-capture-cancel[hidden] { display:none; }
+#input-reset-confirmation { margin-top:12px; border-left:2px solid #777781; padding-left:16px; }
+
+[data-game-visible="true"] main { visibility:hidden; }
+
+[data-game-visible="true"] .workspace { grid-template-columns:210px minmax(0,1fr); }

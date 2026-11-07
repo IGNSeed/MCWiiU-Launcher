@@ -461,6 +461,22 @@ bool InputManager::save(size_t player_index, std::string_view filename)
 
 	file_path.replace_extension(".xml"); // force .xml extension
 
+	const auto xml = serialize_profile(player_index, is_default_file ? emulated_controller->get_profile_name() : filename);
+	if (!xml) return false;
+	if (!is_default_file) emulated_controller->m_profile_name = std::string{filename};
+	FileStream* fs = FileStream::createFile2(file_path);
+	if (!fs)
+		return false;
+	fs->writeData(xml->data(), xml->size());
+	delete fs;
+	return true;
+}
+
+std::optional<std::string> InputManager::serialize_profile(size_t player_index, std::string_view profile_name) const
+{
+	const auto emulated_controller = get_controller(player_index);
+	if (!emulated_controller) return std::nullopt;
+	std::shared_lock lock(emulated_controller->m_mutex);
 	pugi::xml_document doc;
 	auto declaration_node = doc.append_child(pugi::node_declaration);
 	declaration_node.append_attribute("version") = "1.0";
@@ -471,12 +487,9 @@ bool InputManager::save(size_t player_index, std::string_view filename)
 		emulated_controller->type_string()
 	}.c_str());
 
-	if(!is_default_file)
-		emulated_controller->m_profile_name = std::string{filename};
-
-	if (emulated_controller->has_profile_name())
+	if (!profile_name.empty() && profile_name != "default")
 		emulated_controller_node.append_child("profile").append_child(pugi::node_pcdata).set_value(
-			emulated_controller->get_profile_name().c_str());
+			std::string(profile_name).c_str());
 
 	// custom settings
 	emulated_controller->save(emulated_controller_node);
@@ -539,15 +552,9 @@ bool InputManager::save(size_t player_index, std::string_view filename)
 			}
 		}
 	}
-	FileStream* fs = FileStream::createFile2(file_path);
-	if (!fs)
-		return false;
 	std::stringstream xmlData;
 	doc.save(xmlData);
-	std::string xmlStr = xmlData.str();
-	fs->writeData(xmlStr.data(), xmlStr.size());
-	delete fs;
-	return true;
+	return xmlData.str();
 }
 
 bool InputManager::is_gameprofile_set(size_t player_index) const
