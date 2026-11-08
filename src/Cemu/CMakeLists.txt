@@ -19,6 +19,9 @@ add_library(CemuComponents
   nex/nex.cpp
   nex/nexFriends.cpp
   nex/nexFriends.h
+  nex/FriendsCallbacks.h
+  nex/FriendsSession.cpp
+  nex/FriendsSession.h
   nex/nex.h
   nex/nexThread.cpp
   nex/nexThread.h

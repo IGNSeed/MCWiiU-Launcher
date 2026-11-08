@@ -684,6 +684,12 @@ namespace
 				}
 				else if (core && message == "game:return")
 					display->ReturnToGame();
+				else if (core && (message == "friends:get" || message == "friends:refresh"))
+				{
+					if (display->m_stopping || core->IsTitleStopping()) return saucer::status::handled;
+					const auto snapshot = core->FriendsCommand(message == "friends:refresh");
+					webview.execute("window.dispatchEvent(new CustomEvent('launcher-friends-state', {detail:" + snapshot + "}));");
+				}
 				else if (core && message == "settings:get")
 					core->RefreshSettingsInfo();
 				else if (core && s_sessionDiagnostics && message == "game:stop")
@@ -705,12 +711,12 @@ namespace
 						else core->CancelStopGameConfirmation(ids->first, ids->second);
 					}
 				}
-				else if (core && (message == "page:home" || message == "page:settings"))
+				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends"))
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();
 					if (message == "page:home" && core->IsRunning()) { display->ReturnToGame(); return saucer::status::handled; }
-					display->m_settingsSelected = message == "page:settings";
+					display->m_settingsSelected = message != "page:home";
 					if (display->m_settingsSelected) core->RefreshSettingsInfo();
 					display->m_launcherVisible = true;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;

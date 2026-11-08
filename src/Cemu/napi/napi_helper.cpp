@@ -226,6 +226,18 @@ void CurlRequestHelper::setWriteCallback(bool(*cbWriteCallback)(void* userData, 
 	m_writeCallbackUserData = userData;
 }
 
+void CurlRequestHelper::setCancellation(std::function<bool()> cancelled)
+{
+	m_cancelled = std::move(cancelled);
+	if (!m_cancelled) return;
+	curl_easy_setopt(m_curl, CURLOPT_NOPROGRESS, 0L);
+	curl_easy_setopt(m_curl, CURLOPT_XFERINFOFUNCTION, +[](void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
+		auto* request = static_cast<CurlRequestHelper*>(context);
+		return request->m_cancelled && request->m_cancelled() ? 1 : 0;
+	});
+	curl_easy_setopt(m_curl, CURLOPT_XFERINFODATA, this);
+}
+
 void CurlRequestHelper::setTimeout(sint32 time)
 {
 	curl_easy_setopt(m_curl, CURLOPT_TIMEOUT, time);
@@ -247,6 +259,7 @@ size_t CurlRequestHelper::__curlWriteCallback(char* ptr, size_t size, size_t nme
 
 bool CurlRequestHelper::submitRequest(bool isPost)
 {
+	if (m_cancelled && m_cancelled()) return false;
 	// HTTP headers
 	struct curl_slist* headers = nullptr;
 	for (auto& itr : m_headerExtraFields)
@@ -270,9 +283,11 @@ bool CurlRequestHelper::submitRequest(bool isPost)
 	int res = curl_easy_perform(m_curl);
 	if (res != CURLE_OK)
 	{
+		if (m_cancelled && m_cancelled()) return false;
 		cemuLog_log(LogType::Force, "CURL web request failed with error {}. Retrying...", res);
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 		// retry
+		if (m_cancelled && m_cancelled()) return false;
 		res = curl_easy_perform(m_curl);
 		if (res != CURLE_OK)
 			return false;

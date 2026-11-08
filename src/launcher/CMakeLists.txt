@@ -44,6 +44,7 @@ saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
 set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/app.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/friends.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
@@ -54,7 +55,7 @@ if(TARGET CemuCafe)
     target_compile_options(LauncherShell PRIVATE /UWIN32_LEAN_AND_MEAN)
     target_sources(LauncherShell PRIVATE LauncherResources.rc)
     target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}/..>")
-    add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h AccountService.cpp AccountService.h InputService.cpp InputService.h AvSettings.cpp AvSettings.h NativeOpenGL.cpp NativeOpenGL.h NativeSettings.cpp NativeSettings.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
+    add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h FriendsService.cpp FriendsService.h AccountService.cpp AccountService.h InputService.cpp InputService.h AvSettings.cpp AvSettings.h NativeOpenGL.cpp NativeOpenGL.h NativeSettings.cpp NativeSettings.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
     set_target_properties(CemuNativeHost PROPERTIES CXX_STANDARD 20 CEMU_NATIVE_HOST TRUE)
     cemu_use_precompiled_header(CemuNativeHost)
     target_include_directories(CemuNativeHost PRIVATE ${RAPIDJSON_INCLUDE_DIRS})

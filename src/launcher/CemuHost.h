@@ -47,6 +47,7 @@ public:
 	void RefreshSettingsInfo();
 	std::string InputCommand(uint64_t requestId, std::string_view payload);
 	std::string PollInput();
+	std::string FriendsCommand(bool refresh);
 	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();
 	std::string ImportCustomNetwork(uint64_t requestId, const std::wstring& selectedFile, bool replaceExisting);

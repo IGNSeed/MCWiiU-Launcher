@@ -31,8 +31,8 @@ public:
 		ukn = pb->readU16();
 	}
 public:
-	uint64 titleId;
-	uint16 ukn;
+	uint64 titleId{};
+	uint16 ukn{};
 };
 
 class nexMiiV2 : public nexType
@@ -146,21 +146,21 @@ public:
 		ukn13 = pb->readU8();
 	}
 public:
-	uint32 ukn0; // seen values: 0 -> offline, 1 -> online (menu, but not always), 8 and 0x1E6 -> in Splatoon
-	uint8 isOnline;
+	uint32 ukn0{}; // seen values: 0 -> offline, 1 -> online (menu, but not always), 8 and 0x1E6 -> in Splatoon
+	uint8 isOnline{};
 	nexGameKey gameKey;
-	uint8 ukn3; // message language?
+	uint8 ukn3{}; // message language?
 	std::string msg;
-	uint32 joinFlagMask;
-	uint8 joinAvailability;
-	uint32 gameId;
-	uint32 gameMode;
-	uint32 hostPid;
-	uint32 groupId;
-	uint8 appSpecificData[0x14];
-	uint8 ukn11;
-	uint8 ukn12;
-	uint8 ukn13;
+	uint32 joinFlagMask{};
+	uint8 joinAvailability{};
+	uint32 gameId{};
+	uint32 gameMode{};
+	uint32 hostPid{};
+	uint32 groupId{};
+	uint8 appSpecificData[0x14]{};
+	uint8 ukn11{};
+	uint8 ukn12{};
+	uint8 ukn13{};
 };
 
 class nexPrincipalBasicInfo : public nexType
@@ -272,9 +272,9 @@ public:
 		blockFriendRequests = pb->readU8();
 	}
 public:
-	uint8 showOnline;
-	uint8 showGame;
-	uint8 blockFriendRequests;
+	uint8 showOnline{};
+	uint8 showGame{};
+	uint8 blockFriendRequests{};
 };
 
 class nexComment : public nexType
@@ -312,9 +312,9 @@ public:
 		ukn1 = pb->readU64();
 	}
 public:
-	uint8 ukn0;
+	uint8 ukn0{};
 	std::string commentString;
-	uint64 ukn1;
+	uint64 ukn1{};
 };
 
 class nexFriendRequestMessage : public nexType
@@ -573,13 +573,15 @@ public:
 
 	void setNotificationHandler(void(*notificationHandler)(NOTIFICATION_TYPE notificationType, uint32 pid));
 
+	bool connect(const std::function<bool()>& cancelled);
 	void update();
+	bool isConnected() const;
+	bool preferencesUnset() const { return m_preferencesUnset; }
 
 	void processServerNotification(uint32 notificationType, uint32 pid, nexPacketBuffer* notificationData);
 
 private:
-	void doAsyncLogin();
-	void initiateLogin();
+
 
 	static void handleResponse_acceptFriendRequest(nexService* nex, nexServiceResponse_t* response);
 	static void handleResponse_getAllInformation(nexServiceResponse_t* response, NexFriends* nexFriends, std::function<void(uint32)> cb);
@@ -597,6 +599,7 @@ private:
 private:
 	void(*notificationHandler)(NOTIFICATION_TYPE notificationType, uint32 pid);
 	bool isCurrentlyConnected;
+	bool m_preferencesUnset = false;
 	bool hasData; // set after connect when information request response was received
 	bool firstInformationRequest;
 	nexService* nexCon;
@@ -605,12 +608,6 @@ private:
 	char nnid[96];
 	uint32 pid;
 	uint8 countryCode;
-	// login tracking
-	std::recursive_mutex mtx_login;
-	bool loginInProcess;
-	uint32 lastLoginAttemptTime;
-	uint32 numFailedLogins;
-	uint32 numSuccessfulLogins;
 	// auth
 	struct
 	{

@@ -116,4 +116,4 @@ private:
 	std::vector<queuedRequest_t> queuedRequests;
 };
 
-nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServerPort, const char* accessKey, uint32 pid, const char* nexPassword, const char* nexToken);
+nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServerPort, const char* accessKey, uint32 pid, const char* nexPassword, const char* nexToken, const std::function<bool()>& cancelled = {});

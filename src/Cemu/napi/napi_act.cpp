@@ -74,6 +74,7 @@ namespace NAPI
 
 	void _ACTSetCommonHeaderParameters(CurlRequestHelper& req, AuthInfo& authInfo)
 	{
+		req.setCancellation(authInfo.cancelled);
 		req.addHeaderField("X-Nintendo-Platform-ID", "1");
 		req.addHeaderField("X-Nintendo-Device-Type", "2");
 

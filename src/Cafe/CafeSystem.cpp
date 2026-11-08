@@ -31,6 +31,7 @@
 #include "Cafe/IOSU/legacy/iosu_ioctl.h"
 #include "Cafe/IOSU/legacy/iosu_act.h"
 #include "Cafe/IOSU/legacy/iosu_fpd.h"
+#include "Cemu/nex/FriendsSession.h"
 #include "Cafe/IOSU/legacy/iosu_crypto.h"
 #include "Cafe/IOSU/legacy/iosu_mcp.h"
 #include "Cafe/IOSU/legacy/iosu_acp.h"
@@ -662,6 +663,7 @@ namespace CafeSystem
 			return;
 		s_coreShutdownRequested = true;
 		ShutdownTitleLocked();
+		FriendsSession::Instance().Shutdown();
 		// shutdown persistent subsystems (deprecated manual shutdown)
 		iosu::odm::Shutdown();
 		iosu::act::Stop();
@@ -1109,6 +1111,7 @@ namespace CafeSystem
 		// 取消時には TitleStart 前なので、実行開始後専用の解放を呼ばない。
 		if (s_titleStarted)
 		{
+			iosu::fpd::PrepareTitleStop();
 			coreinit::OSSchedulerEnd();
 			Latte_Stop();
 			coreinit::IPCCloseAllHandles();

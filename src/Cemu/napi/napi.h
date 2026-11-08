@@ -43,6 +43,7 @@ namespace NAPI
 
 		// service selection, if not set fall back to global setting
 		std::optional<NetworkService> serviceOverwrite;
+		std::function<bool()> cancelled;
 
 		NetworkService GetService() const;
 	};

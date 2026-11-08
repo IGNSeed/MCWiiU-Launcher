@@ -17,6 +17,7 @@ public:
 	bool IsHealthy() const;
 	bool IsTesting() const;
 	void PrepareLaunch();
+	std::string NetworkName() const;
 	void RunConnectionTest();
 	std::string ImportCustom(const std::filesystem::path& selectedFile, bool canEdit, bool replaceExisting);
 	static void EnforceOffline();

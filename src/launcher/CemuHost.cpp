@@ -3,6 +3,8 @@
 #include "InputService.h"
 #include "AvSettings.h"
 #include "AccountService.h"
+#include "FriendsService.h"
+#include "Cemu/nex/FriendsSession.h"
 #include "NativeOpenGL.h"
 
 #include "Cemu/Startup.h"
@@ -116,6 +118,7 @@ namespace
 		std::unique_ptr<AvSettings> av;
 		std::unique_ptr<AccountService> accounts;
 		uint64_t lastAccountRequest = 0;
+		bool friendsStarted = false;
 		uint64_t lastAvRequest = 0;
 		uint64_t lastInputRequest = 0;
 		std::string settingsNotice = "loading", settingsInfo = "{}";
@@ -959,6 +962,22 @@ std::string CemuHost::AvCommand(uint64_t requestId, std::string_view payload)
 	return state.av->Command(payload, state.phase == "running");
 }
 
+std::string CemuHost::FriendsCommand(bool refresh)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.accounts || state.stop || state.failed) return "{\"status\":\"account-not-ready\"}";
+	if (!state.friendsStarted)
+	{
+		if (state.phase != "running") state.accounts->PrepareLaunch();
+		FriendsSession::Instance().ConfigureCurrent(true, state.accounts->NetworkName());
+		state.friendsStarted = true;
+	}
+	if (refresh) FriendsSession::Instance().Refresh();
+	return FriendsSnapshotJson();
+}
+
 std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payload)
 {
 	auto& state = *m_impl->state;
@@ -969,6 +988,7 @@ std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payloa
 	state.lastAccountRequest = requestId;
 	const bool wasTesting = state.accounts->IsTesting();
 	const auto result = state.accounts->Command(payload, state.CanEditSettingsLocked());
+	if (state.friendsStarted) FriendsSession::Instance().ConfigureCurrent(true, state.accounts->NetworkName());
 	if (!wasTesting && state.accounts->IsTesting()) { state.networkTest = true; state.wake.notify_all(); }
 	return result;
 }
@@ -990,7 +1010,9 @@ std::string CemuHost::ImportCustomNetwork(uint64_t requestId, const std::wstring
 	std::lock_guard workLock(state.workMutex); std::lock_guard statusLock(state.statusMutex);
 	if (!state.accounts || !requestId || requestId <= state.lastAccountRequest) return "{\"notice\":\"not-ready\"}";
 	state.lastAccountRequest = requestId;
-	return state.accounts->ImportCustom(selectedFile, state.CanEditSettingsLocked(), replaceExisting);
+	const auto result = state.accounts->ImportCustom(selectedFile, state.CanEditSettingsLocked(), replaceExisting);
+	if (state.friendsStarted) FriendsSession::Instance().ConfigureCurrent(true, state.accounts->NetworkName());
+	return result;
 }
 
 void CemuHost::RefreshSettingsInfo()

@@ -275,6 +275,7 @@ namespace iosu
 
 		using FriendPID = uint32;
 
+		void PrepareTitleStop();
 		IOSUModule* GetModule();
 	}
 }

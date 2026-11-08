@@ -43,6 +43,7 @@ public:
 	void addHeaderField(const char* fieldName, std::string_view value);
 	void addPostField(const char* fieldName, std::string_view value);
 	void setWriteCallback(bool(*cbWriteCallback)(void* userData, const void* ptr, size_t len, bool isLast), void* userData);
+	void setCancellation(std::function<bool()> cancelled);
 	void setTimeout(sint32 timeoutSeconds); // maximum duration of the request after connecting. Set to zero to disable limit
 
 	bool submitRequest(bool isPost = false);
@@ -95,6 +96,7 @@ public:
 private:
 	static size_t __curlWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata);
 
+	std::function<bool()> m_cancelled;
 	CURL* m_curl;
 	std::vector<uint8> m_receiveBuffer;
 	// input parameters

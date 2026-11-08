@@ -611,12 +611,15 @@ void nexServiceSecure_handleResponse_RegisterEx(nexService* nex, nexServiceRespo
 	return;
 }
 
-nexService* nex_secureLogin(prudpAuthServerInfo* authServerInfo, const char* accessKey, const char* nexToken)
+nexService* nex_secureLogin(prudpAuthServerInfo* authServerInfo, const char* accessKey, const char* nexToken, const std::function<bool()>& cancelled)
 {
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+	auto stop = [&] { return (cancelled && cancelled()) || std::chrono::steady_clock::now() >= deadline; };
 	prudpClient* prudpSecureSock = new prudpClient(authServerInfo->server.ip, authServerInfo->server.port, accessKey, authServerInfo);
 	// wait until connected
 	while (true)
 	{
+		if (stop()) { delete prudpSecureSock; return nullptr; }
 		prudpSecureSock->Update();
 		if (prudpSecureSock->IsConnected())
 		{
@@ -646,10 +649,12 @@ nexService* nex_secureLogin(prudpAuthServerInfo* authServerInfo, const char* acc
 	packetBuffer.writeCustomType(nexNintendoLoginData(nexToken));
 	
 	nexServiceSecureRegisterExData_t secureRegisterExData = { 0 };
-	nex->callMethod(NEX_PROTOCOL_SECURE, 4, &packetBuffer, nexServiceSecure_handleResponse_RegisterEx, &secureRegisterExData);
+	nex->callMethod(NEX_PROTOCOL_SECURE, 4, &packetBuffer, nexServiceSecure_handleResponse_RegisterEx, &secureRegisterExData, true);
 	while (true)
 	{
 		nex->update();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		if (stop()) break;
 		if (secureRegisterExData.isComplete)
 			break;
 		if (nex->getState() == nexService::STATE_DISCONNECTED)
@@ -658,7 +663,7 @@ nexService* nex_secureLogin(prudpAuthServerInfo* authServerInfo, const char* acc
 			break;
 		}
 	}
-	if (secureRegisterExData.isSuccessful == false)
+	if (stop() || secureRegisterExData.isSuccessful == false)
 	{
 		cemuLog_log(LogType::Force, "NEX: Failed to register to secure server");
 		nex->destroy();
@@ -667,16 +672,18 @@ nexService* nex_secureLogin(prudpAuthServerInfo* authServerInfo, const char* acc
 	return nex;
 }
 
-nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServerPort, const char* accessKey, uint32 pid, const char* nexPassword, const char* nexToken)
+nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServerPort, const char* accessKey, uint32 pid, const char* nexPassword, const char* nexToken, const std::function<bool()>& cancelled)
 {
+	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+	auto stop = [&] { return (cancelled && cancelled()) || std::chrono::steady_clock::now() >= deadline; };
 	nexService* authConnection = new nexService(authServerIp, authServerPort, accessKey);
 	// wait until connected
-	while (authConnection->getState() == nexService::STATE_CONNECTING)
+	while (!stop() && authConnection->getState() == nexService::STATE_CONNECTING)
 	{
 		authConnection->update();
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	if (authConnection->getState() != nexService::STATE_CONNECTED)
+	if (stop() || authConnection->getState() != nexService::STATE_CONNECTED)
 	{
 		// error
 		authConnection->destroy();
@@ -691,14 +698,15 @@ nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServer
 	packetBuffer.writeString(pidStr);
 	authenticationService_t nexAuthService = { 0 };
 	nexAuthService.userPid = pid;
-	authConnection->callMethod(NEX_PROTOCOL_AUTHENTICATION, 1, &packetBuffer, nexServiceAuthentication_handleResponse_login, &nexAuthService);
+	authConnection->callMethod(NEX_PROTOCOL_AUTHENTICATION, 1, &packetBuffer, nexServiceAuthentication_handleResponse_login, &nexAuthService, true);
 	while (true)
 	{
-		if (nexAuthService.hasError || nexAuthService.done || authConnection->getState() != nexService::STATE_CONNECTED)
+		if (stop() || nexAuthService.hasError || nexAuthService.done || authConnection->getState() != nexService::STATE_CONNECTED)
 			break;
 		authConnection->update();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	if (nexAuthService.hasError || authConnection->getState() != nexService::STATE_CONNECTED)
+	if (stop() || nexAuthService.hasError || authConnection->getState() != nexService::STATE_CONNECTED)
 	{
 		// error
 		authConnection->destroy();
@@ -759,5 +767,6 @@ nexService* nex_establishSecureConnection(uint32 authServerIp, uint16 authServer
 	memcpy(&authServerInfo->server, &nexAuthService.server, sizeof(prudpStationUrl));
 	authServerInfo->userPid = pid;
 
-	return nex_secureLogin(authServerInfo.get(), accessKey, nexToken);
+	if (stop()) return nullptr;
+	return nex_secureLogin(authServerInfo.get(), accessKey, nexToken, cancelled);
 }

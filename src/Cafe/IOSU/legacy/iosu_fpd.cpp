@@ -2,6 +2,8 @@
 #include "iosu_fpd.h"
 #include "Cemu/nex/nex.h"
 #include "Cemu/nex/nexFriends.h"
+#include "Cemu/nex/FriendsSession.h"
+#include "Cemu/nex/FriendsCallbacks.h"
 #include "util/helpers/helpers.h"
 #include "config/CemuConfig.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
@@ -44,8 +46,15 @@ namespace iosu
 				m_notificationQueue.emplace_back(m_notificationQueueIndex++, type, pid);
 			}
 
+			void Clear()
+			{
+				std::lock_guard lock(m_mtxNotificationQueue);
+				m_notificationQueue.clear();
+			}
+
 			void RemoveExpired()
 			{
+				std::lock_guard lock(m_mtxNotificationQueue);
 				// remove entries older than 10 seconds
 				std::chrono::steady_clock::time_point expireTime = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 				std::erase_if(m_notificationQueue, [expireTime](const auto& notification) {
@@ -76,16 +85,14 @@ namespace iosu
 		{
 			bool isThreadStarted;
 			bool isInitialized2;
-			NexFriends* nexFriendSession;
-			std::mutex mtxFriendSession;
 			// session state
-			std::atomic_bool sessionStarted{false};
 			// current state
 			nexPresenceV2 myPresence;
 		}g_fpd = {};
 
 		void OverlayNotificationHandler(NexFriends::NOTIFICATION_TYPE type, uint32 pid)
 		{
+				auto session = FriendsSession::Instance().Acquire();
 			cemuLog_logDebug(LogType::Force, "Friends::Notification {:02x} pid {:08x}", type, pid);
 			if(!LatteOverlay_friendsEnabled())
 				return;
@@ -94,8 +101,8 @@ namespace iosu
 			if(type == NexFriends::NOTIFICATION_TYPE::NOTIFICATION_TYPE_ONLINE)
 			{
 				g_friend_notifications.emplace_back("Connected to friend service", 5000);
-				if(g_fpd.nexFriendSession && g_fpd.nexFriendSession->getPendingFriendRequestCount() > 0)
-					g_friend_notifications.emplace_back(fmt::format("You have {} pending friend request(s)", g_fpd.nexFriendSession->getPendingFriendRequestCount()), 5000);
+				if(session && session->getPendingFriendRequestCount() > 0)
+					g_friend_notifications.emplace_back(fmt::format("You have {} pending friend request(s)", session->getPendingFriendRequestCount()), 5000);
 			}
 			else
 			{
@@ -117,9 +124,9 @@ namespace iosu
 				if (!msg_format.empty())
 				{
 					std::string name = fmt::format("{:#x}", pid);
-					if (g_fpd.nexFriendSession)
+					if (session)
 					{
-						const std::string tmp = g_fpd.nexFriendSession->getAccountNameByPid(pid);
+						const std::string tmp = session->getAccountNameByPid(pid);
 						if (!tmp.empty())
 							name = tmp;
 					}
@@ -362,6 +369,7 @@ namespace iosu
 			};
 
 			// storage for async IPC requests
+			FriendsCallbacks m_callbacks;
 			std::vector<IPCCommandBody*> m_asyncLoginRequests;
 			std::vector<FPDClient*> m_clients;
 
@@ -376,9 +384,16 @@ namespace iosu
 			void StartService() override
 			{
 				cemu_assert_debug(m_asyncLoginRequests.empty());
+				g_NotificationQueue.Clear();
+				m_callbacks.Open();
 			}
 
 			void StopService() override
+			{
+				m_callbacks.Close();
+			}
+
+			void CleanupStoppedClients()
 			{
 				m_asyncLoginRequests.clear();
 				for(auto& it : m_clients)
@@ -429,29 +444,34 @@ namespace iosu
 
 			void TimerUpdate() override
 			{
-				// called once a second while service is running
-				std::unique_lock _l(g_fpd.mtxFriendSession);
-				if (!g_fpd.nexFriendSession)
-					return;
-				g_fpd.nexFriendSession->update();
-				while(!m_asyncLoginRequests.empty())
-				{
-					if(g_fpd.nexFriendSession->isOnline())
+				auto session = FriendsSession::Instance().Acquire();
+				m_callbacks.Run([&] {
+					m_callbacks.Drain();
+					// called once a second while service is running
+					if (!session)
+						return;
+
+					while(!m_asyncLoginRequests.empty())
 					{
-						ServiceCallAsyncRespond(m_asyncLoginRequests.front(), FPResult_Ok);
-						m_asyncLoginRequests.erase(m_asyncLoginRequests.begin());
+						if(session->isOnline())
+						{
+							ServiceCallAsyncRespond(m_asyncLoginRequests.front(), FPResult_Ok);
+							m_asyncLoginRequests.erase(m_asyncLoginRequests.begin());
+						}
+						else
+							break;
 					}
-					else
-						break;
-				}
-				// handle notification responses
-				g_NotificationQueue.RemoveExpired();
-				for(auto& client : m_clients)
-					SendQueuedNotifications(client);
+					// handle notification responses
+					g_NotificationQueue.RemoveExpired();
+					for(auto& client : m_clients)
+						SendQueuedNotifications(client);
+
+				});
 			}
 
 			uint32 ServiceCall(void* clientObject, uint32 requestId, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut) override
 			{
+				if (!m_callbacks.IsOpen()) return FPResult_RequestFailed;
 				// for /dev/fpd input and output vectors are swapped
 				std::swap(vecIn, vecOut);
 				std::swap(numVecIn, numVecOut);
@@ -614,9 +634,10 @@ namespace iosu
 
 			nnResult CallHandler_IsOnline(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 0 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
-				bool isOnline = g_fpd.nexFriendSession ? g_fpd.nexFriendSession->isOnline() : false;
+				bool isOnline = session ? session->isOnline() : false;
 				return WriteValueOutput<uint32be>(vecOut, isOnline?1:0);
 			}
 
@@ -722,10 +743,11 @@ namespace iosu
 
 			nnResult CallHandler_GetMyComment(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 0 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				Comment outComment;
-				if(g_fpd.nexFriendSession)
+				if(session)
 				{
 					if(vecOut->size != sizeof(Comment))
 					{
@@ -733,7 +755,7 @@ namespace iosu
 						return FPResult_InvalidIPCParam;
 					}
 					nexComment myNexComment;
-					g_fpd.nexFriendSession->getMyComment(myNexComment);
+					session->getMyComment(myNexComment);
 					outComment.commentString.assignFromUTF8(myNexComment.commentString);
 				}
 				memcpy(vecOut->basePhys.GetPtr(), &outComment, sizeof(Comment));
@@ -742,13 +764,14 @@ namespace iosu
 
 			nnResult CallHandler_GetMyPreference(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 0 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				FPDPreference selfPreference{0};
-				if(g_fpd.nexFriendSession)
+				if(session)
 				{
 					nexPrincipalPreference nexPreference;
-					g_fpd.nexFriendSession->getMyPreference(nexPreference);
+					session->getMyPreference(nexPreference);
 					selfPreference.showOnline = nexPreference.showOnline;
 					selfPreference.showGame = nexPreference.showGame;
 					selfPreference.blockFriendRequests = nexPreference.blockFriendRequests;
@@ -779,6 +802,7 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendAccountId(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				// todo - online check
@@ -786,7 +810,7 @@ namespace iosu
 				DeclareInputPtr(pidList, uint32be, count, 0);
 				DeclareOutputPtr(accountId, CafeString<ACT_ACCOUNTID_LENGTH>, count, 0);
 				memset(accountId, 0, ACT_ACCOUNTID_LENGTH * count);
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
@@ -794,13 +818,13 @@ namespace iosu
 						auto& nnidOutput = accountId[i];
 						nexFriend frd;
 						nexFriendRequest frdReq;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							nnidOutput.assign(frd.nnaInfo.principalInfo.nnid);
 							continue;
 						}
 						bool incoming = false;
-						if (g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pid))
+						if (session->getFriendRequestByPID(frdReq, &incoming, pid))
 						{
 							nnidOutput.assign(frdReq.principalInfo.nnid);
 							continue;
@@ -813,6 +837,7 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendScreenName(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				static_assert(sizeof(CafeWideString<ACT_NICKNAME_SIZE>) == 11*2);
 				if(numVecIn != 3 || numVecOut != 2)
 					return FPResult_InvalidIPCParam;
@@ -827,7 +852,7 @@ namespace iosu
 					languageList = _languageList;
 				}
 				memset(nameList, 0, ACT_NICKNAME_SIZE * sizeof(CafeWideString<ACT_NICKNAME_SIZE>));
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
@@ -837,7 +862,7 @@ namespace iosu
 							languageList[i] = 0; // unknown
 						nexFriend frd;
 						nexFriendRequest frdReq;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							screennameOutput.assignFromUTF8(frd.nnaInfo.principalInfo.mii.miiNickname);
 							if (languageList)
@@ -845,7 +870,7 @@ namespace iosu
 							continue;
 						}
 						bool incoming = false;
-						if (g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pid))
+						if (session->getFriendRequestByPID(frdReq, &incoming, pid))
 						{
 							screennameOutput.assignFromUTF8(frdReq.principalInfo.mii.miiNickname);
 							if (languageList)
@@ -860,13 +885,14 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendMii(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(pidList, uint32be, count, 0);
 				DeclareOutputPtr(miiList, FFLData_t, count, 0);
 				memset(miiList, 0, sizeof(FFLData_t) * count);
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
@@ -874,13 +900,13 @@ namespace iosu
 						FFLData_t& miiOutput = miiList[i];
 						nexFriend frd;
 						nexFriendRequest frdReq;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							memcpy(&miiOutput, frd.nnaInfo.principalInfo.mii.miiData, FFL_SIZE);
 							continue;
 						}
 						bool incoming = false;
-						if (g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pid))
+						if (session->getFriendRequestByPID(frdReq, &incoming, pid))
 						{
 							memcpy(&miiOutput, frdReq.principalInfo.mii.miiData, FFL_SIZE);
 							continue;
@@ -892,20 +918,21 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendPresence(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(pidList, uint32be, count, 0);
 				DeclareOutputPtr(presenceList, FriendPresence, count, 0);
 				memset(presenceList, 0, sizeof(FriendPresence) * count);
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
 						FriendPresence& presenceOutput = presenceList[i];
 						const uint32 pid = pidList[i];
 						nexFriend frd;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							presenceOutput.isOnline = frd.presence.isOnline ? 1 : 0;
 							presenceOutput.isValid = 1;
@@ -930,6 +957,7 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendRelationship(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				// todo - check for valid session (same for all GetFriend* functions)
@@ -938,7 +966,7 @@ namespace iosu
 				DeclareOutputPtr(relationshipList, uint8be, count, 0); // correct?
 				for(uint32 i=0; i<count; i++)
 					relationshipList[i] = RELATIONSHIP_INVALID;
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
@@ -947,12 +975,12 @@ namespace iosu
 						nexFriend frd;
 						nexFriendRequest frdReq;
 						bool incoming;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							relationshipOutput = RELATIONSHIP_FRIEND;
 							continue;
 						}
-						else if (g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pid))
+						else if (session->getFriendRequestByPID(frdReq, &incoming, pid))
 						{
 							if (incoming)
 								relationshipOutput = RELATIONSHIP_FRIENDREQUEST_IN;
@@ -966,7 +994,7 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendList_GetFriendListAll(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut, bool isAll)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 2)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(startIndex, uint32be, 0);
@@ -976,20 +1004,20 @@ namespace iosu
 					cemuLog_log(LogType::Force, "GetFriendListAll: pid list buffer size is incorrect");
 					return FPResult_InvalidIPCParam;
 				}
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return WriteValueOutput<uint32be>(vecOut+1, 0);
 				betype<FriendPID>* pidList = (betype<FriendPID>*)vecOut[0].basePhys.GetPtr();
 				std::vector<FriendPID> temporaryPidList;
 				temporaryPidList.resize(std::min<size_t>(maxCount, 500));
 				uint32 pidCount = 0;
-				g_fpd.nexFriendSession->getFriendPIDs(temporaryPidList.data(), &pidCount, startIndex, temporaryPidList.size(), isAll);
+				session->getFriendPIDs(temporaryPidList.data(), &pidCount, startIndex, temporaryPidList.size(), isAll);
 				std::copy(temporaryPidList.begin(), temporaryPidList.begin() + pidCount, pidList);
 				return WriteValueOutput<uint32be>(vecOut+1, pidCount);
 			}
 
 			nnResult CallHandler_GetFriendRequestList(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 2)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(startIndex, uint32be, 0);
@@ -999,33 +1027,33 @@ namespace iosu
 					cemuLog_log(LogType::Force, "GetFriendRequestList: pid list buffer size is incorrect");
 					return FPResult_InvalidIPCParam;
 				}
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return WriteValueOutput<uint32be>(vecOut+1, 0);
 				betype<FriendPID>* pidList = (betype<FriendPID>*)vecOut[0].basePhys.GetPtr();
 				std::vector<FriendPID> temporaryPidList;
 				temporaryPidList.resize(std::min<size_t>(maxCount, 500));
 				uint32 pidCount = 0;
-				g_fpd.nexFriendSession->getFriendRequestPIDs(temporaryPidList.data(), &pidCount, startIndex, temporaryPidList.size(), true, false);
+				session->getFriendRequestPIDs(temporaryPidList.data(), &pidCount, startIndex, temporaryPidList.size(), true, false);
 				std::copy(temporaryPidList.begin(), temporaryPidList.begin() + pidCount, pidList);
 				return WriteValueOutput<uint32be>(vecOut+1, pidCount);
 			}
 
 			nnResult CallHandler_GetFriendRequestListEx(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(pidList, uint32be, count, 0);
 				DeclareOutputPtr(friendRequests, FriendRequest, count, 0);
 				memset(friendRequests, 0, sizeof(FriendRequest) * count);
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_Ok;
 				for(uint32 i=0; i<count; i++)
 				{
 					nexFriendRequest frdReq;
 					bool incoming = false;
-					if (!g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pidList[i]))
+					if (!session->getFriendRequestByPID(frdReq, &incoming, pidList[i]))
 					{
 						cemuLog_log(LogType::Force, "GetFriendRequestListEx: Failed to get friend request");
 						return FPResult_RequestFailed;
@@ -1037,7 +1065,7 @@ namespace iosu
 
 			nnResult CallHandler_GetBlackList(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 2)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(startIndex, uint32be, 0);
@@ -1047,7 +1075,7 @@ namespace iosu
 					cemuLog_log(LogType::Force, "GetBlackList: pid list buffer size is incorrect");
 					return FPResult_InvalidIPCParam;
 				}
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return WriteValueOutput<uint32be>(vecOut+1, 0);
 				betype<FriendPID>* pidList = (betype<FriendPID>*)vecOut[0].basePhys.GetPtr();
 				// todo!
@@ -1059,7 +1087,7 @@ namespace iosu
 
 			nnResult CallHandler_GetFriendListEx(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if(numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(count, uint32be, 1);
@@ -1076,7 +1104,7 @@ namespace iosu
 				}
 				FriendData* friendOutput = (FriendData*)vecOut[0].basePhys.GetPtr();
 				memset(friendOutput, 0, sizeof(FriendData) * count);
-				if (g_fpd.nexFriendSession)
+				if (session)
 				{
 					for (uint32 i = 0; i < count; i++)
 					{
@@ -1084,13 +1112,13 @@ namespace iosu
 						FriendData* friendData = friendOutput + i;
 						nexFriend frd;
 						nexFriendRequest frdReq;
-						if (g_fpd.nexFriendSession->getFriendByPID(frd, pid))
+						if (session->getFriendByPID(frd, pid))
 						{
 							NexFriendToFPDFriendData(&frd, friendData);
 							continue;
 						}
 						bool incoming = false;
-						if (g_fpd.nexFriendSession->getFriendRequestByPID(frdReq, &incoming, pid))
+						if (session->getFriendRequestByPID(frdReq, &incoming, pid))
 						{
 							NexFriendRequestToFPDFriendData(&frdReq, incoming, friendData);
 							continue;
@@ -1125,13 +1153,13 @@ namespace iosu
 
 			nnResult CallHandler_GetBasicInfoAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(pidListBE, betype<FriendPID>, count, 0);
 				DeclareOutputPtr(basicInfoList, FriendBasicInfo, count, 0);
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 				{
 					memset(basicInfoList, 0, sizeof(FriendBasicInfo) * sizeof(count));
 					return FPResult_Ok;
@@ -1139,23 +1167,23 @@ namespace iosu
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
 				std::vector<uint32> pidList;
 				std::copy(pidListBE, pidListBE + count, std::back_inserter(pidList));
-				g_fpd.nexFriendSession->requestPrincipleBaseInfoByPID(pidList.data(), count, [cmd, basicInfoList, count](NexFriends::RpcErrorCode result, std::span<nexPrincipalBasicInfo> basicInfo) -> void {
+				session->requestPrincipleBaseInfoByPID(pidList.data(), count, m_callbacks.Wrap([cmd, basicInfoList, count](NexFriends::RpcErrorCode result, std::span<nexPrincipalBasicInfo> basicInfo) -> void {
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					cemu_assert_debug(basicInfo.size() == count);
 					for(uint32 i = 0; i < count; i++)
 						NexBasicInfoToBasicInfo(basicInfo[i], basicInfoList[i]);
 					ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_UpdateCommentAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				uint32 messageLength = vecIn[0].size / sizeof(uint16be);
 				DeclareInputPtr(newComment, uint16be, messageLength, 0);
@@ -1171,37 +1199,37 @@ namespace iosu
 				temporaryComment.commentString = StringHelpers::ToUtf8(newComment, messageLength-1);
 				temporaryComment.ukn1 = 0;
 
-				g_fpd.nexFriendSession->updateCommentAsync(temporaryComment, [cmd](NexFriends::RpcErrorCode result) {
+				session->updateCommentAsync(temporaryComment, m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result) {
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_UpdatePreferenceAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInputPtr(newPreference, FPDPreference, 1, 0);
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->updatePreferencesAsync(nexPrincipalPreference(newPreference->showOnline != 0 ? 1 : 0, newPreference->showGame != 0 ? 1 : 0, newPreference->blockFriendRequests != 0 ? 1 : 0), [cmd](NexFriends::RpcErrorCode result){
+				session->updatePreferencesAsync(nexPrincipalPreference(newPreference->showOnline != 0 ? 1 : 0, newPreference->showGame != 0 ? 1 : 0, newPreference->blockFriendRequests != 0 ? 1 : 0), m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_AddFriendRequestAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 2 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInputPtr(playRecord, RecentPlayRecordEx, 1, 0);
 				uint32 msgLength = vecIn[1].size/sizeof(uint16be);
@@ -1213,25 +1241,25 @@ namespace iosu
 				}
 				std::string msg = StringHelpers::ToUtf8({ msgBE, msgLength-1 });
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->addFriendRequest(playRecord->pid, msg.data(), [cmd](NexFriends::RpcErrorCode result){
+				session->addFriendRequest(playRecord->pid, msg.data(), m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_AcceptFriendRequestAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(requestId, uint64be, 0);
 				nexFriendRequest frq;
 				bool isIncoming;
-				if (!g_fpd.nexFriendSession->getFriendRequestByMessageId(frq, &isIncoming, requestId))
+				if (!session->getFriendRequestByMessageId(frq, &isIncoming, requestId))
 					return FPResult_RequestFailed;
 				if(!isIncoming)
 				{
@@ -1239,26 +1267,26 @@ namespace iosu
 					return FPResult_RequestFailed;
 				}
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->acceptFriendRequest(requestId, [cmd](NexFriends::RpcErrorCode result){
+				session->acceptFriendRequest(requestId, m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					return ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_DeleteFriendRequestAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				// reject incoming friend request
-				std::unique_lock _l(g_fpd.mtxFriendSession);
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(requestId, uint64be, 0);
 				nexFriendRequest frq;
 				bool isIncoming;
-				if (!g_fpd.nexFriendSession->getFriendRequestByMessageId(frq, &isIncoming, requestId))
+				if (!session->getFriendRequestByMessageId(frq, &isIncoming, requestId))
 					return FPResult_RequestFailed;
 				if(!isIncoming)
 				{
@@ -1266,26 +1294,26 @@ namespace iosu
 					return FPResult_RequestFailed;
 				}
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->deleteFriendRequest(requestId, [cmd](NexFriends::RpcErrorCode result){
+				session->deleteFriendRequest(requestId, m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					return ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_CancelFriendRequestAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				// retract outgoing friend request
-				std::unique_lock _l(g_fpd.mtxFriendSession);
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(requestId, uint64be, 0);
 				nexFriendRequest frq;
 				bool isIncoming;
-				if (!g_fpd.nexFriendSession->getFriendRequestByMessageId(frq, &isIncoming, requestId))
+				if (!session->getFriendRequestByMessageId(frq, &isIncoming, requestId))
 					return FPResult_RequestFailed;
 				if(isIncoming)
 				{
@@ -1293,20 +1321,20 @@ namespace iosu
 					return FPResult_RequestFailed;
 				}
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->removeFriend(frq.principalInfo.principalId, [cmd](NexFriends::RpcErrorCode result){
+				session->removeFriend(frq.principalInfo.principalId, m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					return ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_MarkFriendRequestsAsReceivedAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 2 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(requestIdsBE, uint64be, count, 0);
@@ -1314,37 +1342,37 @@ namespace iosu
 				// endian convert
 				std::vector<uint64> requestIds;
 				std::copy(requestIdsBE, requestIdsBE + count, std::back_inserter(requestIds));
-				g_fpd.nexFriendSession->markFriendRequestsAsReceived(requestIds.data(), requestIds.size(), [cmd](NexFriends::RpcErrorCode result){
+				session->markFriendRequestsAsReceived(requestIds.data(), requestIds.size(), m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					return ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_RemoveFriendAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(pid, uint32be, 0);
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
-				g_fpd.nexFriendSession->removeFriend(pid, [cmd](NexFriends::RpcErrorCode result){
+				session->removeFriend(pid, m_callbacks.Wrap([cmd](NexFriends::RpcErrorCode result){
 					if (result != NexFriends::ERR_NONE)
 						return ServiceCallAsyncRespond(cmd, FPResult_RequestFailed);
 					return ServiceCallAsyncRespond(cmd, FPResult_Ok);
-				});
+				}));
 				return FPResult_Ok;
 			}
 
 			nnResult CallHandler_DeleteFriendFlagsAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 3 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(pid, uint32be, 0);
 				cemuLog_logDebug(LogType::Force, "DeleteFriendFlagsAsync is todo");
@@ -1353,11 +1381,12 @@ namespace iosu
 
 			nnResult CallHandler_CheckSettingStatusAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 0 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
 				if (vecOut[0].size != sizeof(uint8be))
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				IPCCommandBody* cmd = ServiceCallDelayCurrentResponse();
 
@@ -1372,19 +1401,19 @@ namespace iosu
 
 			nnResult CallHandler_IsPreferenceValid(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 0 || numVecOut != 1)
 					return 0;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return 0;
-				// we currently automatically put the preferences into a valid state on session creation if they are not set yet
-				return WriteValueOutput<uint32be>(vecOut, 1); // if we return 0, the friend app will show the first time setup screen
+				return WriteValueOutput<uint32be>(vecOut, session->preferencesUnset() ? 0 : 1);
 			}
 
 			nnResult CallHandler_GetRequestBlockSettingAsync(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut) // todo
 			{
 				if (numVecIn != 2 || numVecOut != 1)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!FriendsSession::Instance().Acquire())
 					return FPResult_RequestFailed;
 				DeclareInput(count, uint32be, 1);
 				DeclareInputPtr(pidList, betype<FriendPID>, count, 0);
@@ -1402,9 +1431,10 @@ namespace iosu
 
 			nnResult CallHandler_AddFriendAsyncByPid(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 1 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInput(pid, uint32be, 0);
 				cemuLog_log(LogType::Force, "AddFriendAsyncByPid is todo");
@@ -1413,9 +1443,10 @@ namespace iosu
 
 			nnResult CallHandler_UpdateGameMode(FPDClient* fpdClient, IPCIoctlVector* vecIn, uint32 numVecIn, IPCIoctlVector* vecOut, uint32 numVecOut)
 			{
+				auto session = FriendsSession::Instance().Acquire();
 				if (numVecIn != 2 || numVecOut != 0)
 					return FPResult_InvalidIPCParam;
-				if (!g_fpd.nexFriendSession)
+				if (!session)
 					return FPResult_RequestFailed;
 				DeclareInputPtr(gameMode, iosu::fpd::GameMode, 1, 0);
 				uint32 messageLength = vecIn[1].size / sizeof(uint16be);
@@ -1427,80 +1458,25 @@ namespace iosu
 				DeclareInputPtr(gameModeMessage, uint16be, messageLength, 1);
 				messageLength--;
 				GameModeToNexPresence(gameMode, &g_fpd.myPresence);
-				g_fpd.nexFriendSession->updateMyPresence(g_fpd.myPresence);
+				g_fpd.myPresence.isOnline = 1;
+				g_fpd.myPresence.gameKey.titleId = CafeSystem::GetForegroundTitleId();
+				g_fpd.myPresence.gameKey.ukn = CafeSystem::GetForegroundTitleVersion();
+				session->updateMyPresence(g_fpd.myPresence);
 				// todo - message
 				return FPResult_Ok;
 			}
 
 			void StartFriendSession()
 			{
-				bool expected = false;
-				if (!g_fpd.sessionStarted.compare_exchange_strong(expected, true))
-					return;
-				cemu_assert(!g_fpd.nexFriendSession);
-				NAPI::AuthInfo authInfo;
-				NAPI::NAPI_MakeAuthInfoFromCurrentAccount(authInfo);
-				NAPI::ACTGetNexTokenResult nexTokenResult = NAPI::ACT_GetNexToken_WithCache(authInfo, 0x0005001010001C00, 0x0000, 0x00003200);
-				if (!nexTokenResult.isValid())
-				{
-					cemuLog_logDebug(LogType::Force, "IOSU_FPD: Failed to acquire nex token for friend server");
-					g_fpd.myPresence.isOnline = 0;
-					return;
-				}
-				// get values needed for friend session
-				uint32 myPid;
-				uint8 currentSlot = iosu::act::getCurrentAccountSlot();
-				iosu::act::getPrincipalId(currentSlot, &myPid);
-				char accountId[256] = { 0 };
-				iosu::act::getAccountId(currentSlot, accountId);
-				FFLData_t miiData;
-				act::getMii(currentSlot, &miiData);
-				uint16 screenName[ACT_NICKNAME_SIZE] = { 0 };
-				act::getScreenname(currentSlot, screenName);
-				uint32 countryCode = 0;
-				act::getCountryIndex(currentSlot, &countryCode);
-				// init presence
-				g_fpd.myPresence.isOnline = 1;
-				if (GetTitleIdHigh(CafeSystem::GetForegroundTitleId()) == 0x00050000)
-				{
-					g_fpd.myPresence.gameKey.titleId = CafeSystem::GetForegroundTitleId();
-					g_fpd.myPresence.gameKey.ukn = CafeSystem::GetForegroundTitleVersion();
-				}
-				else
-				{
-					g_fpd.myPresence.gameKey.titleId = 0; // icon will not be ??? or invalid to others
-					g_fpd.myPresence.gameKey.ukn = 0;
-				}
-				// resolve potential domain to IP address
-				struct addrinfo hints = {0}, *addrs;
-				hints.ai_family = AF_INET;
-				const int status = getaddrinfo(nexTokenResult.nexToken.host, NULL, &hints, &addrs);
-				if (status != 0)
-				{
-					cemuLog_log(LogType::Force, "IOSU_FPD: Failed to resolve hostname {}", nexTokenResult.nexToken.host);
-					return;
-				}
-				char addrstr[NI_MAXHOST];
-				getnameinfo(addrs->ai_addr, addrs->ai_addrlen, addrstr, sizeof addrstr, NULL, 0, NI_NUMERICHOST);
-				cemuLog_log(LogType::Force, "IOSU_FPD: Resolved IP for hostname {}, {}", nexTokenResult.nexToken.host, addrstr);
-				// start session
-				const uint32_t hostIp = ((struct sockaddr_in*)addrs->ai_addr)->sin_addr.s_addr;
-				freeaddrinfo(addrs);
-				g_fpd.mtxFriendSession.lock();
-				g_fpd.nexFriendSession = new NexFriends(hostIp, nexTokenResult.nexToken.port, "ridfebb9", myPid, nexTokenResult.nexToken.nexPassword, nexTokenResult.nexToken.token, accountId, (uint8*)&miiData, screenName, (uint8)countryCode, g_fpd.myPresence);
-				g_fpd.nexFriendSession->setNotificationHandler(NotificationHandler);
-				g_fpd.mtxFriendSession.unlock();
-				cemuLog_log(LogType::Force, "IOSU_FPD: Created friend server session");
+				FriendsSession::Instance().ConfigureCurrent(false);
 			}
 
 			void StopFriendSession()
 			{
-				std::unique_lock _l(g_fpd.mtxFriendSession);
-				bool expected = true;
-				if (!g_fpd.sessionStarted.compare_exchange_strong(expected, false) )
-					return;
-				delete g_fpd.nexFriendSession;
-				g_fpd.nexFriendSession = nullptr;
+				m_callbacks.Close();
+				FriendsSession::Instance().SetNotificationHandler(nullptr);
+				FriendsSession::Instance().DetachTitle();
+				g_NotificationQueue.Clear();
 			}
 
 		  private:
@@ -1514,6 +1490,8 @@ namespace iosu
 		{
 			void TitleStart() override
 			{
+				FriendsSession::Instance().SetTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
+				FriendsSession::Instance().SetNotificationHandler(+[](int type, uint32_t pid) { NotificationHandler(static_cast<NexFriends::NOTIFICATION_TYPE>(type), pid); });
 				s_staticData.Allocate();
 				gFPDService.Start();
 				gFPDService.SetTimerUpdate(1000); // call TimerUpdate() once a second
@@ -1522,9 +1500,12 @@ namespace iosu
 			{
 				gFPDService.StopFriendSession();
 				gFPDService.Stop();
+				gFPDService.CleanupStoppedClients();
 				s_staticData.Deallocate();
 			}
 		}sIOSUModuleNNFPD;
+
+		void PrepareTitleStop() { gFPDService.StopFriendSession(); }
 
 		IOSUModule* GetModule()
 		{

@@ -853,6 +853,7 @@ std::string AccountService::Command(std::string_view payload, bool canEdit)
 }
 
 bool AccountService::IsTesting() const { return m_impl->connection == 1; }
+std::string AccountService::NetworkName() const { return m_impl->Network(); }
 void AccountService::PrepareLaunch() { m_impl->ApplyNetwork(); }
 void AccountService::RunConnectionTest()
 {

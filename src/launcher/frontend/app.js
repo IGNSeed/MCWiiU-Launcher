@@ -1,6 +1,6 @@
 "use strict";
 
-const pages = ["home", "settings"];
+const pages = ["home", "friends", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
@@ -8,12 +8,13 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
   mainContent.dataset.view = page;
   mainContent.scrollTop = 0;
   if (page === "settings") { tabMotion.finish(); tabIndicator.schedule(false); }
-  else {
+  else if (page === "home") {
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  updateInputView(); updateAccountView();
-}, () => { updateInputView(); updateAccountView(); });
+  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : "Settings";
+  updateInputView(); updateAccountView(); window.updateFriendsView?.();
+}, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
 function showPage(selected, options = {}) {
   if (!pages.includes(selected)) return Promise.resolve();
@@ -22,6 +23,7 @@ function showPage(selected, options = {}) {
   if (selected === selectedPage && pageMotion.target === target && pageMotion.state === "idle") return pageMotion.finished;
   stopInputView(); hideAccountDetails(); resetPlayGlow();
   selectedPage = selected;
+  window.updateFriendsView?.();
   const focus = document.querySelector(`[data-page="${selected}"]`);
   if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
   navigation.forEach(item => {
@@ -151,7 +153,7 @@ const tabMotion = new LauncherMotion.PanelTransition(document.querySelector(".se
   document.querySelector(".settings-content").scrollTop = 0;
   updateInputView(); updateAccountView();
 }, () => { updateInputView(); updateAccountView(); });
-const tabIndicator = new LauncherMotion.SlidingIndicator(document.querySelector(".settings-tabs"), document.getElementById("tab-indicator"), tabs, () => tabs.find(tab => tab.dataset.tab === selectedTab));
+const tabIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("#settings .settings-tabs"), document.getElementById("tab-indicator"), tabs, () => tabs.find(tab => tab.dataset.tab === selectedTab));
 function showTab(name) {
   if (!tabs.some(tab => tab.dataset.tab === name)) return Promise.resolve();
   if (selectedTab === name && tabMotion.state === "idle") return tabMotion.finished;

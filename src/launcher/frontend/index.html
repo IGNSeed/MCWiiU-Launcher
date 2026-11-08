@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="style.css">
   <script src="motion.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="friends.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -24,6 +25,7 @@
       <nav aria-label="Main navigation">
         <span id="navigation-indicator" aria-hidden="true"></span>
         <button type="button" data-page="home" aria-current="page">Home</button>
+        <button type="button" data-page="friends">Friends <span id="friends-badge" class="friends-badge" hidden></span></button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
@@ -35,6 +37,22 @@
           <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
           <div class="home-play"><button id="play" type="button" disabled>PLAY</button></div>
         </div>
+      </section>
+      <section id="friends" aria-labelledby="friends-title" hidden>
+        <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="friends-refresh" type="button" disabled>Refresh</button></div></div>
+        <p id="friends-status" class="footnote" role="status">Account Not Ready</p>
+        <div class="settings-tabs friends-tabs" role="tablist" aria-label="Friends">
+          <span id="friends-tab-indicator" aria-hidden="true"></span>
+          <button id="friend-tab-all" type="button" role="tab" aria-selected="true" aria-controls="friend-panel-all" data-friend-tab="all">All Friends</button>
+          <button id="friend-tab-online" type="button" role="tab" aria-selected="false" aria-controls="friend-panel-online" data-friend-tab="online" tabindex="-1">Online</button>
+          <button id="friend-tab-requests" type="button" role="tab" aria-selected="false" aria-controls="friend-panel-requests" data-friend-tab="requests" tabindex="-1">Requests</button>
+        </div>
+        <div class="friends-content">
+          <div id="friend-panel-all" role="tabpanel" aria-labelledby="friend-tab-all"><ul id="friends-all" class="friends-list"></ul></div>
+          <div id="friend-panel-online" role="tabpanel" aria-labelledby="friend-tab-online" hidden><ul id="friends-online" class="friends-list"></ul></div>
+          <div id="friend-panel-requests" role="tabpanel" aria-labelledby="friend-tab-requests" hidden><h2 class="settings-heading">Incoming</h2><ul id="friends-incoming" class="friends-list"></ul><h2 class="settings-heading">Outgoing</h2><ul id="friends-outgoing" class="friends-list"></ul></div>
+        </div>
+        <p id="friends-note" class="footnote"></p>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
