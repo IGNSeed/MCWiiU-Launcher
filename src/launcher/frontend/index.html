@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>MCWiiU Launcher</title>
   <link rel="stylesheet" href="style.css">
+  <script src="motion.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -21,22 +22,24 @@
     <aside class="sidebar" aria-label="Launcher navigation">
       <div class="brand">MCWiiU <span>Launcher</span></div>
       <nav aria-label="Main navigation">
+        <span id="navigation-indicator" aria-hidden="true"></span>
         <button type="button" data-page="home" aria-current="page">Home</button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
-    <main>
+    <main data-view="home">
       <header class="topbar"><span id="page-label">Settings</span></header>
       <section id="home" aria-label="Minecraft: Wii U Edition">
         <div class="home-art">
           <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
-          <button id="play" type="button" disabled>PLAY</button>
+          <div class="home-play"><button id="play" type="button" disabled>PLAY</button></div>
         </div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
         <div class="settings-tabs" role="tablist" aria-label="Settings">
+          <span id="tab-indicator" aria-hidden="true"></span>
           <button id="tab-general" type="button" role="tab" aria-selected="true" aria-controls="panel-general" data-tab="general" tabindex="0">General</button>
           <button id="tab-input" type="button" role="tab" aria-selected="false" aria-controls="panel-input" data-tab="input" tabindex="-1">Input</button>
           <button id="tab-graphics" type="button" role="tab" aria-selected="false" aria-controls="panel-graphics" data-tab="graphics" tabindex="-1">Graphics</button>

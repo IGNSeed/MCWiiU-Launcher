@@ -1,4 +1,10 @@
 :root {
+  --motion-fast:140ms;
+  --motion-normal:220ms;
+  --motion-slow:320ms;
+  --motion-exit:120ms;
+  --motion-indicator:280ms;
+  --motion-ease:cubic-bezier(0.22,1,0.36,1);
   color-scheme:dark;
   font-family:"Segoe UI","Yu Gothic UI",sans-serif;
   color:#f1f1f2;
@@ -344,7 +350,7 @@ footer {
 .settings-info dt { color:#b4b4bd; }
 .settings-info dd { margin:0; overflow-wrap:anywhere; }
 
-main:has(#settings:not([hidden])) { overflow:hidden; }
+main[data-view="settings"] { overflow:hidden; }
 #settings {
   flex:1 1 0;
   min-height:0;
@@ -375,7 +381,7 @@ input { accent-color:#dedee5; }
 
 body { user-select:none; -webkit-user-select:none; }
 input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:text; }
-[role="tabpanel"]:not([hidden]) { animation:settings-enter 200ms ease-out; }
+
 @keyframes settings-enter { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 @media(prefers-reduced-motion:reduce) { [role="tabpanel"]:not([hidden]) { animation:none; } }
 #input-controls,#input-edit { border:0; padding:0; margin:0; min-width:0; }
@@ -482,16 +488,26 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 #account-custom label,#account-preview > label { display:block; margin:12px 0; }
 #account-online-files { overflow-wrap:anywhere; max-height:220px; overflow:auto; font-size:.8125rem; }
 
-/* Home の画像は全体を表示し、PLAY を画像内の中央下へ重ねる。 */
-main:has(#home:not([hidden])) { overflow:hidden; }
-main:has(#home:not([hidden])) > .topbar,
-main:has(#home:not([hidden])) > footer { display:none; }
-#home { display:grid; place-items:center; padding:0; flex:1 1 0; min-height:0; background:#0d0d0f; }
+/* 原画像を保ったフレームと下部の光で、Home に奥行きを付ける。 */
+main[data-view="home"] { overflow:hidden; }
+main[data-view="home"] > .topbar,
+main[data-view="home"] > footer { display:none; }
+#home {
+  --home-space:clamp(20px,3vw,44px);
+  display:grid; place-items:center; padding:var(--home-space); flex:1 1 0; min-height:0; overflow:hidden;
+  background:radial-gradient(ellipse at 50% 48%,#202023 0%,#111113 48%,#0d0d0f 85%);
+}
 #home[hidden] { display:none; }
-.home-art { position:relative; width:min(100%,calc((100vh - 48px) * 1980 / 1113)); }
+.home-art {
+  position:relative; width:min(100%,calc((100vh - 50px - 2 * var(--home-space)) * 1980 / 1113));
+  border:1px solid #ffffff19; border-radius:12px; overflow:hidden; isolation:isolate;
+  background:#111113; box-shadow:0 20px 54px #0008,0 0 64px #d9c5b00d;
+}
+.home-art::after { content:""; position:absolute; inset:0; z-index:1; pointer-events:none; background:linear-gradient(180deg,transparent 48%,#00000006 60%,#00000070 100%); }
+.home-play { position:absolute; z-index:2; left:50%; top:76%; translate:-50% -50%; }
 .home-art img { display:block; width:100%; height:auto; pointer-events:none; }
 #play {
-  position:absolute; left:50%; top:76%; translate:-50% -50%;
+  position:relative;
   width:clamp(180px,18vw,240px); height:clamp(52px,5vw,64px);
   padding:0 24px; overflow:hidden; isolation:isolate;
   background:#111114e8; border:1px solid #d0d0d6; border-radius:5px;
@@ -518,8 +534,7 @@ nav button:hover:enabled { color:#fff; background:#202025; }
 .settings-content button:hover:enabled,.dialog-actions button:hover:enabled,#account-select-zip:hover:enabled { background:#26262c; }
 .settings-content button:active:enabled,.dialog-actions button:active:enabled { background:#33333a; }
 select:hover:enabled,input:not([type="range"]):hover:enabled { border-color:#aaaab3; }
-#home:not([hidden]),#settings:not([hidden]) { animation:page-enter 210ms ease-out; }
-@keyframes page-enter { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:translateY(0); } }
+
 
 #account-add-dialog { width:min(640px,calc(100vw - 48px)); max-height:calc(100vh - 48px); overflow:auto; padding:28px; background:#151519; color:#ededf2; border:1px solid #707078; border-radius:8px; }
 #account-add-dialog h2 { font-size:1.25rem; margin:0 0 12px; }
@@ -528,18 +543,38 @@ select:hover:enabled,input:not([type="range"]):hover:enabled { border-color:#aaa
 #account-select-zip,#account-import { padding:10px 16px; }
 #account-add-dialog .account-candidate { font-size:.8125rem; line-height:1.7; }
 #account-preview:not([hidden]) { animation:settings-enter 180ms ease-out; }
-dialog { opacity:0; transform:scale(.98); transition:opacity 200ms ease-out,transform 200ms ease-out,display 200ms allow-discrete,overlay 200ms allow-discrete; }
+dialog { opacity:0; transform:scale(.97); transition:opacity var(--motion-normal) var(--motion-ease),transform var(--motion-normal) var(--motion-ease),display var(--motion-normal) allow-discrete,overlay var(--motion-normal) allow-discrete; }
 dialog[open] { opacity:1; transform:scale(1); }
-dialog::backdrop { background:#000b; opacity:0; transition:opacity 200ms ease-out,display 200ms allow-discrete,overlay 200ms allow-discrete; }
+dialog::backdrop { background:#000b; opacity:0; transition:opacity var(--motion-normal) var(--motion-ease),display var(--motion-normal) allow-discrete,overlay var(--motion-normal) allow-discrete; }
 dialog[open]::backdrop { opacity:1; }
 #account-details { opacity:1; transition:opacity 180ms ease-out,display 180ms allow-discrete; }
 #account-details[hidden] { opacity:0; }
 @starting-style {
-  dialog[open] { opacity:0; transform:scale(.98); }
+  dialog[open] { opacity:0; transform:scale(.97); }
   dialog[open]::backdrop { opacity:0; }
   #account-details:not([hidden]) { opacity:0; }
 }
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation:none !important; transition:none !important; }
   #play:hover:enabled,#play:active:enabled,dialog { transform:none; }
+}
+
+nav { position:relative; isolation:isolate; }
+nav button { position:relative; z-index:1; }
+nav button[aria-current="page"] { border-color:transparent; background:transparent; }
+#navigation-indicator { position:absolute; top:0; left:0; z-index:0; pointer-events:none; opacity:0; border:1px solid #ffffff38; border-radius:5px; background:#ffffff0b; }
+.settings-tabs { position:relative; isolation:isolate; }
+.settings-tabs button { position:relative; z-index:1; transition:color var(--motion-fast) ease-out,background-color var(--motion-fast) ease-out; }
+.settings-tabs button[aria-selected="true"] { border-bottom-color:transparent; background:transparent; }
+#tab-indicator { position:absolute; left:0; bottom:-1px; z-index:2; height:2px; border-radius:2px; background:#eeeeef; opacity:0; pointer-events:none; }
+button:not(#play) { transition:color var(--motion-fast) ease-out,background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out,transform var(--motion-fast) var(--motion-ease); }
+button:active:enabled:not(#play):not([data-page]):not([role="tab"]):not(.window-controls button) { transform:scale(.985); }
+input:not([type="range"]):not(.toggle):focus-visible,select:focus-visible { background-color:#1c1c21; border-color:#bfbfc6; }
+.toggle-row .toggle { transition:background-color var(--motion-fast) ease-out,border-color var(--motion-fast) ease-out; }
+.toggle-row .toggle::before { transition:transform var(--motion-normal) var(--motion-ease),background-color var(--motion-fast) ease-out; }
+dialog:not([open]) { pointer-events:none; }
+main[data-view="game"] { visibility:hidden; }
+@media(prefers-reduced-motion:reduce) {
+  button:active:enabled:not(#play),dialog { transform:none; }
+  *,*::before,*::after { animation:none !important; transition:none !important; }
 }

@@ -2,23 +2,36 @@
 
 const pages = ["home", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
-function showPage(selected) {
-  if (!pages.includes(selected)) return;
-  stopInputView();
-  hideAccountDetails();
-  pages.forEach((page) => {
-    const panel = document.getElementById(page);
-    panel.hidden = page !== selected || (page === "home" && window.launcherCoreState?.phase === "running");
-    if (panel.hidden && panel.contains(document.activeElement)) document.querySelector(`[data-page="${selected}"]`).focus();
-  });
-  resetPlayGlow();
-  navigation.forEach((item) => {
+const mainContent = document.querySelector("main");
+let selectedPage = "home";
+const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(name => [name,document.getElementById(name)]), null, page => {
+  mainContent.dataset.view = page;
+  mainContent.scrollTop = 0;
+  if (page === "settings") { tabMotion.finish(); tabIndicator.schedule(false); }
+  else {
+    LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
+    LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
+  }
+  updateInputView(); updateAccountView();
+}, () => { updateInputView(); updateAccountView(); });
+const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
+function showPage(selected, options = {}) {
+  if (!pages.includes(selected)) return Promise.resolve();
+  const game = selected === "home" && window.launcherCoreState?.phase === "running";
+  const target = game ? null : selected;
+  if (selected === selectedPage && pageMotion.target === target && pageMotion.state === "idle") return pageMotion.finished;
+  stopInputView(); hideAccountDetails(); resetPlayGlow();
+  selectedPage = selected;
+  const focus = document.querySelector(`[data-page="${selected}"]`);
+  if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
+  navigation.forEach(item => {
     if (item.dataset.page === selected) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
-  document.querySelector("main").scrollTop = 0;
-  updateInputView();
-  updateAccountView();
+  navigationIndicator.schedule(!game && !options.immediate);
+  if (selected !== "settings") tabMotion.finish();
+  if (game) mainContent.dataset.view = "game";
+  return pageMotion.switchTo(target, game || options.immediate);
 }
 navigation.forEach((button) => button.addEventListener("click", () => {
   showPage(button.dataset.page);
@@ -101,7 +114,7 @@ window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
   if (state.phase !== "ready" || state.sessionId !== launchRequestSession) launchPending = false;
-  if (state.phase === "running") document.getElementById("home").hidden = true;
+  if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status] = coreLabels[phase] || coreLabels.idle;
   play.disabled = state.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
@@ -134,22 +147,25 @@ window.addEventListener("launcher-core-state", (event) => {
 
 const tabs = Array.from(document.querySelectorAll("[data-tab]"));
 let selectedTab = "general";
-function showTab(name) {
-  if (!tabs.some((tab) => tab.dataset.tab === name)) return;
-  if (selectedTab !== name) stopInputView();
-  if (selectedTab !== name) hideAccountDetails();
-  selectedTab = name;
-  tabs.forEach((tab) => {
-    const selected = tab.dataset.tab === name;
-    tab.setAttribute("aria-selected", String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    const panel = document.getElementById(tab.getAttribute("aria-controls"));
-    if (!selected && panel.contains(document.activeElement)) tab.focus();
-    panel.hidden = !selected;
-  });
+const tabMotion = new LauncherMotion.PanelTransition(document.querySelector(".settings-content"), tabs.map(tab => [tab.dataset.tab,document.getElementById(tab.getAttribute("aria-controls"))]), "general", () => {
   document.querySelector(".settings-content").scrollTop = 0;
-  updateInputView();
-  updateAccountView();
+  updateInputView(); updateAccountView();
+}, () => { updateInputView(); updateAccountView(); });
+const tabIndicator = new LauncherMotion.SlidingIndicator(document.querySelector(".settings-tabs"), document.getElementById("tab-indicator"), tabs, () => tabs.find(tab => tab.dataset.tab === selectedTab));
+function showTab(name) {
+  if (!tabs.some(tab => tab.dataset.tab === name)) return Promise.resolve();
+  if (selectedTab === name && tabMotion.state === "idle") return tabMotion.finished;
+  stopInputView(); hideAccountDetails();
+  const focused = tabs.some(tab => document.getElementById(tab.getAttribute("aria-controls")).contains(document.activeElement));
+  selectedTab = name;
+  tabs.forEach(tab => {
+    const selected = tab.dataset.tab === name;
+    tab.setAttribute("aria-selected", String(selected)); tab.tabIndex = selected ? 0 : -1;
+    if (selected && focused) tab.focus({preventScroll:true});
+  });
+  tabIndicator.schedule(true);
+  const settings = document.getElementById("settings");
+  return tabMotion.switchTo(name, selectedPage !== "settings" || settings.hidden || settings.inert);
 }
 tabs.forEach((tab, index) => {
   tab.addEventListener("click", () => showTab(tab.dataset.tab));
@@ -353,9 +369,10 @@ function updateNativeSettings(state) {
 
 window.addEventListener("launcher-session-ended", () => showPage("home"));
 window.addEventListener("launcher-show-home", () => showPage("home"));
-window.addEventListener("launcher-return-game", () => showPage("home"));
+window.addEventListener("launcher-return-game", () => showPage("home", {immediate:true}));
 window.addEventListener("launcher-display-state", (event) => {
   window.launcherDisplayState = event.detail;
+  if (!event.detail.webViewVisible) LauncherMotion.finish();
 });
 document.getElementById("window-minimize").addEventListener("click", () => windowCommand("window:minimize"));
 document.getElementById("window-maximize").addEventListener("click", () => windowCommand("window:toggle-maximize"));
@@ -417,7 +434,7 @@ const inputMessages = {
   "select-controller":"接続中のコントローラーを一覧から選択してください。",
   "unsupported-profile":"現在の Profile は編集対象外です。物理コントローラーを選択すると SDLController の割当を作成します。",
 };
-function inputActive() { return !document.getElementById("settings").hidden && selectedTab === "input" && !document.hidden && !closeAfterSaves; }
+function inputActive() { return selectedPage === "settings" && !document.getElementById("settings").hidden && !document.getElementById("settings").inert && selectedTab === "input" && tabMotion.current === "input" && !document.getElementById("panel-input").inert && !document.hidden && !closeAfterSaves; }
 function inputCommand(values) {
   if (pendingInput || pendingSave || pendingAv || closeAfterSaves || window.launcherCoreState?.canEditInput !== true) return;
   pendingInput = ++inputSequence;
@@ -544,7 +561,7 @@ function stopInputView() {
   clearLiveInput();
 }
 function updateInputView() {
-  if (document.getElementById("settings").hidden || document.hidden || closeAfterSaves) return;
+  if (selectedPage !== "settings" || document.getElementById("settings").hidden || document.getElementById("settings").inert || document.hidden || closeAfterSaves) return;
   if (settingsTimer === null) {
     windowCommand("settings:get");
     settingsTimer = setInterval(() => windowCommand("settings:get"), 1000);
@@ -696,7 +713,7 @@ function restoreAccountFocus() {
   if (!accountFocusTarget || settingsBusy()) return;
   let target = accountFocusTarget;
   accountFocusTarget = null;
-  if (selectedTab !== "account" || document.getElementById("settings").hidden || window.launcherCoreState?.canEditAccounts !== true) return;
+  if (selectedPage !== "settings" || selectedTab !== "account" || document.getElementById("settings").hidden || document.getElementById("settings").inert || document.getElementById("panel-account").inert || window.launcherCoreState?.canEditAccounts !== true) return;
   const modal = document.querySelector("dialog[open]");
   if (modal && !modal.contains(target)) return;
   if (target.matches(":disabled")) target = modal ? document.getElementById("account-add-cancel") : document.getElementById("account-active");
@@ -728,7 +745,7 @@ function hideAccountDetails() {
   accountEditorId = null;
 }
 function updateAccountView() {
-  if (selectedTab !== "account" || document.getElementById("settings").hidden || pendingAccount || accountQueue.length) return;
+  if (selectedPage !== "settings" || selectedTab !== "account" || tabMotion.current !== "account" || document.getElementById("settings").hidden || document.getElementById("settings").inert || document.getElementById("panel-account").inert || pendingAccount || accountQueue.length) return;
   if ((!accountSnapshot || accountSnapshot.canEdit !== window.launcherCoreState?.canEditAccounts) && window.launcherCoreState?.corePhase === "ready") accountCommand({op:"list"});
   renderAccount();
 }
@@ -930,3 +947,8 @@ document.addEventListener("dragover", event => event.preventDefault());
 document.addEventListener("drop", event => event.preventDefault());
 
 document.getElementById("account-custom-select").addEventListener("click", () => accountCommand({op:"select-custom",replaceExisting:document.getElementById("account-custom-replace").checked}));
+
+// 初期表示も同じ遷移経路を使い、非表示の入力欄へfocusを残さない。
+tabMotion.snap("general");
+navigationIndicator.schedule(false);
+pageMotion.switchTo("home");
