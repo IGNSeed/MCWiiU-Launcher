@@ -383,7 +383,6 @@ body { user-select:none; -webkit-user-select:none; }
 input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:text; }
 
 @keyframes settings-enter { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
-@media(prefers-reduced-motion:reduce) { [role="tabpanel"]:not([hidden]) { animation:none; } }
 #input-controls,#input-edit { border:0; padding:0; margin:0; min-width:0; }
 .input-row { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:18px 0; }
 .input-row label { flex:0 0 140px; font-size:.875rem; }
@@ -476,7 +475,6 @@ input,textarea,[contenteditable="true"] { user-select:text; -webkit-user-select:
 .toggle-row:hover .toggle:not(:disabled) { border-color:#fff; }
 .toggle-row .toggle:focus-visible { outline:2px solid #fff; outline-offset:4px; }
 .toggle-row .toggle:disabled { opacity:.4; cursor:default; }
-@media (prefers-reduced-motion:reduce) { .toggle-row .toggle,.toggle-row .toggle::before { transition:none; } }
 .overlay-color { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
 .overlay-color input[type="color"] { width:42px; height:40px; border:1px solid #55555e; border-radius:5px; background:#131317; padding:4px; }
 .overlay-color input[type="text"] { width:110px; font-variant-numeric:tabular-nums; }
@@ -554,10 +552,6 @@ dialog[open]::backdrop { opacity:1; }
   dialog[open]::backdrop { opacity:0; }
   #account-details:not([hidden]) { opacity:0; }
 }
-@media(prefers-reduced-motion:reduce) {
-  *,*::before,*::after { animation:none !important; transition:none !important; }
-  #play:hover:enabled,#play:active:enabled,dialog { transform:none; }
-}
 
 nav { position:relative; isolation:isolate; }
 nav button { position:relative; z-index:1; }
@@ -574,7 +568,3 @@ input:not([type="range"]):not(.toggle):focus-visible,select:focus-visible { back
 .toggle-row .toggle::before { transition:transform var(--motion-normal) var(--motion-ease),background-color var(--motion-fast) ease-out; }
 dialog:not([open]) { pointer-events:none; }
 main[data-view="game"] { visibility:hidden; }
-@media(prefers-reduced-motion:reduce) {
-  button:active:enabled:not(#play),dialog { transform:none; }
-  *,*::before,*::after { animation:none !important; transition:none !important; }
-}

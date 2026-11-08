@@ -1,11 +1,10 @@
 "use strict";
 
 window.LauncherMotion = (() => {
-  const preference = matchMedia("(prefers-reduced-motion: reduce)");
   const panels = new Set(), indicators = new Set(), effects = new Set();
   function token(name) { return getComputedStyle(document.documentElement).getPropertyValue("--motion-" + name).trim(); }
   function timing(name) { return {duration:parseFloat(token(name)),easing:token("ease"),fill:"both"}; }
-  function quiet() { return preference.matches || document.hidden; }
+  function quiet() { return document.hidden; }
   function cancelEffects(root) {
     for (const animation of effects) if (root.contains(animation.effect.target)) animation.cancel();
   }
@@ -158,8 +157,7 @@ window.LauncherMotion = (() => {
     for (const indicator of indicators) indicator.finish();
     for (const animation of effects) animation.cancel();
   }
-  preference.addEventListener("change", () => { if (preference.matches) finish(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) finish(); });
   window.addEventListener("pagehide", () => { finish(); for (const indicator of indicators) indicator.dispose(); });
-  return {PanelTransition,SlidingIndicator,effect,cancelEffects,finish,preference};
+  return {PanelTransition,SlidingIndicator,effect,cancelEffects,finish};
 })();
