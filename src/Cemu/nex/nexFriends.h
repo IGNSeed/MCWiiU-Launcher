@@ -174,7 +174,8 @@ public:
 	nexPrincipalBasicInfo(uint32 principalId, char* nnid, const nexMiiV2& mii)
 		: principalId(principalId), mii(mii)
 	{
-		strcpy(this->nnid, nnid);
+		strncpy(this->nnid, nnid, sizeof(this->nnid) - 1);
+		this->nnid[sizeof(this->nnid) - 1] = '\0';
 	}
 
 	nexPrincipalBasicInfo(nexPacketBuffer* pb)

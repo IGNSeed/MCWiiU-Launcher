@@ -340,7 +340,7 @@ void FriendsSession::ConfigureCurrent(bool launcher, std::string requestedServic
 	if (config->service != "Offline")
 	{
 		config->state = "account-not-ready";
-		if (service != NetworkService::Offline && account.IsValidOnlineAccount() && ActiveSettings::HasRequiredOnlineFiles() && NAPI::NAPI_MakeAuthInfoFromCurrentAccount(config->auth))
+		if (service != NetworkService::Offline && account.IsValidOnlineAccount() && ActiveSettings::HasRequiredOnlineFiles() && NAPI::NAPI_MakeAuthInfoFromCurrentAccount(config->auth) && !config->auth.accountId.empty() && PublicText(config->auth.accountId, 31) == config->auth.accountId && std::none_of(config->auth.accountId.begin(), config->auth.accountId.end(), [](unsigned char c) { return c <= 0x20 || c == 0x7f; }))
 		{
 			config->auth.serviceOverwrite = service;
 			config->state = "ready";

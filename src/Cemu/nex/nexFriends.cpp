@@ -201,7 +201,8 @@ NexFriends::NexFriends(uint32 authServerIp, uint16 authServerPort, const char* a
 	: nexCon(nullptr)
 {
 	memcpy(this->miiData, miiData, FFL_SIZE);
-	strcpy(this->nnid, nnid);
+	strncpy(this->nnid, nnid, sizeof(this->nnid) - 1);
+	this->nnid[sizeof(this->nnid) - 1] = '\0';
 	this->pid = pid;
 	this->countryCode = countryCode;
 	this->miiNickname = StringHelpers::ToUtf8FromLE(miiNickname, ACT_NICKNAME_LENGTH);
