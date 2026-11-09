@@ -978,6 +978,16 @@ std::string CemuHost::FriendsCommand(bool refresh)
 	return FriendsSnapshotJson();
 }
 
+std::string CemuHost::ManageFriends(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.accounts || !state.friendsStarted || state.stop || state.failed)
+		return "{\"requestId\":" + std::to_string(requestId) + ",\"notice\":\"not-connected\"}";
+	return FriendsManagementCommand(requestId, payload);
+}
+
 std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payload)
 {
 	auto& state = *m_impl->state;

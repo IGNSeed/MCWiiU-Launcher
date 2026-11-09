@@ -7,6 +7,7 @@
 #include "Common/socket.h"
 #include "util/helpers/helpers.h"
 #include <condition_variable>
+#include <optional>
 
 namespace
 {
@@ -53,6 +54,24 @@ namespace
 			return {};
 		return PublicText(std::string_view(text, end - text), limit);
 	}
+
+	std::string FoldId(std::string value)
+	{
+		for (auto& c : value)
+			if (c >= 'A' && c <= 'Z')
+				c += 'a' - 'A';
+		return value;
+	}
+	bool Expired(uint64_t timestamp)
+	{
+		const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+		const auto day = std::chrono::floor<std::chrono::days>(now);
+		const std::chrono::year_month_day date(day);
+		const std::chrono::hh_mm_ss time(now - day);
+		const uint64_t encoded = (uint64_t(int(date.year())) << 26) | (uint64_t(unsigned(date.month())) << 22) | (uint64_t(unsigned(date.day())) << 17) |
+								 (uint64_t(time.hours().count()) << 12) | (uint64_t(time.minutes().count()) << 6) | uint64_t(time.seconds().count());
+		return timestamp && timestamp <= encoded;
+	}
 } // namespace
 
 struct FriendsSession::Impl
@@ -80,6 +99,241 @@ struct FriendsSession::Impl
 	Clock::time_point nextRefresh{};
 	void (*notification)(int, uint32_t) = nullptr;
 	View view;
+
+	std::optional<Command> command;
+	uint64_t lastCommandId = 0;
+	std::string commandPhase;
+	Clock::time_point commandDeadline{}, syncAt{};
+	bool unknownOutcome = false;
+	struct Resolution
+	{
+		std::atomic_bool cancelled{false}, done{false};
+		NAPI::ACTConvertNnidToPrincipalIdResult result{};
+	};
+	std::shared_ptr<Resolution> resolution;
+	std::thread resolver;
+	bool Matches(const Command& target) const
+	{
+		return !stopped && command && command->id == target.id && generation == target.generation && sessionGeneration == target.generation &&
+			   view.connectionId == target.connectionId && configuration && configuration->service == "Pretendo";
+	}
+	void OperationStatus(std::string phase, std::string notice = {})
+	{
+		commandPhase = phase;
+		std::lock_guard lock(viewMutex);
+		view.operation = {command ? command->id : 0, phase, std::move(notice), phase == "queued" || phase == "resolving" || phase == "checking" || phase == "sent" || phase == "syncing"};
+		++view.revision;
+	}
+	void CancelCommand()
+	{
+		if (resolution)
+			resolution->cancelled = true;
+		command.reset();
+		commandPhase.clear();
+		std::lock_guard lock(viewMutex);
+		view.operation = {};
+		++view.revision;
+	}
+	std::string ValidateTarget(const Command& target)
+	{
+		if (!configuration || target.pid == configuration->pid)
+			return "self-request";
+		nexFriend existing{};
+		const bool isFriend = session->getFriendByPID(existing, target.pid);
+		if (target.operation == Operation::Remove)
+			return isFriend ? "" : "friend-not-found";
+		nexFriendRequest request{};
+		bool incoming = false;
+		if (target.operation == Operation::Send)
+		{
+			if (isFriend)
+				return "already-friends";
+			return session->getFriendRequestByPID(request, &incoming, target.pid) ? "already-requested" : "";
+		}
+		if (isFriend)
+			return "already-friends";
+		if (!session->getFriendRequestByMessageId(request, &incoming, target.messageId) || request.principalInfo.principalId != target.pid ||
+			incoming != (target.operation != Operation::Cancel))
+			return "request-not-found";
+		if (!request.message.expireTimestamp)
+			return "unsupported-request";
+		return target.operation == Operation::Accept && Expired(request.message.expireTimestamp) ? "request-expired" : "";
+	}
+	bool Reflected(const Command& target)
+	{
+		nexFriend friendData{};
+		nexFriendRequest request{};
+		bool incoming = false;
+		const bool isFriend = session->getFriendByPID(friendData, target.pid);
+		if (target.operation == Operation::Send)
+			return isFriend || (session->getFriendRequestByPID(request, &incoming, target.pid) && !incoming);
+		if (target.operation == Operation::Remove)
+			return !isFriend;
+		const bool exists = session->getFriendRequestByMessageId(request, &incoming, target.messageId);
+		if (target.operation == Operation::Accept)
+			return isFriend && !exists;
+		return !exists && !isFriend;
+	}
+	void Dispatch(Command target)
+	{
+		if (!Matches(target))
+			return;
+		if (auto error = ValidateTarget(target); !error.empty())
+		{
+			OperationStatus("failed", error);
+			return;
+		}
+		OperationStatus("sent");
+		commandDeadline = Clock::now() + std::chrono::seconds(15);
+		NexFriends::ManagementOperation operation;
+		switch (target.operation)
+		{
+		case Operation::Send:
+			operation = NexFriends::ManagementOperation::Send;
+			break;
+		case Operation::Remove:
+			operation = NexFriends::ManagementOperation::Remove;
+			break;
+		case Operation::Accept:
+			operation = NexFriends::ManagementOperation::Accept;
+			break;
+		case Operation::Reject:
+			operation = NexFriends::ManagementOperation::Reject;
+			break;
+		case Operation::Cancel:
+			operation = NexFriends::ManagementOperation::Cancel;
+			break;
+		default:
+			OperationStatus("failed", "invalid-command");
+			return;
+		}
+		session->manageFriend(operation, target.pid, target.messageId, [this, target](int result, uint32_t detail) {
+			if (!Matches(target) || commandPhase != "sent")
+				return;
+			if (result != NexFriends::ERR_NONE && detail != nexService::ERR_TIMEOUT && detail != nexService::ERR_NO_CONNECTION)
+			{
+				cemuLog_log(LogType::Force, "Friends management RPC rejected: 0x{:08x}", detail);
+				OperationStatus("failed", "server-error");
+				refresh = true;
+				return;
+			}
+			unknownOutcome = result != NexFriends::ERR_NONE;
+			OperationStatus("syncing", unknownOutcome ? "outcome-unknown" : "");
+			commandDeadline = Clock::now() + std::chrono::seconds(20);
+			syncAt = {};
+		});
+	}
+	void TickCommand()
+	{
+		// ACT解決中も既存WorkerのNEX pumpを継続する。補助Threadは1件だけ所有して必ずJoinする。
+		if (resolution && resolution->done)
+		{
+			resolver.join();
+			auto result = std::move(resolution);
+			if (command && commandPhase == "resolving" && Matches(*command))
+			{
+				if (!result->result.isValid())
+					OperationStatus("failed", "lookup-failed");
+				else if (!result->result.isFound || !result->result.principalId)
+					OperationStatus("failed", "user-not-found");
+				else
+				{
+					command->pid = result->result.principalId;
+					OperationStatus("queued");
+				}
+			}
+		}
+		if (!command || !Matches(*command) || !session || !session->isOnline())
+			return;
+		if (commandPhase == "queued")
+		{
+			if (command->operation == Operation::Send && !command->pid)
+			{
+				if (resolution)
+					return;
+				OperationStatus("resolving");
+				resolution = std::make_shared<Resolution>();
+				auto result = resolution;
+				auto auth = configuration->auth;
+				const auto target = *command;
+				resolver = std::thread([this, result, auth = std::move(auth), target]() mutable {
+					SetThreadName("FriendsPnid");
+					auth.cancelled = [this, result, expected = target.generation, deadline = Clock::now() + std::chrono::seconds(15)] {
+						return stopped || result->cancelled || generation != expected || Clock::now() >= deadline;
+					};
+					try
+					{
+						result->result = NAPI::ACT_ACTConvertNnidToPrincipalId(auth, target.accountId);
+					} catch (...)
+					{
+						result->result.apiError = NAPI_RESULT::FAILED;
+					}
+					if (auth.cancelled())
+						result->result.apiError = NAPI_RESULT::FAILED;
+					result->done = true;
+					wake.notify_all();
+				});
+				return;
+			}
+			if (inFlight)
+				return;
+			OperationStatus("checking");
+			inFlight = true;
+			const auto target = *command;
+			commandDeadline = Clock::now() + std::chrono::seconds(12);
+			session->requestGetAllInformation([this, target](uint32 result) {
+				if (!Matches(target) || commandPhase != "checking")
+					return;
+				inFlight = false;
+				if (result != NexFriends::ERR_NONE)
+					OperationStatus("failed", "refresh-failed");
+				else
+				{
+					Capture();
+					Dispatch(target);
+				}
+			});
+		}
+		else if (commandPhase == "sent" && Clock::now() >= commandDeadline)
+		{
+			// 応答の喪失時に変更RPCを再送しない。まずサーバー状態を確認する。
+			unknownOutcome = true;
+			OperationStatus("syncing", "outcome-unknown");
+			commandDeadline = Clock::now() + std::chrono::seconds(20);
+			syncAt = {};
+		}
+		else if (commandPhase == "checking" && Clock::now() >= commandDeadline)
+		{
+			inFlight = false;
+			OperationStatus("failed", "refresh-failed");
+		}
+		else if (commandPhase == "syncing")
+		{
+			if (Clock::now() >= commandDeadline)
+			{
+				inFlight = false;
+				OperationStatus("uncertain", unknownOutcome ? "outcome-unknown" : "sync-pending");
+				return;
+			}
+			if (inFlight || Clock::now() < syncAt)
+				return;
+			inFlight = true;
+			syncAt = Clock::now() + std::chrono::seconds(2);
+			const auto target = *command;
+			session->requestGetAllInformation([this, target](uint32 result) {
+				if (!Matches(target) || commandPhase != "syncing")
+					return;
+				inFlight = false;
+				if (result == NexFriends::ERR_NONE)
+				{
+					Capture();
+					if (Reflected(target))
+						OperationStatus("succeeded", unknownOutcome ? "state-confirmed" : "saved");
+				}
+			});
+		}
+	}
+
 	static void Notify(NexFriends::NOTIFICATION_TYPE type, uint32_t pid)
 	{
 		auto& state = *FriendsSession::Instance().m_impl;
@@ -132,7 +386,7 @@ struct FriendsSession::Impl
 				if (!pids[i] || !session->getFriendRequestByPID(request, &direction, pids[i]) || direction != incoming)
 					continue;
 				const auto& info = request.principalInfo;
-				next.requests.push_back({pids[i], PublicText(info.nnid, 31), PublicText(info.mii.miiNickname, 127), PublicText(request.message.commentStr, 1023), incoming});
+				next.requests.push_back({pids[i], PublicText(info.nnid, 31), PublicText(info.mii.miiNickname, 127), PublicText(request.message.commentStr, 1023), incoming, request.message.messageId, request.message.messageId != 0 && request.message.expireTimestamp != 0, Expired(request.message.expireTimestamp)});
 			}
 		}
 		std::lock_guard lock(viewMutex);
@@ -208,6 +462,7 @@ struct FriendsSession::Impl
 				config = configuration;
 				if (current != expected)
 				{
+					CancelCommand();
 					session.reset();
 					current = expected;
 					failures = 0;
@@ -225,11 +480,14 @@ struct FriendsSession::Impl
 					retry = Clock::now() + std::chrono::seconds(std::min(60u, 8u << std::min(failures++, 3u)));
 				}
 			}
-			if (!session && refresh && Clock::now() >= nextRefresh)
 			{
-				refresh = false;
-				nextRefresh = Clock::now() + std::chrono::seconds(5);
-				retry = {};
+				std::lock_guard lock(mutex);
+				if (!session && refresh && Clock::now() >= nextRefresh)
+				{
+					refresh = false;
+					nextRefresh = Clock::now() + std::chrono::seconds(5);
+					retry = {};
+				}
 			}
 			if (config && config->state == "ready" && !session && Clock::now() >= retry)
 			{
@@ -260,6 +518,8 @@ struct FriendsSession::Impl
 			}
 			{
 				std::unique_lock lock(mutex);
+				if (resolution && resolution->done)
+					TickCommand();
 				if (session && current == generation)
 				{
 					if (appliedTitle != titleRevision)
@@ -272,8 +532,13 @@ struct FriendsSession::Impl
 						appliedTitle = titleRevision;
 					}
 					session->update();
-					if (!session->isConnected() || (inFlight && Clock::now() >= requestDeadline))
+					TickCommand();
+					if (!session->isConnected() || (inFlight && commandPhase != "checking" && commandPhase != "syncing" && Clock::now() >= requestDeadline))
 					{
+						if (command && (commandPhase == "sent" || commandPhase == "syncing"))
+							OperationStatus("uncertain", "connection-lost");
+						else if (command && (commandPhase == "queued" || commandPhase == "checking" || commandPhase == "resolving"))
+							OperationStatus("failed", "connection-lost");
 						Publish("network-error");
 						reconnect = true;
 					}
@@ -284,7 +549,7 @@ struct FriendsSession::Impl
 							inFlight = false;
 							autoRefresh = Clock::now() + std::chrono::minutes(5);
 						}
-						if (session->isOnline() && !inFlight && (refresh || Clock::now() >= autoRefresh) && Clock::now() >= nextRefresh)
+						if (session->isOnline() && !inFlight && (!command || (commandPhase != "checking" && commandPhase != "syncing")) && (refresh || Clock::now() >= autoRefresh) && Clock::now() >= nextRefresh)
 						{
 							refresh = false;
 							inFlight = true;
@@ -301,13 +566,17 @@ struct FriendsSession::Impl
 					}
 				}
 				if (!session && (!config || config->state != "ready"))
-					wake.wait(lock, [&] { return stopped || generation != current; });
+					wake.wait(lock, [&] { return stopped || generation != current || (resolution && resolution->done); });
 				else if (!session)
 					wake.wait_until(lock, retry, [&] { return stopped || generation != current || refresh; });
 				else
 					wake.wait_for(lock, std::chrono::milliseconds(10));
 			}
 		}
+		CancelCommand();
+		if (resolver.joinable())
+			resolver.join();
+		resolution.reset();
 		std::lock_guard lock(mutex);
 		session.reset();
 		inFlight = false;
@@ -357,6 +626,7 @@ void FriendsSession::ConfigureCurrent(bool launcher, std::string requestedServic
 	state.keepAlive |= launcher;
 	if (state.configuration && state.configuration->activeId == config->activeId && state.configuration->pid == config->pid && state.configuration->service == config->service && state.configuration->state == config->state && state.configuration->auth.passwordHash == config->auth.passwordHash && state.configuration->auth.accountId == config->auth.accountId && state.configuration->mii == config->mii && state.configuration->name == config->name)
 		return;
+	state.CancelCommand();
 	state.configuration = std::move(config);
 	++state.generation;
 	{
@@ -368,7 +638,7 @@ void FriendsSession::ConfigureCurrent(bool launcher, std::string requestedServic
 	}
 	state.Publish(state.configuration->state == "ready" ? "connecting" : state.configuration->state);
 	if (!state.worker.joinable())
-		state.worker = std::thread([&state] { try { state.Run(); } catch (...) { std::lock_guard lock(state.mutex); state.session.reset(); state.Publish("network-error"); } });
+		state.worker = std::thread([&state] { try { state.Run(); } catch (...) { std::lock_guard lock(state.mutex); state.CancelCommand(); if (state.resolver.joinable()) state.resolver.join(); state.resolution.reset(); state.session.reset(); state.Publish("network-error"); } });
 	state.wake.notify_all();
 }
 void FriendsSession::SetTitle(uint64_t titleId, uint16_t version)
@@ -398,6 +668,82 @@ void FriendsSession::Refresh()
 		m_impl->refresh = true;
 		m_impl->wake.notify_all();
 	}
+}
+bool FriendsSession::ValidatePnid(std::string& pnid)
+{
+	// Pretendoの登録規則と同じASCII文字種・長さを使い、前後の通常空白だけを除く。
+	const auto first = pnid.find_first_not_of(' ');
+	if (first == std::string::npos)
+		return false;
+	pnid = pnid.substr(first, pnid.find_last_not_of(' ') - first + 1);
+	if (pnid.size() < 6 || pnid.size() > 16)
+		return false;
+	const auto alnum = [](unsigned char c) {
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+	};
+	if (!alnum(pnid.front()) || !alnum(pnid.back()))
+		return false;
+	bool punctuation = false;
+	for (unsigned char c : pnid)
+	{
+		const bool current = !alnum(c);
+		if (current && (punctuation || (c != '_' && c != '-' && c != '.')))
+			return false;
+		punctuation = current;
+	}
+	return true;
+}
+std::string FriendsSession::Submit(Command target)
+{
+	auto& state = *m_impl;
+	std::lock_guard lock(state.mutex);
+	if (!target.id || target.id > 9007199254740991ULL || target.id <= state.lastCommandId)
+		return "duplicate-request";
+	state.lastCommandId = target.id;
+	if (state.stopped || !state.configuration || state.configuration->service != "Pretendo")
+		return "offline";
+	if (target.generation != state.generation || target.connectionId != state.view.connectionId || !target.connectionId)
+		return "stale-session";
+	if (!state.session || !state.session->isOnline() || state.view.status != "connected")
+		return "not-connected";
+	if (state.resolution || state.commandPhase == "queued" || state.commandPhase == "resolving" || state.commandPhase == "checking" || state.commandPhase == "sent" || state.commandPhase == "syncing")
+		return "operation-busy";
+	if (target.operation == Operation::Send)
+	{
+		if (target.pid || target.messageId || !ValidatePnid(target.accountId))
+			return "invalid-pnid";
+		const auto folded = FoldId(target.accountId);
+		if (folded == FoldId(state.configuration->auth.accountId))
+			return "self-request";
+		for (const auto& friendData : state.view.friends)
+			if (folded == FoldId(friendData.accountId))
+				return "already-friends";
+		for (const auto& request : state.view.requests)
+			if (folded == FoldId(request.accountId))
+				return "already-requested";
+	}
+	else
+	{
+		if (!target.pid || !target.accountId.empty() || (target.operation == Operation::Remove ? target.messageId != 0 : target.messageId == 0))
+			return "invalid-command";
+		switch (target.operation)
+		{
+		case Operation::Remove:
+		case Operation::Accept:
+		case Operation::Reject:
+		case Operation::Cancel:
+			break;
+		default:
+			return "invalid-command";
+		}
+		if (auto error = state.ValidateTarget(target); !error.empty())
+			return error;
+	}
+	state.command = std::move(target);
+	state.unknownOutcome = false;
+	state.OperationStatus("queued");
+	state.wake.notify_all();
+	return "queued";
 }
 FriendsSession::View FriendsSession::Snapshot() const
 {

@@ -48,6 +48,7 @@ public:
 	std::string InputCommand(uint64_t requestId, std::string_view payload);
 	std::string PollInput();
 	std::string FriendsCommand(bool refresh);
+	std::string ManageFriends(uint64_t requestId, std::string_view payload);
 	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();
 	std::string ImportCustomNetwork(uint64_t requestId, const std::wstring& selectedFile, bool replaceExisting);

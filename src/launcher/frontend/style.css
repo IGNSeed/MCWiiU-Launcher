@@ -590,3 +590,23 @@ main[data-view="friends"] { overflow:hidden; }
 .friend-message { white-space:pre-wrap; margin:5px 0 0; font-size:.8rem; color:#b5b5bd; }
 .friends-empty { color:#8d8d96; padding:30px 4px; font-size:.875rem; }
 .friends-badge { float:right; font-size:.75rem; color:#c6c6ce; }
+.friends-actions { flex-wrap:wrap; justify-content:flex-end; }
+.friends-primary { background:#e1e1e6; border-color:#d0d0d8; color:#151519; font-weight:600; }
+.friends-primary:hover:enabled { background:#fff; }
+.friend-row-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; flex-shrink:0; }
+.friend-row-actions button { font-size:.78rem; padding:7px 11px; }
+#friend-menu { position:fixed; inset:auto; margin:0; padding:5px; border:1px solid #4a4a53; border-radius:7px; background:#1b1b20; color:#eee; box-shadow:0 8px 24px #0007; opacity:0; transform:scale(.97); transition:opacity 180ms var(--motion-ease),transform 180ms var(--motion-ease),display 180ms allow-discrete,overlay 180ms allow-discrete; }
+#friend-menu:popover-open { opacity:1; transform:scale(1); }
+#friend-menu button { border:0; background:transparent; padding:10px 14px; color:inherit; }
+#friend-menu button:hover { background:#303037; }
+@starting-style { #friend-menu:popover-open { opacity:0; transform:scale(.97); } }
+#friend-dialog { width:min(470px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; padding:26px; border:1px solid #62626c; border-radius:9px; background:#151519; color:#eee; box-shadow:0 14px 48px #0008; }
+#friend-dialog h2 { margin:0 0 16px; font-size:1.25rem; }
+#friend-dialog-description { font-size:.9rem; color:#c0c0c8; line-height:1.6; }
+#friend-dialog-target { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; font-size:.9rem; }
+#friend-dialog-notice,#friends-management-notice { min-height:20px; overflow-wrap:anywhere; }
+#friend-dialog .account-form-row { display:grid; gap:9px; }
+#friend-pnid-row[hidden] { display:none; }
+#friend-form[aria-busy="true"] #friend-dialog-confirm::before { content:""; display:inline-block; width:10px; height:10px; margin-right:8px; border:1px solid #888; border-top-color:#eee; border-radius:50%; animation:friend-loading 900ms linear infinite; }
+@keyframes friend-loading { to { transform:rotate(360deg); } }
+@media (max-width:900px) { .friend-row { flex-wrap:wrap; } .friend-activity { max-width:38%; } .friend-row-actions { margin-left:auto; } }

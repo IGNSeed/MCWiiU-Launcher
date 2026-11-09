@@ -39,7 +39,7 @@
         </div>
       </section>
       <section id="friends" aria-labelledby="friends-title" hidden>
-        <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="friends-refresh" type="button" disabled>Refresh</button></div></div>
+        <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="friends-add" class="friends-primary" type="button" disabled>Add Friend</button><button id="friends-refresh" type="button" disabled>Refresh</button></div></div>
         <p id="friends-status" class="footnote" role="status">Account Not Ready</p>
         <div class="settings-tabs friends-tabs" role="tablist" aria-label="Friends">
           <span id="friends-tab-indicator" aria-hidden="true"></span>
@@ -53,6 +53,7 @@
           <div id="friend-panel-requests" role="tabpanel" aria-labelledby="friend-tab-requests" hidden><h2 class="settings-heading">Incoming</h2><ul id="friends-incoming" class="friends-list"></ul><h2 class="settings-heading">Outgoing</h2><ul id="friends-outgoing" class="friends-list"></ul></div>
         </div>
         <p id="friends-note" class="footnote"></p>
+        <p id="friends-management-notice" class="footnote" role="status" aria-live="polite"></p>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
@@ -222,6 +223,17 @@
       <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
     </main>
   </div>
+  <div id="friend-menu" popover="auto" role="menu"><button id="friend-menu-remove" type="button" role="menuitem">Remove Friend</button></div>
+  <dialog id="friend-dialog" aria-labelledby="friend-dialog-title" aria-describedby="friend-dialog-description">
+    <form id="friend-form" novalidate>
+      <h2 id="friend-dialog-title">Add Friend</h2>
+      <p id="friend-dialog-description"></p>
+      <p id="friend-dialog-target"></p>
+      <div id="friend-pnid-row" class="account-form-row"><label for="friend-pnid">Pretendo Network ID (PNID)</label><input id="friend-pnid" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="ExamplePlayer" aria-describedby="friend-dialog-notice"></div>
+      <p id="friend-dialog-notice" class="footnote" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="friend-dialog-cancel" type="button">Cancel</button><button id="friend-dialog-confirm" type="submit">Send Request</button></div>
+    </form>
+  </dialog>
   <dialog id="account-add-dialog" aria-labelledby="account-add-title" aria-describedby="account-add-description">
     <h2 id="account-add-title">Add Account</h2>
     <p id="account-add-description" class="footnote">Dumpling ZIPを選択してアカウントを追加します。</p>

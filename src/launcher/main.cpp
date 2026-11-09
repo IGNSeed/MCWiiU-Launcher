@@ -684,6 +684,14 @@ namespace
 				}
 				else if (core && message == "game:return")
 					display->ReturnToGame();
+				else if (core && message.starts_with("friends:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("friends:command:").size())))
+					{
+						const auto result = core->ManageFriends(request->first, request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-friends-command', {detail:" + result + "}));");
+					}
+				}
 				else if (core && (message == "friends:get" || message == "friends:refresh"))
 				{
 					if (display->m_stopping || core->IsTitleStopping()) return saucer::status::handled;

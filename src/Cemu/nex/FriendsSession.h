@@ -25,7 +25,31 @@ class FriendsSession
 		uint32_t pid = 0;
 		std::string accountId, displayName, message;
 		bool incoming = false;
+		uint64_t messageId = 0;
+		bool manageable = false;
+		bool expired = false;
 		bool operator==(const Request&) const = default;
+	};
+	enum class Operation
+	{
+		Send,
+		Remove,
+		Accept,
+		Reject,
+		Cancel
+	};
+	struct Command
+	{
+		uint64_t id = 0, generation = 0, connectionId = 0, messageId = 0;
+		uint32_t pid = 0;
+		Operation operation = Operation::Send;
+		std::string accountId;
+	};
+	struct OperationState
+	{
+		uint64_t id = 0;
+		std::string state, notice;
+		bool busy = false;
 	};
 	struct View
 	{
@@ -33,6 +57,7 @@ class FriendsSession
 		uint32_t activeId = 0;
 		std::string service = "Offline", status = "offline";
 		bool refreshing = false, preferencesUnset = false;
+		OperationState operation;
 		std::vector<Friend> friends;
 		std::vector<Request> requests;
 	};
@@ -58,6 +83,8 @@ class FriendsSession
 	void SetTitle(uint64_t titleId, uint16_t version);
 	void DetachTitle();
 	void Refresh();
+	std::string Submit(Command command);
+	static bool ValidatePnid(std::string& pnid);
 	View Snapshot() const;
 	Lease Acquire();
 	void SetNotificationHandler(void (*handler)(int, uint32_t));

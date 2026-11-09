@@ -850,6 +850,48 @@ void NexFriends::deleteFriendRequest(uint64 messageId, std::function<void(RpcErr
 		}, true);
 }
 
+void NexFriends::manageFriend(ManagementOperation operation, uint32 pid, uint64 messageId, std::function<void(RpcErrorCode, uint32)> cb)
+{
+	if (!nexCon || nexCon->getState() != nexService::STATE_CONNECTED)
+		return cb(ERR_NOT_CONNECTED, nexService::ERR_NO_CONNECTION);
+	uint8 bytes[128];
+	nexPacketBuffer packet(bytes, sizeof(bytes), true);
+	uint32 method;
+	switch (operation)
+	{
+	case ManagementOperation::Send:
+		method = 5;
+		packet.writeU32(pid);
+		packet.writeU8(0);
+		packet.writeString("");
+		packet.writeU8(0);
+		packet.writeString("");
+		nexGameKey(0, 0).writeData(&packet);
+		packet.writeU64(0);
+		break;
+	case ManagementOperation::Remove:
+		method = 4;
+		packet.writeU32(pid);
+		break;
+	case ManagementOperation::Accept:
+		method = 7;
+		packet.writeU64(messageId);
+		break;
+	case ManagementOperation::Reject:
+		method = 8;
+		packet.writeU64(messageId);
+		break;
+	case ManagementOperation::Cancel:
+		// 通常申請はMessage IDで取り消す。PID指定のRemoveFriendとは区別する。
+		method = 6;
+		packet.writeU64(messageId);
+		break;
+	default:
+		return cb(ERR_UNEXPECTED_RESULT, 0);
+	}
+	nexCon->callMethod(NEX_PROTOCOL_FRIENDS_WIIU, method, &packet, [cb](nexServiceResponse_t* response) { cb(response->isSuccessful ? ERR_NONE : ERR_RPC_FAILED, response->errorCode); }, true);
+}
+
 void NexFriends::markFriendRequestsAsReceived(uint64* messageIdList, sint32 count, std::function<void(RpcErrorCode)> cb)
 {
 	if (nexCon == nullptr || nexCon->getState() != nexService::STATE_CONNECTED)

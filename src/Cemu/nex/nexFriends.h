@@ -518,6 +518,16 @@ public:
 	static const int ERR_RPC_FAILED = 1;
 	static const int ERR_UNEXPECTED_RESULT = 2;
 	static const int ERR_NOT_CONNECTED = 3;
+	enum class ManagementOperation
+	{
+		Send,
+		Remove,
+		Accept,
+		Reject,
+		Cancel
+	};
+	// detail は診断専用のサーバー応答値。既存のGuest向けエラーとは分離する。
+	void manageFriend(ManagementOperation operation, uint32 pid, uint64 messageId, std::function<void(RpcErrorCode, uint32)> cb);
 
 	enum NOTIFICATION_TYPE
 	{
