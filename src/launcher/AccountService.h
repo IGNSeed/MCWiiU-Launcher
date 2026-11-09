@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -15,6 +16,7 @@ public:
 	std::string Command(std::string_view payload, bool canEdit);
 	std::string PreviewZip(const std::filesystem::path& selectedFile, bool canEdit);
 	bool IsHealthy() const;
+	uint64_t Revision() const;
 	bool IsTesting() const;
 	void PrepareLaunch();
 	std::string NetworkName() const;

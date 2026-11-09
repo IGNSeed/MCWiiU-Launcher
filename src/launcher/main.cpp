@@ -73,13 +73,13 @@ namespace
 	};
 
 #ifdef CEMU_NATIVE_HOST
-	std::optional<std::wstring> SelectDumplingZip(HWND owner, bool network = false)
+	std::optional<std::wstring> SelectDumplingZip(HWND owner, bool network = false, bool image = false)
 	{
 		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
 		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
-		const COMDLG_FILTERSPEC types[]{{network ? L"Cemu network configuration" : L"Dumpling ZIP", network ? L"*.xml" : L"*.zip"}};
+		const COMDLG_FILTERSPEC types[]{{image ? L"PNG / JPEG image" : network ? L"Cemu network configuration" : L"Dumpling ZIP", image ? L"*.png;*.jpg;*.jpeg" : network ? L"*.xml" : L"*.zip"}};
 		if (FAILED(dialog->SetOptions(FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT)) ||
-			FAILED(dialog->SetFileTypes(1, types)) || FAILED(dialog->SetTitle(network ? L"Select network_services.xml" : L"Select Dumpling ZIP")) || FAILED(dialog->Show(owner))) return std::nullopt;
+			FAILED(dialog->SetFileTypes(1, types)) || FAILED(dialog->SetTitle(image ? L"Select World Icon" : network ? L"Select network_services.xml" : L"Select Dumpling ZIP")) || FAILED(dialog->Show(owner))) return std::nullopt;
 		Microsoft::WRL::ComPtr<IShellItem> item;
 		PWSTR path = nullptr;
 		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return std::nullopt;
@@ -648,6 +648,27 @@ namespace
 								webview.execute("window.dispatchEvent(new CustomEvent('launcher-account-result', {detail:{requestId:" + std::to_string(requestId) + ",account:" + snapshot + "}}));");
 							});
 				}
+				else if (core && message.starts_with("world:select-image:") && !display->m_stopping)
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("world:select-image:").size())))
+					{
+						app->post([&, requestId = request->first, payload = std::string(request->second)] {
+							if (notifications.m_closing || display->m_stopping) return;
+							const auto selected = SelectDumplingZip(window->native().hwnd, false, true);
+							const auto snapshot = core->PreviewWorldImage(requestId, payload, selected.value_or(L""));
+							webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
+						});
+					}
+				}
+				else if (core && message.starts_with("world:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("world:command:").size())))
+					{
+						const auto snapshot = core->WorldCommand(request->first, request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(request->first) + ",world:" + snapshot + "}}));");
+						publishCore(core->StatusJson());
+					}
+				}
 				else if (core && message.starts_with("account:command:"))
 				{
 					if (const auto request = ParseSaveRequest(message.substr(std::string_view("account:command:").size())))
@@ -719,7 +740,7 @@ namespace
 						else core->CancelStopGameConfirmation(ids->first, ids->second);
 					}
 				}
-				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends"))
+				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world"))
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();

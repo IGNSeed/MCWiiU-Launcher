@@ -1,6 +1,6 @@
 "use strict";
 
-const pages = ["home", "friends", "settings"];
+const pages = ["home", "friends", "world", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
@@ -12,9 +12,9 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : "Settings";
-  updateInputView(); updateAccountView(); window.updateFriendsView?.();
-}, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); });
+  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : "Settings";
+  updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.();
+}, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
 function showPage(selected, options = {}) {
   if (!pages.includes(selected)) return Promise.resolve();
@@ -24,6 +24,7 @@ function showPage(selected, options = {}) {
   stopInputView(); hideAccountDetails(); resetPlayGlow();
   selectedPage = selected;
   window.updateFriendsView?.();
+  window.updateWorldView?.();
   const focus = document.querySelector(`[data-page="${selected}"]`);
   if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
   navigation.forEach(item => {

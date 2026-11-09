@@ -45,6 +45,7 @@ saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY
 set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/app.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/friends.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/world.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
@@ -55,14 +56,14 @@ if(TARGET CemuCafe)
     target_compile_options(LauncherShell PRIVATE /UWIN32_LEAN_AND_MEAN)
     target_sources(LauncherShell PRIVATE LauncherResources.rc)
     target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}/..>")
-    add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h FriendsService.cpp FriendsService.h AccountService.cpp AccountService.h InputService.cpp InputService.h AvSettings.cpp AvSettings.h NativeOpenGL.cpp NativeOpenGL.h NativeSettings.cpp NativeSettings.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
+    add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h WorldService.cpp WorldService.h WorldMetadata.cpp WorldMetadata.h FriendsService.cpp FriendsService.h AccountService.cpp AccountService.h InputService.cpp InputService.h AvSettings.cpp AvSettings.h NativeOpenGL.cpp NativeOpenGL.h NativeSettings.cpp NativeSettings.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
     set_target_properties(CemuNativeHost PROPERTIES CXX_STANDARD 20 CEMU_NATIVE_HOST TRUE)
     cemu_use_precompiled_header(CemuNativeHost)
     target_include_directories(CemuNativeHost PRIVATE ${RAPIDJSON_INCLUDE_DIRS})
     target_link_libraries(CemuNativeHost PRIVATE CemuAudio CemuCafe CemuCommon CemuComponents CemuConfig CemuInput CemuUtil CemuGui CemuResource pugixml::pugixml libzip::zip OpenGL::GL Dbghelp)
     set_target_properties(LauncherShell PROPERTIES CEMU_NATIVE_HOST TRUE)
     target_compile_definitions(LauncherShell PRIVATE CEMU_NATIVE_HOST)
-    target_link_libraries(LauncherShell PRIVATE CemuNativeHost)
+    target_link_libraries(LauncherShell PRIVATE CemuNativeHost windowscodecs ZLIB::ZLIB)
     target_link_options(LauncherShell PRIVATE /DEBUG:FULL /OPT:REF /OPT:ICF /INCREMENTAL:NO)
 endif()
 

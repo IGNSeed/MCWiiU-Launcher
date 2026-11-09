@@ -4,6 +4,9 @@
 #include "AvSettings.h"
 #include "AccountService.h"
 #include "FriendsService.h"
+#include "WorldService.h"
+#include "Cafe/Account/Account.h"
+#include "Cafe/TitleList/SaveInfo.h"
 #include "Cemu/nex/FriendsSession.h"
 #include "NativeOpenGL.h"
 
@@ -117,6 +120,8 @@ namespace
 		std::unique_ptr<InputService> input;
 		std::unique_ptr<AvSettings> av;
 		std::unique_ptr<AccountService> accounts;
+		std::unique_ptr<WorldService> worlds;
+		uint64_t lastWorldRequest = 0;
 		uint64_t lastAccountRequest = 0;
 		bool friendsStarted = false;
 		uint64_t lastAvRequest = 0;
@@ -201,7 +206,18 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !stopped && !failed && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return CanEditWorldsLocked() && (!worlds || worlds->IsHealthy());
+		}
+		bool CanEditWorldsLocked() const
+		{
+			return corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+		}
+		WorldService::Context WorldContext() const
+		{
+			WorldService::Context result{ActiveSettings::GetPersistentId(), accounts->Revision(), CanEditWorldsLocked(), {}};
+			for (const auto& account : Account::GetAccounts())
+				result.accounts.push_back({account.GetPersistentId(), boost::nowide::narrow(account.GetMiiName().data(), account.GetMiiName().size())});
+			return result;
 		}
 		bool CanEditLiveSettingsLocked() const
 		{
@@ -230,6 +246,8 @@ namespace
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
 				writer.Key("canEditAccounts"); writer.Bool(CanEditSettingsLocked() && accounts != nullptr);
+				writer.Key("canEditWorlds"); writer.Bool(CanEditSettingsLocked() && worlds != nullptr);
+				writer.Key("canRecoverWorlds"); writer.Bool(CanEditWorldsLocked() && worlds != nullptr);
 				writer.Key("nativeExitConfirmation"); writer.Bool(true);
 				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
 				writer.Key("inputRecoveryPending"); writer.Bool(s_inputRecoveryPending);
@@ -610,7 +628,13 @@ struct CemuHost::Impl
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			InitializeGlobalVulkan();
-			{ std::lock_guard lock(state->statusMutex); state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>(); state->accounts = std::make_unique<AccountService>(); state->corePhase = "ready"; }
+			{
+				std::lock_guard lock(state->statusMutex);
+				state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>();
+				state->accounts = std::make_unique<AccountService>();
+				state->worlds = std::make_unique<WorldService>(ActiveSettings::GetConfigPath(), SaveInfo(0x00050000101dbe00ULL).GetPath());
+				state->corePhase = "ready";
+			}
 			state->Phase("ready");
 			while (!state->stop)
 			{
@@ -986,6 +1010,28 @@ std::string CemuHost::ManageFriends(uint64_t requestId, std::string_view payload
 	if (!state.accounts || !state.friendsStarted || state.stop || state.failed)
 		return "{\"requestId\":" + std::to_string(requestId) + ",\"notice\":\"not-connected\"}";
 	return FriendsManagementCommand(requestId, payload);
+}
+
+std::string CemuHost::WorldCommand(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastWorldRequest = requestId;
+	return state.worlds->Command(payload, state.WorldContext());
+}
+
+std::string CemuHost::PreviewWorldImage(uint64_t requestId, std::string_view payload, const std::wstring& selectedFile)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastWorldRequest = requestId;
+	return state.worlds->PreviewImage(payload, selectedFile, state.WorldContext());
 }
 
 std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payload)

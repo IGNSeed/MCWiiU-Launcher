@@ -54,6 +54,8 @@ public:
 	std::string ImportCustomNetwork(uint64_t requestId, const std::wstring& selectedFile, bool replaceExisting);
 	std::string AccountCommand(uint64_t requestId, std::string_view payload);
 	std::string PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile);
+	std::string WorldCommand(uint64_t requestId, std::string_view payload);
+	std::string PreviewWorldImage(uint64_t requestId, std::string_view payload, const std::wstring& selectedFile);
 
 private:
 	struct Impl;

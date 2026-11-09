@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>MCWiiU Launcher</title>
   <link rel="stylesheet" href="style.css">
   <script src="motion.js" defer></script>
   <script src="app.js" defer></script>
   <script src="friends.js" defer></script>
+  <script src="world.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -26,6 +27,7 @@
         <span id="navigation-indicator" aria-hidden="true"></span>
         <button type="button" data-page="home" aria-current="page">Home</button>
         <button type="button" data-page="friends">Friends <span id="friends-badge" class="friends-badge" hidden></span></button>
+        <button type="button" data-page="world">World</button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
@@ -54,6 +56,13 @@
         </div>
         <p id="friends-note" class="footnote"></p>
         <p id="friends-management-notice" class="footnote" role="status" aria-live="polite"></p>
+      </section>
+      <section id="world" aria-labelledby="world-title" hidden>
+        <div class="settings-title-row"><h1 id="world-title">World</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="world-refresh" type="button" disabled>Refresh</button></div></div>
+        <p id="world-account" class="footnote"></p>
+        <p id="world-notice" class="footnote" role="status" aria-live="polite">準備完了後にワールドを表示します。</p>
+        <button id="world-recover" type="button" hidden>中断した操作を復旧</button>
+        <div id="world-list" class="world-list" aria-label="ワールド一覧" aria-busy="false"></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
@@ -224,6 +233,18 @@
     </main>
   </div>
   <div id="friend-menu" popover="auto" role="menu"><button id="friend-menu-remove" type="button" role="menuitem">Remove Friend</button></div>
+  <dialog id="world-dialog" aria-labelledby="world-dialog-title" aria-describedby="world-dialog-description">
+    <form id="world-form" novalidate>
+      <h2 id="world-dialog-title"></h2>
+      <p id="world-dialog-description" class="footnote"></p>
+      <p id="world-dialog-target"></p>
+      <div id="world-name-row" class="account-form-row"><label for="world-name">World Name</label><input id="world-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-dialog-notice"><p class="footnote">32 UTF-16単位まで。日本語も使用できます。</p></div>
+      <div id="world-icon-row"><img id="world-icon-preview" width="128" height="128" alt="新しいワールドアイコンのプレビュー"><button id="world-select-image" type="button">画像を選択</button><p class="footnote">PNG / JPEG を64×64へ変換します。ゲーム内で保存すると、ゲームが撮影したアイコンに更新されます。</p></div>
+      <div id="world-move-row" class="account-form-row"><label for="world-destination">移動先 Account</label><select id="world-destination"></select><p class="footnote">ワールド本体とアイコンを移動します。プレイヤーの所持品や位置はアカウントに紐づく場合があり、移動先で引き継がれる保証はありません。</p></div>
+      <p id="world-dialog-notice" class="footnote" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="world-cancel" type="button">Cancel</button><button id="world-confirm" type="submit">Save</button></div>
+    </form>
+  </dialog>
   <dialog id="friend-dialog" aria-labelledby="friend-dialog-title" aria-describedby="friend-dialog-description">
     <form id="friend-form" novalidate>
       <h2 id="friend-dialog-title">Add Friend</h2>

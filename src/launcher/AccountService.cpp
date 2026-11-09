@@ -680,6 +680,8 @@ std::string AccountService::PreviewZip(const fs::path& selectedFile, bool canEdi
 	return m_impl->Snapshot(canEdit);
 }
 
+uint64_t AccountService::Revision() const { return m_impl->revision; }
+
 std::string AccountService::Command(std::string_view payload, bool canEdit)
 {
 	auto& state = *m_impl;
