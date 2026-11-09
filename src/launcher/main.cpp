@@ -87,6 +87,19 @@ namespace
 		return result;
 	}
 
+	std::optional<std::wstring> SelectWorldImport(HWND owner, int kind)
+	{
+		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
+		const DWORD options = FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT | (kind == 1 ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST);
+		const COMDLG_FILTERSPEC types[]{{kind == 2 ? L"World ZIP" : L"Native World / .ext", kind == 2 ? L"*.zip" : L"*"}};
+		if (FAILED(dialog->SetOptions(options)) || (kind != 1 && FAILED(dialog->SetFileTypes(1, types))) ||
+			FAILED(dialog->SetTitle(kind == 1 ? L"Select World Folder" : kind == 2 ? L"Select World ZIP" : L"Select World Body or .ext")) || FAILED(dialog->Show(owner))) return std::nullopt;
+		Microsoft::WRL::ComPtr<IShellItem> item; PWSTR path = nullptr;
+		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return std::nullopt;
+		std::wstring result(path); CoTaskMemFree(path); return result;
+	}
+
 	std::optional<uint64_t> ParseStopId(std::string_view value)
 	{
 		uint64_t id = 0;
@@ -659,6 +672,18 @@ namespace
 							webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
 						});
 					}
+				}
+				else if (core && message.starts_with("world:select-import:") && !display->m_stopping)
+				{
+					const auto tail = message.substr(std::string_view("world:select-import:").size());
+					if (tail.size() > 2 && tail[0] >= '0' && tail[0] <= '2' && tail[1] == ':')
+						if (const auto request = ParseSaveRequest(tail.substr(2)))
+							app->post([&, requestId = request->first, payload = std::string(request->second), kind = tail[0] - '0'] {
+								if (notifications.m_closing || display->m_stopping) return;
+								const auto selected = SelectWorldImport(window->native().hwnd, kind);
+								const auto snapshot = core->PreviewWorldImport(requestId, payload, selected.value_or(L""), kind);
+								webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
+							});
 				}
 				else if (core && message.starts_with("world:command:"))
 				{

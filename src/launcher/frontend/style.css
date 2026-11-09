@@ -634,4 +634,25 @@ main[data-view="world"] { overflow:hidden; }
 #world-icon-row p { width:100%; }
 #world-dialog-notice,#world-notice { min-height:20px; overflow-wrap:anywhere; }
 #world-form[aria-busy="true"] #world-confirm::before { content:""; display:inline-block; width:10px; height:10px; margin-right:8px; border:1px solid #888; border-top-color:#eee; border-radius:50%; animation:friend-loading 900ms linear infinite; }
+.world-danger { color:#f0a0a0; border-color:#985858; }
+.world-danger:hover:enabled { color:#ffd2d2; border-color:#d37e7e; background:#352025; }
+#world-confirm-details { display:flex; align-items:center; gap:16px; margin:18px 0; }
+#world-confirm-details[hidden] { display:none; }
+#world-confirm-icon { flex-shrink:0; border-radius:5px; }
+#world-confirm-location { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.85rem; line-height:1.7; }
+#world-import-dialog { width:min(680px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; scrollbar-width:none; padding:26px; border:1px solid #62626c; border-radius:9px; background:#151519; color:#eee; box-shadow:0 14px 48px #0008; }
+#world-import-dialog::-webkit-scrollbar { display:none; }
+#world-import-dialog h2 { margin:0 0 16px; font-size:1.25rem; }
+.world-import-sources { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }
+.world-import-sources button { padding:9px 13px; font-size:.85rem; }
+#world-import-candidates { display:grid; gap:10px; max-height:38vh; overflow:auto; scrollbar-width:none; }
+#world-import-candidates::-webkit-scrollbar { display:none; }
+.world-import-candidate { display:flex; align-items:center; gap:13px; padding:14px; border:1px solid #35353d; border-radius:7px; }
+.world-import-candidate:has(input:checked) { border-color:#c9c9d0; background:#222228; }
+.world-import-candidate:has(input:disabled) { color:#96969f; }
+.world-import-candidate img { width:64px; height:64px; border-radius:5px; flex-shrink:0; }
+.world-import-candidate > div { min-width:0; overflow-wrap:anywhere; }
+.world-import-candidate strong { display:block; font-size:.95rem; font-weight:500; }
+.world-import-candidate p { margin:5px 0 0; font-size:.78rem; color:#b2b2bc; line-height:1.6; }
+#world-import-form[aria-busy="true"] #world-import-confirm::before { content:""; display:inline-block; width:10px; height:10px; margin-right:8px; border:1px solid #888; border-top-color:#eee; border-radius:50%; animation:friend-loading 900ms linear infinite; }
 @media (max-width:900px) { .friend-row { flex-wrap:wrap; } .friend-activity { max-width:38%; } .friend-row-actions { margin-left:auto; } }

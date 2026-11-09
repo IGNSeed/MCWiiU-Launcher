@@ -58,8 +58,9 @@
         <p id="friends-management-notice" class="footnote" role="status" aria-live="polite"></p>
       </section>
       <section id="world" aria-labelledby="world-title" hidden>
-        <div class="settings-title-row"><h1 id="world-title">World</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="world-refresh" type="button" disabled>Refresh</button></div></div>
+        <div class="settings-title-row"><h1 id="world-title">World</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="world-import" type="button" disabled>Import World</button><button id="world-trash" type="button" disabled>Trash</button><button id="world-back" type="button" hidden>Back to Worlds</button><button id="world-refresh" type="button" disabled>Refresh</button></div></div>
         <p id="world-account" class="footnote"></p>
+        <p id="world-trash-capacity" class="footnote" hidden></p>
         <p id="world-notice" class="footnote" role="status" aria-live="polite">準備完了後にワールドを表示します。</p>
         <button id="world-recover" type="button" hidden>中断した操作を復旧</button>
         <div id="world-list" class="world-list" aria-label="ワールド一覧" aria-busy="false"></div>
@@ -238,11 +239,24 @@
       <h2 id="world-dialog-title"></h2>
       <p id="world-dialog-description" class="footnote"></p>
       <p id="world-dialog-target"></p>
+      <div id="world-confirm-details" hidden><img id="world-confirm-icon" width="64" height="64" alt=""><p id="world-confirm-location"></p></div>
       <div id="world-name-row" class="account-form-row"><label for="world-name">World Name</label><input id="world-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-dialog-notice"><p class="footnote">32 UTF-16単位まで。日本語も使用できます。</p></div>
       <div id="world-icon-row"><img id="world-icon-preview" width="128" height="128" alt="新しいワールドアイコンのプレビュー"><button id="world-select-image" type="button">画像を選択</button><p class="footnote">PNG / JPEG を64×64へ変換します。ゲーム内で保存すると、ゲームが撮影したアイコンに更新されます。</p></div>
       <div id="world-move-row" class="account-form-row"><label for="world-destination">移動先 Account</label><select id="world-destination"></select><p class="footnote">ワールド本体とアイコンを移動します。プレイヤーの所持品や位置はアカウントに紐づく場合があり、移動先で引き継がれる保証はありません。</p></div>
       <p id="world-dialog-notice" class="footnote" role="status" aria-live="polite"></p>
       <div class="dialog-actions"><button id="world-cancel" type="button">Cancel</button><button id="world-confirm" type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="world-import-dialog" aria-labelledby="world-import-title" aria-describedby="world-import-description">
+    <form id="world-import-form" novalidate>
+      <h2 id="world-import-title">Import World</h2>
+      <p id="world-import-destination"></p>
+      <p id="world-import-description" class="footnote">Wii Uネイティブの本体と.extをコピーします。元ファイルは保持します。確認済みのコンテナ形式10に限定し、出所のリージョン・ゲーム版やチャンク内部の完全性は断定できません。</p>
+      <p class="footnote">異なるAccount由来のワールドでは、プレイヤーの位置・所持品が引き継がれない場合があります。</p>
+      <div class="world-import-sources"><button type="button" data-world-source="0">Select Files</button><button type="button" data-world-source="1">Select Folder</button><button type="button" data-world-source="2">Select ZIP</button></div>
+      <div id="world-import-candidates" role="group" aria-label="インポート候補"></div>
+      <p id="world-import-notice" class="footnote" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="world-import-cancel" type="button">Cancel</button><button id="world-import-confirm" type="submit" disabled>Import</button></div>
     </form>
   </dialog>
   <dialog id="friend-dialog" aria-labelledby="friend-dialog-title" aria-describedby="friend-dialog-description">
