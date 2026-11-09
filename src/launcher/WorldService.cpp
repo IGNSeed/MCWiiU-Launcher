@@ -387,7 +387,8 @@ struct WorldService::Impl
 		{
 			writer.Key("importPreview"); writer.StartObject(); Text(writer, "token", importToken); writer.Key("candidate"); writer.StartObject();
 			const auto& candidate = importSource->Preview(); Text(writer, "id", candidate.id); Text(writer, "account", candidate.account); Text(writer, "name", candidate.name); Text(writer, "icon", candidate.icon);
-			writer.Key("size"); writer.Uint64(candidate.size); writer.EndObject(); writer.EndObject();
+			writer.Key("size"); writer.Uint64(candidate.size); Text(writer, "worldFile", candidate.worldFile); Text(writer, "metadataFile", candidate.metadataFile); Text(writer, "imageFile", candidate.imageFile); Text(writer, "problem", candidate.problem);
+			writer.Key("ready"); writer.Bool(candidate.ready); writer.Key("generated"); writer.Bool(candidate.generated); writer.EndObject(); writer.EndObject();
 		}
 		if (!preview.empty())
 		{
@@ -1024,6 +1025,10 @@ struct WorldService::Impl
 		catch (...) { RollBack(context); }
 		ScanTrash();
 	}
+	void RefreshImportToken()
+	{
+		importToken = importSource && importSource->Preview().ready ? NewGuid() : "";
+	}
 	void Import(const Context& context)
 	{
 		Require(importSource != nullptr, "stale-import-preview");
@@ -1084,6 +1089,21 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 				const auto plan = *state.purgePreview; state.ExecutePurge(plan, true);
 			}
 		}
+		else if (op == "begin-import" || op == "name-import" || op == "clear-import-metadata")
+		{
+			state.Validate(json, context, true); Require(state.healthy, "recovery-required");
+			if (op == "begin-import")
+			{
+				Require(json.MemberCount() == 3, "invalid-request"); state.importSource = std::make_unique<WorldImport>([](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); });
+			}
+			else
+			{
+				Require(state.importSource != nullptr, "stale-import-preview");
+				if (op == "name-import") { Require(json.MemberCount() == 4 && json.HasMember("name"), "invalid-request"); state.importToken.clear(); state.importSource->SetName(String(json["name"])); }
+				else { Require(json.MemberCount() == 3, "invalid-request"); state.importToken.clear(); state.importSource->ClearMetadata(); }
+			}
+			state.RefreshImportToken(); state.notice = state.importSource->Preview().ready ? "import-preview-ready" : state.importSource->Preview().problem;
+		}
 		else if (op == "restore" || op == "import" || op == "clear-import")
 		{
 			state.Validate(json, context, true); Require(state.healthy, "recovery-required");
@@ -1093,7 +1113,9 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 			}
 			else if (op == "import")
 			{
-				Require(json.MemberCount() == 4 && json.HasMember("token") && state.importSource && String(json["token"]) == state.importToken, "stale-import-preview");
+				Require(json.HasMember("token") && json.HasMember("mode") && state.importSource && !state.importToken.empty() && String(json["token"]) == state.importToken, "stale-import-preview");
+				const auto& candidate = state.importSource->Preview(); Require(candidate.ready && String(json["mode"]) == (candidate.generated ? "generated" : "metadata"), "invalid-import-mode");
+				Require(json.MemberCount() == (candidate.generated ? 6 : 5) && (!candidate.generated || (json.HasMember("name") && String(json["name"]) == candidate.name)), "stale-import-preview");
 				state.Import(context);
 			}
 			else { Require(json.MemberCount() == 3, "invalid-request"); state.importSource.reset(); state.importToken.clear(); state.notice = "cancelled"; }
@@ -1131,7 +1153,7 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 	}
 	catch (const std::exception& error)
 	{
-		const std::set<std::string> safe{"invalid-request", "invalid-name", "unsupported-metadata", "not-ready", "recovery-required", "stale-request", "invalid-world", "stale-world", "stale-preview", "invalid-account", "save-id-conflict", "unsafe-path", "rolled-back", "read-failed", "write-failed", "invalid-file", "world-limit", "verification-failed", "insufficient-space", "invalid-trash", "stale-trash", "trash-unavailable", "trash-count-limit", "stale-import-preview", "stale-import-source", "invalid-body", "unsupported-body-format", "body-size-limit", "trash-empty", "stale-purge-preview", "purge-blocked", "purge-backup-limit", "purge-changed", "purge-file-busy", "purge-write-failed", "invalid-purge", "unsafe-purge-file", "purge-unknown-file", "purge-plan-limit"};
+		const std::set<std::string> safe{"invalid-request", "invalid-name", "unsupported-metadata", "not-ready", "recovery-required", "stale-request", "invalid-world", "stale-world", "stale-preview", "invalid-account", "save-id-conflict", "unsafe-path", "rolled-back", "read-failed", "write-failed", "invalid-file", "world-limit", "verification-failed", "insufficient-space", "invalid-trash", "stale-trash", "trash-unavailable", "trash-count-limit", "stale-import-preview", "stale-import-source", "invalid-body", "unsupported-body-format", "body-size-limit", "invalid-import-mode", "invalid-import-preview", "world-file-required", "import-icon-required", "metadata-id-mismatch", "trash-empty", "stale-purge-preview", "purge-blocked", "purge-backup-limit", "purge-changed", "purge-file-busy", "purge-write-failed", "invalid-purge", "unsafe-purge-file", "purge-unknown-file", "purge-plan-limit"};
 		state.notice = !state.healthy ? "recovery-required" : safe.contains(error.what()) ? error.what() : "operation-failed";
 	}
 	return state.Snapshot(context);
@@ -1158,26 +1180,28 @@ std::string WorldService::PreviewImage(std::string_view payload, const fs::path&
 	return state.Snapshot(context);
 }
 
-std::string WorldService::PreviewImport(std::string_view payload, const fs::path& selected, const Context& context)
+std::string WorldService::PreviewImport(std::string_view payload, const fs::path& selected, std::string_view part, const Context& context)
 {
 	auto& state = *m_impl;
 	try
 	{
 		DirectoryGuard configGuard(state.config), saveGuard(state.save); state.healthy = IsHealthy(); state.Scan(context);
 		const auto json = Json(payload); state.Validate(json, context, true); Require(state.healthy, "recovery-required");
-		Require(json.MemberCount() == 3 && json.HasMember("op") && String(json["op"]) == "preview-import", "invalid-request");
-		state.importSource.reset(); state.importToken.clear();
+		Require(json.MemberCount() == 3 && json.HasMember("op") && String(json["op"]) == "select-import" && (part == "body" || part == "metadata" || part == "icon"), "invalid-request");
+		Require(state.importSource != nullptr, "stale-import-preview");
 		if (selected.empty()) state.notice = "cancelled";
 		else
 		{
-			state.importSource = std::make_unique<WorldImport>(selected, [](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); });
-			state.importToken = NewGuid(); state.notice = "import-preview-ready";
+			state.importToken.clear();
+			if (part == "body") state.importSource->SelectBody(selected);
+			else if (part == "metadata") state.importSource->SelectMetadata(selected);
+			else { state.importSource->ClearIcon(); const auto display = selected.filename().u8string(); state.importSource->SetIcon(DecodeImage(selected), std::string(display.begin(), display.end())); }
+			state.RefreshImportToken(); state.notice = state.importSource->Preview().ready ? "import-preview-ready" : state.importSource->Preview().problem;
 		}
 	}
 	catch (const std::exception& error)
 	{
-		state.importSource.reset(); state.importToken.clear();
-		const std::set<std::string> safe{"not-ready","recovery-required","stale-request","invalid-request","unsafe-source-path","unsafe-path","invalid-save-id","missing-pair","unsupported-import-format","unsupported-title","read-failed","invalid-file","invalid-body","unsupported-body-format","body-size-limit","unsupported-metadata"};
+		const std::set<std::string> safe{"not-ready","recovery-required","stale-request","invalid-request","stale-import-preview","unsafe-source-path","unsafe-path","invalid-save-id","unsupported-import-format","unsupported-metadata-file","metadata-id-mismatch","unsupported-title","read-failed","invalid-file","invalid-body","unsupported-body-format","body-size-limit","unsupported-metadata","invalid-image","invalid-import-mode"};
 		state.notice = safe.contains(error.what()) ? error.what() : "invalid-import-source";
 	}
 	return state.Snapshot(context);

@@ -253,12 +253,21 @@
     <form id="world-import-form" novalidate>
       <h2 id="world-import-title">Import World</h2>
       <p id="world-import-destination"></p>
-      <p id="world-import-description" class="footnote">拡張子なしの12桁のワールド本体と同じ場所の.extをコピーします。元ファイルは保持します。確認済みのコンテナ形式10に限定し、出所のリージョン・ゲーム版やチャンク内部の完全性は断定できません。</p>
+      <p id="world-import-description" class="footnote">12桁の拡張子なしワールド本体を選択します。.extは任意で、別の場所の同じSave IDも選択できます。元ファイルは保持します。確認済みのコンテナ形式10に限定し、出所のリージョン・ゲーム版やチャンク内部の完全性は断定できません。</p>
       <p class="footnote">異なるAccount由来のワールドでは、プレイヤーの位置・所持品が引き継がれない場合があります。</p>
-      <button id="world-import-select" type="button">Select File</button>
+      <div class="world-import-files">
+        <div><label>World File <span aria-label="必須">*</span></label><div class="world-import-file"><span id="world-import-body-file">No file selected</span><button id="world-import-body" type="button" aria-label="Browse World File">Browse</button></div></div>
+        <div><label>Metadata File (.ext) <span class="footnote">— Optional</span></label><div class="world-import-file"><span id="world-import-metadata-file">Not selected</span><button id="world-import-metadata" type="button" aria-label="Browse Metadata File">Browse</button><button id="world-import-clear-metadata" type="button" disabled>Clear</button></div></div>
+      </div>
+      <div id="world-import-generated" hidden>
+        <p class="footnote">.extを新規生成します。名前とPNG/JPEGアイコンを指定してください。元の.extがない場合、ゲーム側の読み込み設定は既定値になるため、ゲームモード・難易度などを確認してください。</p>
+        <div class="account-form-row"><label for="world-import-name">World Name *</label><input id="world-import-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-import-notice"><p class="footnote">1〜32 UTF-16単位。日本語・英数字・絵文字に対応します。</p></div>
+        <div class="world-import-file"><span id="world-import-image-file">World Icon — PNG / JPEG required</span><button id="world-import-image" type="button">Browse Icon</button></div>
+      </div>
+      <h3 class="world-import-preview-title">Preview</h3>
       <div id="world-import-preview"></div>
       <p id="world-import-notice" class="footnote" role="status" aria-live="polite"></p>
-      <div class="dialog-actions"><button id="world-import-cancel" type="button">Cancel</button><button id="world-import-confirm" type="submit" disabled>Import</button></div>
+      <div class="dialog-actions"><button id="world-import-cancel" type="button">Cancel</button><button id="world-import-confirm" type="submit" disabled>Import World</button></div>
     </form>
   </dialog>
   <dialog id="friend-dialog" aria-labelledby="friend-dialog-title" aria-describedby="friend-dialog-description">

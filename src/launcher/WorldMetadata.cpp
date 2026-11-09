@@ -104,6 +104,30 @@ Metadata Parse(std::span<const uint8_t> bytes)
 	return result;
 }
 
+void ValidateName(std::string_view name)
+{
+	Wide(name);
+}
+
+Bytes Create(std::string_view name, std::span<const uint8_t> rgba)
+{
+	const auto wide = Wide(name); Require(rgba.size() == 64 * 64 * 4);
+	// 確認済みの名前バッファと PNG だけを新規生成し、他のワールドの領域を持ち込まない。
+	Bytes result(256, 0);
+	for (size_t i = 0; i < wide.size(); ++i)
+	{
+		result[i * 2] = static_cast<uint8_t>(wide[i] >> 8); result[i * 2 + 1] = static_cast<uint8_t>(wide[i]);
+	}
+	result.insert(result.end(), s_signature.begin(), s_signature.end());
+	Bytes header; Append32(header, 64); Append32(header, 64); header.insert(header.end(), {8, 6, 0, 0, 0}); AppendChunk(result, "IHDR", header);
+	Bytes raw; raw.reserve(64 * 257);
+	for (size_t row = 0; row < 64; ++row) { raw.push_back(0); raw.insert(raw.end(), rgba.begin() + row * 256, rgba.begin() + (row + 1) * 256); }
+	Bytes compressed(compressBound(static_cast<uLong>(raw.size()))); uLongf size = static_cast<uLongf>(compressed.size());
+	Require(compress2(compressed.data(), &size, raw.data(), static_cast<uLong>(raw.size()), Z_BEST_COMPRESSION) == Z_OK); compressed.resize(size);
+	AppendChunk(result, "IDAT", compressed); AppendChunk(result, "IEND", {});
+	const auto metadata = Parse(result); Require(metadata.name == name && metadata.pngEnd == result.size()); return result;
+}
+
 Bytes Rename(std::span<const uint8_t> bytes, std::string_view name)
 {
 	const auto before = Parse(bytes);

@@ -23,6 +23,8 @@ struct Metadata
 };
 
 Metadata Parse(std::span<const uint8_t> bytes);
+void ValidateName(std::string_view name);
+Bytes Create(std::string_view name, std::span<const uint8_t> rgba);
 Bytes Rename(std::span<const uint8_t> bytes, std::string_view name);
 Bytes ReplaceImage(std::span<const uint8_t> bytes, std::span<const uint8_t> rgba);
 Bytes Image(std::span<const uint8_t> bytes);

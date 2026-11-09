@@ -643,7 +643,14 @@ main[data-view="world"] { overflow:hidden; }
 #world-import-dialog { width:min(680px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; scrollbar-width:none; padding:26px; border:1px solid #62626c; border-radius:9px; background:#151519; color:#eee; box-shadow:0 14px 48px #0008; }
 #world-import-dialog::-webkit-scrollbar { display:none; }
 #world-import-dialog h2 { margin:0 0 16px; font-size:1.25rem; }
-#world-import-select { margin:18px 0; }
+.world-import-files { display:grid; gap:16px; margin:18px 0; }
+.world-import-files label { display:block; font-size:.85rem; margin-bottom:7px; }
+.world-import-file { display:flex; align-items:center; gap:9px; min-width:0; }
+.world-import-file > span { flex:1; min-width:0; overflow-wrap:anywhere; font-size:.83rem; color:#c5c5cd; }
+.world-import-file button { flex-shrink:0; padding:8px 12px; }
+.world-import-preview-title { font-size:.9rem; font-weight:500; margin:20px 0 10px; }
+#world-import-generated .account-form-row { margin:16px 0; }
+#world-import-name { width:100%; }
 #world-import-preview { margin:0 0 12px; }
 #world-purge-issues { color:#edb9a8; overflow-wrap:anywhere; }
 .world-import-candidate { display:flex; align-items:center; gap:13px; padding:14px; border:1px solid #35353d; border-radius:7px; }

@@ -87,14 +87,14 @@ namespace
 		return result;
 	}
 
-	std::optional<std::wstring> SelectWorldImport(HWND owner)
+	std::optional<std::wstring> SelectWorldImport(HWND owner, bool metadata)
 	{
 		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
 		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
 		const DWORD options = FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT | FOS_FILEMUSTEXIST;
-		const COMDLG_FILTERSPEC types[]{{L"Native World Body / .ext", L"*"}};
+		const COMDLG_FILTERSPEC types[]{{metadata ? L"World Metadata (.ext)" : L"World Body (12 digit Save ID)", metadata ? L"*.ext" : L"*"}};
 		if (FAILED(dialog->SetOptions(options)) || FAILED(dialog->SetFileTypes(1, types)) ||
-			FAILED(dialog->SetTitle(L"Select World Body or .ext")) || FAILED(dialog->Show(owner))) return std::nullopt;
+			FAILED(dialog->SetTitle(metadata ? L"Select World Metadata (.ext)" : L"Select World Body")) || FAILED(dialog->Show(owner))) return std::nullopt;
 		Microsoft::WRL::ComPtr<IShellItem> item; PWSTR path = nullptr;
 		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return std::nullopt;
 		std::wstring result(path); CoTaskMemFree(path); return result;
@@ -675,13 +675,20 @@ namespace
 				}
 				else if (core && message.starts_with("world:select-import:") && !display->m_stopping)
 				{
-					if (const auto request = ParseSaveRequest(message.substr(std::string_view("world:select-import:").size())); request && request->second.starts_with("{"))
-						app->post([&, requestId = request->first, payload = std::string(request->second)] {
-							if (notifications.m_closing || display->m_stopping) return;
-							const auto selected = SelectWorldImport(window->native().hwnd);
-							const auto snapshot = core->PreviewWorldImport(requestId, payload, selected.value_or(L""));
-							webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
-						});
+					const auto tail = message.substr(std::string_view("world:select-import:").size()); const auto separator = tail.find(':');
+					if (separator != std::string_view::npos)
+					{
+						const auto part = tail.substr(0, separator);
+						if (part == "body" || part == "metadata" || part == "icon")
+							if (const auto request = ParseSaveRequest(tail.substr(separator + 1)); request && request->second.starts_with("{"))
+								app->post([&, requestId = request->first, payload = std::string(request->second), part = std::string(part)] {
+									if (notifications.m_closing || display->m_stopping) return;
+									const auto selected = part == "icon" ? SelectDumplingZip(window->native().hwnd, false, true) : SelectWorldImport(window->native().hwnd, part == "metadata");
+									const auto snapshot = core->PreviewWorldImport(requestId, payload, selected.value_or(L""), part);
+									webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
+								});
+					}
+
 				}
 				else if (core && message.starts_with("world:command:"))
 				{

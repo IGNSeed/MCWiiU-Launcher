@@ -91,44 +91,119 @@ void WorldImport::ValidateBody(std::span<const uint8_t> body)
 
 struct WorldImport::Impl
 {
-	fs::path bodyPath, extPath;
-	Reader read;
-	Candidate candidate;
-	fs::file_time_type bodyTime, extTime;
-
-	Impl(fs::path selected, Reader reader) : read(std::move(reader))
+	struct File
 	{
-		Require(selected.is_absolute() && selected.lexically_normal() == selected, "unsafe-source-path");
-		CheckTitlePath(selected.native() + L"/");
-		auto base = selected;
-		const auto extension = Lower(base.extension().native());
-		Require(extension.empty() || extension == L".ext", "unsupported-import-format");
-		if (!extension.empty()) base.replace_extension();
-		Require(SaveId(base.filename().native()), "invalid-save-id");
-		bodyPath = base; extPath = fs::path(base.native() + L".ext");
-		Require(fs::exists(bodyPath) && fs::exists(extPath), "missing-pair");
-		Require(fs::is_regular_file(bodyPath) && fs::is_regular_file(extPath), "unsupported-import-format");
-		const auto body = read(bodyPath, s_bodyLimit), ext = read(extPath, s_extLimit);
-		ValidateBody(body); const auto metadata = WorldMetadata::Parse(ext);
-		bodyTime = fs::last_write_time(bodyPath); extTime = fs::last_write_time(extPath);
-		candidate.id = Utf8(base.filename().native());
-		const auto owner = Lower(base.parent_path().filename().native());
-		if (AccountId(owner)) candidate.account = Utf8(owner);
-		candidate.name = metadata.name; candidate.size = body.size() + ext.size();
-		candidate.bodyHash = Hash(body); candidate.extHash = Hash(ext);
-		candidate.icon = "data:image/png;base64," + WorldMetadata::Base64(WorldMetadata::Image(ext));
-
+		fs::path path;
+		std::string id, display, hash;
+		uint64_t size = 0;
+		fs::file_time_type time;
+	};
+	Reader read;
+	File body, metadata;
+	Candidate candidate;
+	std::string name, imageName, selectionError;
+	Bytes rgba, generated;
+	fs::file_time_type generatedTime;
+	explicit Impl(Reader reader) : read(std::move(reader)) { Refresh(); }
+	File Select(const fs::path& path, bool ext)
+	{
+		Require(path.is_absolute() && path.lexically_normal() == path, "unsafe-source-path"); CheckTitlePath(path.native() + L"/");
+		auto id = path.filename().native();
+		if (ext)
+		{
+			Require(Lower(path.extension().native()) == L".ext", "unsupported-metadata-file"); id = path.stem().native();
+		}
+		else Require(path.extension().empty(), "unsupported-import-format");
+		Require(SaveId(id), "invalid-save-id"); Require(fs::is_regular_file(path), "unsupported-import-format");
+		const auto bytes = read(path, ext ? s_extLimit : s_bodyLimit);
+		if (ext) WorldMetadata::Parse(bytes); else ValidateBody(bytes);
+		return {path, Utf8(id), Utf8(path.filename().native()), Hash(bytes), bytes.size(), fs::last_write_time(path)};
+	}
+	Bytes ReadFile(const File& file, size_t limit) const
+	{
+		const auto bytes = read(file.path, limit);
+		Require(bytes.size() == file.size && Hash(bytes) == file.hash && fs::last_write_time(file.path) == file.time, "stale-import-source"); return bytes;
+	}
+	void ResetGenerated()
+	{
+		name.clear(); rgba.clear(); imageName.clear(); generated.clear();
+	}
+	void Refresh()
+	{
+		candidate = {}; generated.clear(); candidate.generated = metadata.path.empty();
+		candidate.id = body.id; candidate.worldFile = body.display; candidate.metadataFile = metadata.display; candidate.imageFile = imageName; candidate.bodyHash = body.hash; candidate.size = body.size;
+		if (!body.path.empty())
+		{
+			const auto owner = Lower(body.path.parent_path().filename().native()); if (AccountId(owner)) candidate.account = Utf8(owner);
+		}
+		candidate.name = name;
+		try
+		{
+			Require(selectionError.empty(), selectionError.c_str());
+			Require(!body.path.empty(), "world-file-required");
+			Bytes ext;
+			if (!metadata.path.empty())
+			{
+				Require(metadata.id == body.id, "metadata-id-mismatch"); ext = ReadFile(metadata, s_extLimit); const auto parsed = WorldMetadata::Parse(ext); candidate.name = parsed.name;
+			}
+			else
+			{
+				if (!rgba.empty()) candidate.icon = "data:image/png;base64," + WorldMetadata::Base64(WorldMetadata::Image(WorldMetadata::Create("Preview", rgba)));
+				WorldMetadata::ValidateName(name); Require(!rgba.empty(), "import-icon-required");
+				generated = WorldMetadata::Create(name, rgba); generatedTime = fs::file_time_type::clock::now(); ext = generated;
+			}
+			candidate.extHash = Hash(ext); candidate.size += ext.size(); candidate.icon = "data:image/png;base64," + WorldMetadata::Base64(WorldMetadata::Image(ext)); candidate.ready = true;
+		}
+		catch (const std::exception& error) { candidate.problem = Problem(error); }
+	}
+	static std::string Problem(const std::exception& error)
+	{
+		const std::set<std::string> reasons{"invalid-name","invalid-image","world-file-required","import-icon-required","metadata-id-mismatch","invalid-import-mode","stale-import-source","unsupported-metadata","unsupported-import-format","unsupported-metadata-file","invalid-save-id","unsafe-source-path","unsafe-path","unsupported-title","read-failed","invalid-file","invalid-body","unsupported-body-format","body-size-limit"};
+		return reasons.contains(error.what()) ? error.what() : "invalid-file";
 	}
 };
 
-WorldImport::WorldImport(fs::path selected, Reader reader) : m_impl(std::make_unique<Impl>(std::move(selected), std::move(reader))) {}
+WorldImport::WorldImport(Reader reader) : m_impl(std::make_unique<Impl>(std::move(reader))) {}
 WorldImport::~WorldImport() = default;
 const WorldImport::Candidate& WorldImport::Preview() const { return m_impl->candidate; }
+void WorldImport::SelectBody(const fs::path& selected)
+{
+	auto& state = *m_impl; state.body = {}; state.ResetGenerated(); state.selectionError.clear();
+	try { state.body = state.Select(selected, false); } catch (const std::exception& error) { state.selectionError = Impl::Problem(error); state.Refresh(); throw; }
+	state.Refresh();
+}
+void WorldImport::SelectMetadata(const fs::path& selected)
+{
+	auto& state = *m_impl; state.metadata = {}; state.ResetGenerated(); state.selectionError.clear();
+	try { state.metadata = state.Select(selected, true); } catch (const std::exception& error) { state.selectionError = Impl::Problem(error); state.Refresh(); throw; }
+	state.Refresh();
+}
+void WorldImport::ClearMetadata()
+{
+	auto& state = *m_impl; state.metadata = {}; state.ResetGenerated(); state.selectionError.clear(); state.Refresh();
+}
+void WorldImport::SetName(std::string name)
+{
+	auto& state = *m_impl; Require(state.metadata.path.empty(), "invalid-import-mode"); state.name = std::move(name); state.selectionError.clear(); state.Refresh();
+}
+void WorldImport::ClearIcon()
+{
+	auto& state = *m_impl; Require(state.metadata.path.empty(), "invalid-import-mode"); state.rgba.clear(); state.imageName.clear(); state.Refresh();
+}
+void WorldImport::SetIcon(Bytes rgba, std::string displayName)
+{
+	auto& state = *m_impl; Require(state.metadata.path.empty(), "invalid-import-mode"); Require(rgba.size() == 64 * 64 * 4, "invalid-image");
+	state.rgba = std::move(rgba); state.imageName = std::move(displayName); state.selectionError.clear(); state.Refresh();
+}
 WorldImport::Data WorldImport::ReadVerified() const
 {
-	const auto& state = *m_impl; const auto& candidate = state.candidate;
-	Data data{state.read(state.bodyPath, s_bodyLimit), state.read(state.extPath, s_extLimit), state.bodyTime, state.extTime};
-	Require(Hash(data.body) == candidate.bodyHash && Hash(data.ext) == candidate.extHash &&
-		fs::last_write_time(state.bodyPath) == state.bodyTime && fs::last_write_time(state.extPath) == state.extTime, "stale-import-source");
-	ValidateBody(data.body); WorldMetadata::Parse(data.ext); return data;
+	const auto& state = *m_impl; Require(state.candidate.ready, "invalid-import-preview");
+	Data data; data.body = state.ReadFile(state.body, s_bodyLimit); ValidateBody(data.body); data.bodyTime = state.body.time;
+	if (state.candidate.generated)
+	{
+		data.ext = WorldMetadata::Create(state.name, state.rgba); data.extTime = state.generatedTime;
+		Require(data.ext == state.generated, "stale-import-preview");
+	}
+	else { data.ext = state.ReadFile(state.metadata, s_extLimit); data.extTime = state.metadata.time; }
+	WorldMetadata::Parse(data.ext); Require(Hash(data.ext) == state.candidate.extHash, "stale-import-preview"); return data;
 }
