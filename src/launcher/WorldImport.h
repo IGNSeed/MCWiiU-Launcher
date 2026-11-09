@@ -10,11 +10,10 @@
 class WorldImport final
 {
 public:
-	enum class Kind { Files, Folder, Zip };
 	using Reader = std::function<WorldMetadata::Bytes(const std::filesystem::path&, size_t)>;
 	struct Candidate
 	{
-		std::string key, id, account, name, icon, problem, bodyHash, extHash;
+		std::string id, account, name, icon, bodyHash, extHash;
 		uint64_t size = 0;
 	};
 	struct Data
@@ -22,10 +21,10 @@ public:
 		WorldMetadata::Bytes body, ext;
 		std::filesystem::file_time_type bodyTime, extTime;
 	};
-	WorldImport(std::filesystem::path selected, Kind kind, Reader reader);
+	WorldImport(std::filesystem::path selected, Reader reader);
 	~WorldImport();
-	const std::vector<Candidate>& Candidates() const;
-	Data ReadCandidate(std::string_view key) const;
+	const Candidate& Preview() const;
+	Data ReadVerified() const;
 	static void ValidateBody(std::span<const uint8_t> body);
 
 private:

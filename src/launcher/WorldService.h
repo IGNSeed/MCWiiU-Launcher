@@ -29,7 +29,7 @@ public:
 	bool IsHealthy() const;
 	std::string Command(std::string_view payload, const Context& context);
 	std::string PreviewImage(std::string_view payload, const std::filesystem::path& selectedFile, const Context& context);
-	std::string PreviewImport(std::string_view payload, const std::filesystem::path& selected, WorldImport::Kind kind, const Context& context);
+	std::string PreviewImport(std::string_view payload, const std::filesystem::path& selected, const Context& context);
 
 private:
 	struct Impl;

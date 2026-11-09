@@ -161,15 +161,76 @@ namespace
 		std::string result(value.GetString(), value.GetStringLength());
 		Require(result.find('\0') == std::string::npos, "invalid-request"); return result;
 	}
-	rapidjson::Document Json(std::string_view payload)
+	rapidjson::Document Json(std::string_view payload, size_t limit = 8192)
 	{
-		Require(!payload.empty() && payload.size() <= 8192 && payload.find('\0') == std::string_view::npos, "invalid-request");
+		Require(!payload.empty() && payload.size() <= limit && payload.find('\0') == std::string_view::npos, "invalid-request");
 		rapidjson::Document json; json.Parse<rapidjson::kParseValidateEncodingFlag>(payload.data(), payload.size());
 		Require(!json.HasParseError() && json.IsObject(), "invalid-request");
 		std::set<std::string> names;
 		for (auto it = json.MemberBegin(); it != json.MemberEnd(); ++it) Require(names.insert(String(it->name)).second, "invalid-request");
 		return json;
 	}
+	std::string JsonText(const rapidjson::Value& value)
+	{
+		rapidjson::StringBuffer buffer; Writer writer(buffer); value.Accept(writer); return buffer.GetString();
+	}
+	void Keys(const rapidjson::Value& value, std::initializer_list<const char*> keys)
+	{
+		Require(value.IsObject() && value.MemberCount() == keys.size(), "invalid-purge");
+		std::set<std::string> names;
+		for (auto it = value.MemberBegin(); it != value.MemberEnd(); ++it) Require(names.insert(String(it->name)).second, "invalid-purge");
+		for (const auto key : keys) Require(value.HasMember(key), "invalid-purge");
+	}
+	struct PurgeHandle
+	{
+		Handle file;
+		std::string identity;
+		uint64_t size = 0;
+		bool isDirectory;
+		PurgeHandle(const fs::path& path, bool directory, bool deleting) : isDirectory(directory)
+		{
+			CheckPath(path);
+			file.value = CreateFileW(path.c_str(), (directory ? FILE_READ_ATTRIBUTES : GENERIC_READ) | (deleting ? DELETE : 0),
+				directory ? FILE_SHARE_READ | FILE_SHARE_WRITE : FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+				FILE_FLAG_OPEN_REPARSE_POINT | (directory ? FILE_FLAG_BACKUP_SEMANTICS : FILE_FLAG_SEQUENTIAL_SCAN), nullptr);
+			Require(file.value != INVALID_HANDLE_VALUE, "purge-file-busy");
+			BY_HANDLE_FILE_INFORMATION info{};
+			Require(GetFileInformationByHandle(file.value, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+				bool(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == directory && (directory || info.nNumberOfLinks == 1) &&
+				!(info.dwFileAttributes & FILE_ATTRIBUTE_READONLY), "unsafe-purge-file");
+			identity = std::to_string(info.dwVolumeSerialNumber) + ":" + std::to_string(info.nFileIndexHigh) + ":" + std::to_string(info.nFileIndexLow) + ":" +
+				std::to_string(info.ftCreationTime.dwHighDateTime) + ":" + std::to_string(info.ftCreationTime.dwLowDateTime);
+			size = uint64_t(info.nFileSizeHigh) << 32 | info.nFileSizeLow;
+		}
+		std::string Digest()
+		{
+			Require(size > 0 && size <= s_bodyLimit, "unsafe-purge-file");
+			LARGE_INTEGER start{}; Require(SetFilePointerEx(file.value, start, nullptr, FILE_BEGIN), "read-failed");
+			SHA256_CTX context{}; SHA256_Init(&context); std::array<uint8_t, 65536> bytes{}; uint64_t read = 0;
+			while (read < size)
+			{
+				DWORD count = 0; Require(ReadFile(file.value, bytes.data(), static_cast<DWORD>(std::min<uint64_t>(bytes.size(), size - read)), &count, nullptr) && count, "read-failed");
+				SHA256_Update(&context, bytes.data(), count); read += count;
+			}
+			std::array<uint8_t, SHA256_DIGEST_LENGTH> digest{}; SHA256_Final(digest.data(), &context);
+			constexpr char hex[] = "0123456789abcdef"; std::string result;
+			for (auto byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; } return result;
+		}
+		void Remove()
+		{
+			BY_HANDLE_FILE_INFORMATION info{};
+			Require(GetFileInformationByHandle(file.value, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+				(isDirectory || info.nNumberOfLinks == 1), "unsafe-purge-file");
+			FILE_DISPOSITION_INFO disposition{TRUE};
+			Require(SetFileInformationByHandle(file.value, FileDispositionInfo, &disposition, sizeof(disposition)), "purge-write-failed");
+			CloseHandle(file.value); file.value = INVALID_HANDLE_VALUE;
+		}
+	};
+	struct PurgeFile { std::string name, hash, identity; uint64_t size = 0; };
+	struct PurgeFolder { std::string root, key, identity, manifest; std::vector<PurgeFile> files; };
+	struct PurgeItem { std::string key, name, world, owner; uint32_t account = 0; uint64_t size = 0; std::vector<PurgeFolder> folders; std::string retained; };
+	struct PurgePlan { std::string token; std::vector<PurgeItem> items; bool all = false; };
+	struct PurgeIssue { std::string key, name, reason; };
 	Bytes DecodeImage(const fs::path& path)
 	{
 		const auto bytes = Read(path, 16 * 1024 * 1024);
@@ -203,6 +264,9 @@ struct WorldService::Impl
 	Bytes preview;
 	std::unique_ptr<WorldImport> importSource;
 	std::string importToken;
+	std::unique_ptr<PurgePlan> purgePreview;
+	std::vector<PurgeIssue> purgeIssues;
+	size_t purgeTotal = 0, purgeCompleted = 0, purgePartial = 0;
 	bool healthy = true;
 	struct World
 	{
@@ -217,6 +281,7 @@ struct WorldService::Impl
 		uint64_t size = 0;
 		int64_t deletedAt = 0, bodyTime = 0, extTime = 0;
 		bool deleted = false, cancelled = false;
+		std::string purgeProblem;
 		Bytes body, ext;
 	};
 	std::map<std::string, TrashData> trash;
@@ -247,7 +312,7 @@ struct WorldService::Impl
 		Account(context, context.activeId);
 		if (activeId != context.activeId || accountRevision != context.accountRevision)
 		{
-			activeId = context.activeId; accountRevision = context.accountRevision; ++revision; preview.clear(); previewToken.clear(); importSource.reset(); importToken.clear();
+			activeId = context.activeId; accountRevision = context.accountRevision; ++revision; preview.clear(); previewToken.clear(); importSource.reset(); importToken.clear(); purgePreview.reset(); purgeIssues.clear();
 		}
 		worlds.clear(); CheckPath(Folder(activeId));
 		if (!fs::exists(Folder(activeId))) return;
@@ -297,21 +362,32 @@ struct WorldService::Impl
 		for (const auto& [key, entry] : trash)
 		{
 			writer.StartObject(); Text(writer, "key", key); Text(writer, "id", entry.id); Text(writer, "name", entry.name); Text(writer, "icon", entry.icon);
-			Text(writer, "version", entry.version); Text(writer, "problem", entry.problem); Text(writer, "status", entry.cancelled ? "cancelled" : !entry.restored.empty() ? "restored" : entry.deleted ? "deleted" : "incomplete");
+			Text(writer, "version", entry.version); Text(writer, "problem", entry.problem); Text(writer, "purgeProblem", entry.purgeProblem); Text(writer, "status", entry.cancelled ? "cancelled" : !entry.restored.empty() ? "restored" : entry.deleted ? "deleted" : "incomplete");
 			writer.Key("account"); writer.Uint(entry.account); writer.Key("deletedAt"); writer.Int64(entry.deletedAt); writer.Key("size"); writer.Uint64(entry.size);
 			writer.Key("accountAvailable"); writer.Bool(std::any_of(context.accounts.begin(), context.accounts.end(), [&](const auto& account) { return account.id == entry.account; }));
 			writer.EndObject(); trashBytes += entry.size;
 		}
 		writer.EndArray(); writer.Key("trashBytes"); writer.Uint64(trashBytes);
+		const bool purgePending = IsPurgePending();
+		Text(writer, "recoveryMode", purgePending ? "purge" : "rollback");
+		if (purgePending) { try { const auto plan = ReadPurgePlan(ReadText(marker, 128).substr(6)); PurgeProgress(plan); } catch (...) {} }
+		writer.Key("purgeProgress"); writer.StartObject(); writer.Key("total"); writer.Uint64(purgeTotal); writer.Key("completed"); writer.Uint64(purgeCompleted);
+		writer.Key("remaining"); writer.Uint64(purgeTotal - purgeCompleted); writer.Key("partial"); writer.Uint64(purgePartial); writer.Key("protected"); writer.Uint64(purgeIssues.size()); writer.EndObject();
+		writer.Key("purgeIssues"); writer.StartArray();
+		for (const auto& issue : purgeIssues) { writer.StartObject(); Text(writer, "key", issue.key); Text(writer, "name", issue.name); Text(writer, "reason", issue.reason); writer.EndObject(); }
+		writer.EndArray();
+		if (purgePreview)
+		{
+			writer.Key("purgePreview"); writer.StartObject(); Text(writer, "token", purgePreview->token); writer.Key("count"); writer.Uint64(purgePreview->items.size()); writer.Key("size");
+			uint64_t total = 0; for (const auto& item : purgePreview->items) total += item.size; writer.Uint64(total); writer.Key("retainedBackups"); writer.StartArray();
+			for (const auto& item : purgePreview->items) if (!item.retained.empty()) { writer.StartObject(); Text(writer, "name", item.name); Text(writer, "reason", item.retained); writer.EndObject(); }
+			writer.EndArray(); writer.EndObject();
+		}
 		if (importSource)
 		{
-			writer.Key("importPreview"); writer.StartObject(); Text(writer, "token", importToken); writer.Key("candidates"); writer.StartArray();
-			for (const auto& candidate : importSource->Candidates())
-			{
-				writer.StartObject(); Text(writer, "key", candidate.key); Text(writer, "id", candidate.id); Text(writer, "account", candidate.account); Text(writer, "name", candidate.name); Text(writer, "icon", candidate.icon); Text(writer, "problem", candidate.problem);
-				writer.Key("size"); writer.Uint64(candidate.size); writer.EndObject();
-			}
-			writer.EndArray(); writer.EndObject();
+			writer.Key("importPreview"); writer.StartObject(); Text(writer, "token", importToken); writer.Key("candidate"); writer.StartObject();
+			const auto& candidate = importSource->Preview(); Text(writer, "id", candidate.id); Text(writer, "account", candidate.account); Text(writer, "name", candidate.name); Text(writer, "icon", candidate.icon);
+			writer.Key("size"); writer.Uint64(candidate.size); writer.EndObject(); writer.EndObject();
 		}
 		if (!preview.empty())
 		{
@@ -403,13 +479,337 @@ struct WorldService::Impl
 			try
 			{
 				const auto key = folder.path().filename().string(); entry.key = Guid(key) ? key : "invalid-" + std::to_string(count);
-				entry = LoadTrash(key, false); entry.ext.clear();
+				entry = LoadTrash(key, false);
+				try { PurgeOwnership(entry); } catch (const std::exception& error) { entry.purgeProblem = PurgeReason(error); }
+				entry.ext.clear();
 				if (entry.icon.size() > 16 * 1024 * 1024 - iconBytes) entry.icon.clear(); else iconBytes += entry.icon.size();
 			}
 			catch (...) { if (entry.key.empty()) entry.key = "invalid-" + std::to_string(count); entry.problem = "unreadable-trash"; }
 			trash.emplace(entry.key, std::move(entry));
 		}
 	}
+	fs::path PurgeRoot() const { return config / ".launcher-world-purges"; }
+	fs::path PurgeFolderPath(const PurgeFolder& folder) const
+	{
+		Require((folder.root == "trash" || folder.root == "backup") && Guid(folder.key), "invalid-purge");
+		return (folder.root == "trash" ? trashRoot : backups) / folder.key;
+	}
+	std::string ReadText(const fs::path& path, size_t limit = 8192)
+	{
+		const auto bytes = Read(path, limit); return {bytes.begin(), bytes.end()};
+	}
+	void CheckPurgeLink(const TrashData& entry, const rapidjson::Value& document, const std::string& operation)
+	{
+		Keys(document, {"version","operation","trash","createdAt","world","source","destination","bodyHash","extHash","editedHash","bodySize","extSize","bodyTime","extTime"});
+		Require(document["version"].IsUint() && document["version"].GetUint() == 2 && document["source"].IsUint() && document["destination"].IsUint() &&
+			document["bodySize"].IsUint64() && document["extSize"].IsUint64() && document["bodyTime"].IsInt64() && document["extTime"].IsInt64() && document["createdAt"].IsInt64(), "purge-owner-mismatch");
+		Require(String(document["operation"]) == operation && String(document["trash"]) == entry.key && String(document["world"]) == entry.id &&
+			String(document["bodyHash"]) == entry.bodyHash && String(document["extHash"]) == entry.extHash && String(document["editedHash"]).empty() &&
+			document["bodySize"].GetUint64() + document["extSize"].GetUint64() == entry.size && document["bodyTime"].GetInt64() == entry.bodyTime && document["extTime"].GetInt64() == entry.extTime &&
+			document["source"].GetUint() == (operation == "delete" ? entry.account : 0) && document["destination"].GetUint() == (operation == "delete" ? 0 : entry.account), "purge-owner-mismatch");
+	}
+	std::set<std::string> PurgeNames(const std::string& root) const
+	{
+		if (root == "trash") return {"body","metadata","manifest.json","deleted","cancelled","restored"};
+		return {"body","metadata","manifest.json","trash-created","trash-verified","destination-verified","completed"};
+	}
+	void CheckPurgeNames(const fs::path& folder, const std::set<std::string>& allowed)
+	{
+		for (const auto& file : fs::directory_iterator(folder))
+		{
+			Require(allowed.contains(file.path().filename().string()), "purge-unknown-file");
+			PurgeHandle checked(file.path(), false, false);
+		}
+	}
+	std::string PurgeOwnership(const TrashData& entry)
+	{
+		Require(entry.deleted || entry.cancelled, "purge-incomplete");
+		Require(!(entry.cancelled && !entry.restored.empty()), "purge-owner-mismatch");
+		CheckPurgeNames(trashRoot / entry.key, PurgeNames("trash"));
+		const auto owner = ReadText(backups / entry.key / "manifest.json"); CheckPurgeLink(entry, Json(owner), "delete");
+		Require(ReadText(backups / entry.key / "trash-created", 128) == entry.key && ReadText(backups / entry.key / "trash-verified", 128) == entry.key, "purge-owner-mismatch");
+		if (!entry.restored.empty())
+		{
+			CheckPurgeLink(entry, Json(ReadText(backups / entry.restored / "manifest.json")), "restore");
+			Require(ReadText(backups / entry.restored / "completed", 128) == "committed" && ReadText(backups / entry.restored / "destination-verified", 128) == "verified", "purge-owner-mismatch");
+		}
+		return owner;
+	}
+	PurgeFolder CapturePurgeFolder(const std::string& root, const std::string& key, const TrashData& entry)
+	{
+		PurgeFolder folder; folder.root = root; folder.key = key; const auto path = PurgeFolderPath(folder); DirectoryGuard guard(path);
+		PurgeHandle directory(path, true, false); folder.identity = directory.identity;
+		CheckPurgeNames(path, PurgeNames(root)); folder.manifest = ReadText(path / "manifest.json");
+		if (root == "backup") CheckPurgeLink(entry, Json(folder.manifest), key == entry.key ? "delete" : "restore");
+		for (const auto& file : fs::directory_iterator(path))
+		{
+			PurgeHandle checked(file.path(), false, false); const auto name = file.path().filename().string();
+			const auto hash = checked.Digest();
+			if (name == "body") Require(hash == entry.bodyHash, "verification-failed");
+			if (name == "metadata") Require(hash == entry.extHash, "verification-failed");
+			if (name == "completed") Require(ReadText(file.path(), 128) == "committed", "purge-owner-mismatch");
+			folder.files.push_back({name, hash, checked.identity, checked.size});
+		}
+		return folder;
+	}
+	PurgeItem PreparePurgeItem(const std::string& key, const std::map<std::string, std::string>& references, bool unknownReferences)
+	{
+		const auto entry = LoadTrash(key); PurgeItem item;
+		item.key = key; item.name = entry.name; item.world = entry.id; item.account = entry.account; item.size = entry.size; item.owner = PurgeOwnership(entry);
+		item.folders.push_back(CapturePurgeFolder("trash", key, entry));
+		bool shared = unknownReferences;
+		for (const auto& [transaction, referenced] : references)
+			if (referenced == key && transaction != key && transaction != entry.restored) shared = true;
+		if (shared) item.retained = "purge-backup-referenced";
+		else
+		{
+			try
+			{
+				std::vector<PurgeFolder> related; related.push_back(CapturePurgeFolder("backup", key, entry));
+				if (!entry.restored.empty()) related.push_back(CapturePurgeFolder("backup", entry.restored, entry));
+				for (auto& folder : related) item.folders.push_back(std::move(folder));
+			}
+			catch (...) { item.retained = "purge-backup-protected"; }
+		}
+		return item;
+	}
+	std::string PurgeReason(const std::exception& error) const
+	{
+		const std::set<std::string> reasons{"purge-incomplete","purge-owner-mismatch","purge-unknown-file","unsafe-purge-file","purge-file-busy","verification-failed","invalid-trash","invalid-purge","read-failed","unsafe-path","invalid-file","purge-write-failed","purge-changed","purge-backup-referenced"};
+		return reasons.contains(error.what()) ? error.what() : "purge-protected";
+	}
+	std::string BackupReference(const rapidjson::Value& document)
+	{
+		if (document.HasMember("version"))
+		{
+			Keys(document, {"version","operation","trash","createdAt","world","source","destination","bodyHash","extHash","editedHash","bodySize","extSize","bodyTime","extTime"});
+			const std::set<std::string> operations{"rename","icon","move","delete","import","restore"};
+			Require(document["version"].IsUint() && document["version"].GetUint() == 2 && document["createdAt"].IsInt64() && operations.contains(String(document["operation"])), "purge-protected");
+			const auto reference = String(document["trash"]); Require(reference.empty() || Guid(reference), "purge-protected");
+		}
+		else Keys(document, {"world","source","destination","bodyHash","extHash","editedHash","bodySize","extSize","bodyTime","extTime"});
+		Require(SaveId(String(document["world"])) && document["source"].IsUint() && document["destination"].IsUint() && document["bodySize"].IsUint64() && document["extSize"].IsUint64() && document["bodyTime"].IsInt64() && document["extTime"].IsInt64(), "purge-protected");
+		for (const auto key : {"bodyHash","extHash","editedHash"})
+		{
+			const auto hash = String(document[key]);
+			Require((hash.size() == 64 && std::all_of(hash.begin(), hash.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); })) || (std::string_view(key) == "editedHash" && hash.empty()), "purge-protected");
+		}
+		return document.HasMember("trash") ? String(document["trash"]) : "";
+	}
+	void PreparePurge(const rapidjson::Document& request)
+	{
+		purgePreview.reset(); purgeIssues.clear(); ScanTrash();
+		const bool single = request.HasMember("trash");
+		Require(request.MemberCount() == (single ? 5 : 3) && (!single || request.HasMember("version")), "invalid-request");
+		const auto key = single ? String(request["trash"]) : "";
+		if (single) Require(trash.contains(key) && trash.at(key).version == String(request["version"]), "stale-trash");
+		std::map<std::string, std::string> references; bool unknown = false; size_t count = 0;
+		if (fs::exists(backups)) for (const auto& folder : fs::directory_iterator(backups))
+		{
+			Require(++count <= 16384, "purge-backup-limit");
+			try
+			{
+				const auto document = Json(ReadText(folder.path() / "manifest.json"));
+				references.emplace(folder.path().filename().string(), BackupReference(document));
+			}
+			catch (...) { unknown = true; }
+		}
+		PurgePlan plan; plan.token = NewGuid(); plan.all = !single;
+		for (const auto& [candidate, entry] : trash)
+		{
+			if (single && candidate != key) continue;
+			try { plan.items.push_back(PreparePurgeItem(candidate, references, unknown)); }
+			catch (const std::exception& error) { purgeIssues.push_back({candidate, entry.name, PurgeReason(error)}); }
+		}
+		Require(!plan.items.empty() || !purgeIssues.empty(), "trash-empty");
+		if (purgeIssues.empty()) { Require(PurgeJson(plan).size() <= 16 * 1024 * 1024, "purge-plan-limit"); purgePreview = std::make_unique<PurgePlan>(std::move(plan)); notice = "purge-preview-ready"; }
+		else notice = "purge-blocked";
+	}
+	std::string PurgeJson(const PurgePlan& plan)
+	{
+		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartObject(); writer.Key("version"); writer.Uint(1); Text(writer, "operation", "purge"); writer.Key("items"); writer.StartArray();
+		for (const auto& item : plan.items)
+		{
+			writer.StartObject(); Text(writer, "key", item.key); Text(writer, "name", item.name); Text(writer, "world", item.world); Text(writer, "owner", item.owner);
+			writer.Key("account"); writer.Uint(item.account); writer.Key("size"); writer.Uint64(item.size); writer.Key("folders"); writer.StartArray();
+			for (const auto& folder : item.folders)
+			{
+				writer.StartObject(); Text(writer, "root", folder.root); Text(writer, "key", folder.key); Text(writer, "identity", folder.identity); Text(writer, "manifest", folder.manifest); writer.Key("files"); writer.StartArray();
+				for (const auto& file : folder.files)
+				{
+					writer.StartObject(); Text(writer, "name", file.name); Text(writer, "hash", file.hash); Text(writer, "identity", file.identity); writer.Key("size"); writer.Uint64(file.size); writer.EndObject();
+				}
+				writer.EndArray(); writer.EndObject();
+			}
+			writer.EndArray(); writer.EndObject();
+		}
+		writer.EndArray(); writer.EndObject(); return buffer.GetString();
+	}
+	PurgePlan ReadPurgePlan(const std::string& id)
+	{
+		Require(Guid(id), "invalid-purge"); const auto document = Json(ReadText(PurgeRoot() / id / "manifest.json", 16 * 1024 * 1024), 16 * 1024 * 1024);
+		Keys(document, {"version","operation","items"}); Require(document["version"].IsUint() && document["version"].GetUint() == 1 && String(document["operation"]) == "purge" && document["items"].IsArray(), "invalid-purge");
+		Require(!document["items"].Empty() && document["items"].Size() <= 4096, "invalid-purge"); PurgePlan plan; plan.token = id; std::set<fs::path> unique;
+		for (const auto& value : document["items"].GetArray())
+		{
+			Keys(value, {"key","name","world","owner","account","size","folders"}); PurgeItem item;
+			item.key = String(value["key"]); item.name = String(value["name"]); item.world = String(value["world"]); item.owner = String(value["owner"]);
+			Require(Guid(item.key) && SaveId(item.world) && value["account"].IsUint() && value["account"].GetUint() >= 0x80000001 && value["size"].IsUint64(), "invalid-purge");
+			item.account = value["account"].GetUint(); item.size = value["size"].GetUint64();
+			Require(value["folders"].IsArray() && value["folders"].Size() >= 1 && value["folders"].Size() <= 3, "invalid-purge");
+			TrashData entry; entry.key = item.key; entry.id = item.world; entry.account = item.account; entry.size = item.size;
+			const auto owner = Json(item.owner); Require(owner.HasMember("bodyHash") && owner.HasMember("extHash") && owner.HasMember("bodyTime") && owner["bodyTime"].IsInt64() && owner.HasMember("extTime") && owner["extTime"].IsInt64(), "invalid-purge");
+			entry.bodyHash = String(owner["bodyHash"]); entry.extHash = String(owner["extHash"]); entry.bodyTime = owner["bodyTime"].GetInt64(); entry.extTime = owner["extTime"].GetInt64(); CheckPurgeLink(entry, owner, "delete");
+			bool first = true;
+			for (const auto& node : value["folders"].GetArray())
+			{
+				Keys(node, {"root","key","identity","manifest","files"}); PurgeFolder folder;
+				folder.root = String(node["root"]); folder.key = String(node["key"]); folder.identity = String(node["identity"]); folder.manifest = String(node["manifest"]);
+				Require(unique.insert(PurgeFolderPath(folder)).second && ((first && folder.root == "trash" && folder.key == item.key) || (!first && folder.root == "backup")), "invalid-purge");
+				const auto manifest = Json(folder.manifest);
+				if (first)
+				{
+					Keys(manifest, {"version","world","account","deletedAt","bodyHash","extHash","bodySize","extSize","bodyTime","extTime","originalPath","transaction"});
+					Require(manifest["version"].IsUint() && manifest["version"].GetUint() == 2 && manifest["account"].IsUint() && manifest["account"].GetUint() == entry.account &&
+						manifest["bodySize"].IsUint64() && manifest["extSize"].IsUint64() && manifest["bodySize"].GetUint64() == owner["bodySize"].GetUint64() && manifest["extSize"].GetUint64() == owner["extSize"].GetUint64() &&
+						manifest["bodyTime"].IsInt64() && manifest["extTime"].IsInt64() && manifest["bodyTime"].GetInt64() == entry.bodyTime && manifest["extTime"].GetInt64() == entry.extTime && manifest["deletedAt"].IsInt64() &&
+						String(manifest["originalPath"]) == "user/" + Hex(entry.account) + "/" + entry.id && String(manifest["world"]) == entry.id && String(manifest["transaction"]) == entry.key && String(manifest["bodyHash"]) == entry.bodyHash && String(manifest["extHash"]) == entry.extHash, "invalid-purge");
+				}
+				else CheckPurgeLink(entry, manifest, folder.key == item.key ? "delete" : "restore");
+				Require(node["files"].IsArray() && node["files"].Size() >= 3 && node["files"].Size() <= 7, "invalid-purge"); std::set<std::string> names;
+				for (const auto& data : node["files"].GetArray())
+				{
+					Keys(data, {"name","hash","identity","size"}); PurgeFile file{String(data["name"]),String(data["hash"]),String(data["identity"])};
+					Require(PurgeNames(folder.root).contains(file.name) && names.insert(file.name).second && data["size"].IsUint64(), "invalid-purge"); file.size = data["size"].GetUint64();
+					Require(file.size > 0 && file.size <= s_bodyLimit && file.hash.size() == 64 && !file.identity.empty(), "invalid-purge");
+					if (file.name == "body") Require(file.hash == entry.bodyHash, "invalid-purge");
+					if (file.name == "metadata") Require(file.hash == entry.extHash, "invalid-purge");
+					if (file.name == "manifest.json") Require(file.hash == Hash({reinterpret_cast<const uint8_t*>(folder.manifest.data()), folder.manifest.size()}), "invalid-purge");
+					folder.files.push_back(std::move(file));
+				}
+				Require(names.contains("body") && names.contains("metadata") && names.contains("manifest.json"), "invalid-purge");
+				if (first) Require((names.contains("deleted") || names.contains("cancelled")) && (!names.contains("restored") || (names.contains("deleted") && !names.contains("cancelled"))), "invalid-purge");
+				item.folders.push_back(std::move(folder)); first = false;
+			}
+			plan.items.push_back(std::move(item));
+		}
+		return plan;
+	}
+	void PurgeProgress(const PurgePlan& plan)
+	{
+		purgeTotal = plan.items.size(); purgeCompleted = purgePartial = 0;
+		for (const auto& item : plan.items)
+		{
+			bool absent = true, missing = false;
+			for (const auto& folder : item.folders)
+			{
+				const auto path = PurgeFolderPath(folder); if (fs::exists(path)) absent = false; else missing = true;
+				for (const auto& file : folder.files) if (!fs::exists(path / file.name)) missing = true;
+			}
+			if (absent) ++purgeCompleted; else if (missing) ++purgePartial;
+		}
+	}
+	bool IsPurgePending()
+	{
+		try { return !healthy && fs::exists(marker) && ReadText(marker, 128).starts_with("purge:"); } catch (...) { return false; }
+	}
+	void CheckPurgeReferences(const PurgePlan& plan)
+	{
+		std::set<std::string> selected, removing;
+		for (const auto& item : plan.items) for (const auto& folder : item.folders)
+			if (folder.root == "backup") { selected.insert(folder.key); removing.insert(item.key); }
+		if (selected.empty()) return;
+		for (const auto& folder : fs::directory_iterator(backups))
+		{
+			if (selected.contains(folder.path().filename().string())) continue;
+			try
+			{
+				const auto document = Json(ReadText(folder.path() / "manifest.json"));
+				Require(!removing.contains(BackupReference(document)), "purge-changed");
+			}
+			catch (...) { throw std::runtime_error("purge-changed"); }
+		}
+	}
+	void ExecutePurge(const PurgePlan& plan, bool starting)
+	{
+		DirectoryGuard trashGuard(trashRoot), backupGuard(backups), journalGuard(PurgeRoot());
+		if (starting && plan.all)
+		{
+			std::set<std::string> expected; for (const auto& item : plan.items) expected.insert(item.key);
+			for (const auto& folder : fs::directory_iterator(trashRoot)) Require(expected.erase(folder.path().filename().string()) == 1, "purge-changed");
+			Require(expected.empty(), "purge-changed");
+		}
+		CheckPurgeReferences(plan);
+		struct LockedFolder { std::unique_ptr<PurgeHandle> directory; std::vector<std::unique_ptr<PurgeHandle>> files; };
+		std::vector<LockedFolder> locked; const auto journal = PurgeRoot() / plan.token;
+		const auto serialized = PurgeJson(plan), signature = Hash({reinterpret_cast<const uint8_t*>(serialized.data()), serialized.size()});
+		Require(serialized.size() <= 16 * 1024 * 1024, "purge-plan-limit");
+		const bool started = !starting && fs::exists(journal / "started");
+		if (started) Require(ReadText(journal / "started", 128) == signature, "invalid-purge");
+		if (!starting)
+		{
+			for (const auto& item : plan.items)
+				if (fs::exists(journal / ("done-" + item.key))) Require(ReadText(journal / ("done-" + item.key), 128) == signature, "invalid-purge");
+			if (fs::exists(journal / "completed")) Require(ReadText(journal / "completed", 128) == signature, "invalid-purge");
+		}
+		purgeIssues.clear();
+		std::string currentKey, currentName;
+		try
+		{
+			// 全対象のハンドルを保持してから開始する。再開時も残存ファイルをすべて先に検証する。
+			for (const auto& item : plan.items) for (const auto& folder : item.folders)
+			{
+				currentKey = item.key; currentName = item.name;
+				LockedFolder handles; const auto path = PurgeFolderPath(folder);
+				if (fs::exists(path))
+				{
+					handles.directory = std::make_unique<PurgeHandle>(path, true, true); Require(handles.directory->identity == folder.identity, "purge-changed");
+					std::set<std::string> names; for (const auto& file : folder.files) names.insert(file.name);
+					for (const auto& found : fs::directory_iterator(path)) Require(names.contains(found.path().filename().string()), "purge-unknown-file");
+					for (const auto& file : folder.files)
+					{
+						std::unique_ptr<PurgeHandle> handle;
+						if (fs::exists(path / file.name))
+						{
+							handle = std::make_unique<PurgeHandle>(path / file.name, false, true);
+							Require(handle->identity == file.identity && handle->size == file.size && handle->Digest() == file.hash, "purge-changed");
+						}
+						else Require(started, "purge-changed");
+						handles.files.push_back(std::move(handle));
+					}
+				}
+				else Require(started, "purge-changed");
+				locked.push_back(std::move(handles));
+			}
+			if (starting)
+			{
+				currentKey.clear(); currentName.clear();
+				CheckPath(PurgeRoot()); fs::create_directories(PurgeRoot()); Require(fs::create_directory(journal), "write-failed");
+				WriteText(journal / "manifest.json", serialized); WriteText(marker, "purge:" + plan.token); healthy = false;
+			}
+			Receipt(journal / "started", signature);
+			size_t index = 0; purgeTotal = plan.items.size(); purgeCompleted = purgePartial = 0;
+			for (const auto& item : plan.items)
+			{
+				currentKey = item.key; currentName = item.name;
+				for (const auto& folder : item.folders)
+				{
+					auto& handles = locked[index++];
+					for (auto& file : handles.files) if (file) file->Remove();
+					if (handles.directory) handles.directory->Remove();
+				}
+				Receipt(journal / ("done-" + item.key), signature); ++purgeCompleted;
+			}
+			Receipt(journal / "completed", signature); ClearMarker(); ++revision; notice = "purged"; purgePreview.reset(); ScanTrash();
+		}
+		catch (const std::exception& error)
+		{
+			PurgeProgress(plan); purgeIssues.push_back({currentKey, currentName, PurgeReason(error)});
+			// 不可逆な削除の後は元に戻さない。永続化済みの対象だけを明示操作で前進復旧する。
+			throw;
+		}
+	}
+
 	void CreateTrash(const Transaction& transaction, const fs::path& backup, const Bytes& body, const Bytes& ext)
 	{
 		CheckPath(trashRoot); fs::create_directories(trashRoot); DirectoryGuard guard(trashRoot);
@@ -497,6 +897,7 @@ struct WorldService::Impl
 		Require(!healthy && fs::exists(marker), "recovery-required");
 		const auto markerBytes = Read(marker, 128);
 		const std::string id(markerBytes.begin(), markerBytes.end());
+		if (id.starts_with("purge:")) { ExecutePurge(ReadPurgePlan(id.substr(6)), false); return; }
 		Require(id.size() == 38 && id.front() == '{' && id.back() == '}' && std::all_of(id.begin() + 1, id.end() - 1, [](char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || c == '-'; }), "recovery-required");
 		const auto folder = backups / id; const auto manifestBytes = Read(folder / "manifest.json", 8192);
 		const auto json = Json({reinterpret_cast<const char*>(manifestBytes.data()), manifestBytes.size()});
@@ -623,12 +1024,10 @@ struct WorldService::Impl
 		catch (...) { RollBack(context); }
 		ScanTrash();
 	}
-	void Import(const std::string& candidateKey, const Context& context)
+	void Import(const Context& context)
 	{
 		Require(importSource != nullptr, "stale-import-preview");
-		const auto found = std::find_if(importSource->Candidates().begin(), importSource->Candidates().end(), [&](const auto& candidate) { return candidate.key == candidateKey; });
-		Require(found != importSource->Candidates().end() && found->problem.empty(), "invalid-candidate");
-		const auto id = found->id; const auto data = importSource->ReadCandidate(candidateKey); Account(context, activeId); CheckPath(Folder(activeId));
+		const auto id = importSource->Preview().id; const auto data = importSource->ReadVerified(); Account(context, activeId); CheckPath(Folder(activeId));
 		Require(!fs::exists(Body(activeId, id)) && !fs::exists(Ext(activeId, id)), "save-id-conflict");
 		Transaction transaction{"import", id, "", 0, activeId, data.bodyTime, data.extTime}; const auto backup = Backup(transaction, data.body, data.ext);
 		try { CopyToAccount(transaction, backup, data.body, data.ext); Receipt(backup / "completed", "committed"); ClearMarker(); ++revision; notice = "imported"; }
@@ -674,6 +1073,17 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 			state.Validate(json, context, true); Require(json.MemberCount() == 3, "invalid-request"); state.Recover(context);
 			state.ScanTrash();
 		}
+		else if (op == "prepare-purge" || op == "purge" || op == "clear-purge")
+		{
+			state.Validate(json, context, true); Require(state.healthy, "recovery-required");
+			if (op == "prepare-purge") state.PreparePurge(json);
+			else if (op == "clear-purge") { Require(json.MemberCount() == 3, "invalid-request"); state.purgePreview.reset(); state.purgeIssues.clear(); state.notice = "cancelled"; }
+			else
+			{
+				Require(json.MemberCount() == 4 && json.HasMember("token") && state.purgePreview && String(json["token"]) == state.purgePreview->token, "stale-purge-preview");
+				const auto plan = *state.purgePreview; state.ExecutePurge(plan, true);
+			}
+		}
 		else if (op == "restore" || op == "import" || op == "clear-import")
 		{
 			state.Validate(json, context, true); Require(state.healthy, "recovery-required");
@@ -683,8 +1093,8 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 			}
 			else if (op == "import")
 			{
-				Require(json.MemberCount() == 5 && json.HasMember("token") && json.HasMember("candidate") && state.importSource && String(json["token"]) == state.importToken, "stale-import-preview");
-				state.Import(String(json["candidate"]), context);
+				Require(json.MemberCount() == 4 && json.HasMember("token") && state.importSource && String(json["token"]) == state.importToken, "stale-import-preview");
+				state.Import(context);
 			}
 			else { Require(json.MemberCount() == 3, "invalid-request"); state.importSource.reset(); state.importToken.clear(); state.notice = "cancelled"; }
 		}
@@ -721,7 +1131,7 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 	}
 	catch (const std::exception& error)
 	{
-		const std::set<std::string> safe{"invalid-request", "invalid-name", "unsupported-metadata", "not-ready", "recovery-required", "stale-request", "invalid-world", "stale-world", "stale-preview", "invalid-account", "save-id-conflict", "unsafe-path", "rolled-back", "read-failed", "write-failed", "invalid-file", "world-limit", "verification-failed", "insufficient-space", "invalid-trash", "stale-trash", "trash-unavailable", "trash-count-limit", "stale-import-preview", "stale-import-source", "invalid-candidate", "invalid-body", "unsupported-body-format", "body-size-limit"};
+		const std::set<std::string> safe{"invalid-request", "invalid-name", "unsupported-metadata", "not-ready", "recovery-required", "stale-request", "invalid-world", "stale-world", "stale-preview", "invalid-account", "save-id-conflict", "unsafe-path", "rolled-back", "read-failed", "write-failed", "invalid-file", "world-limit", "verification-failed", "insufficient-space", "invalid-trash", "stale-trash", "trash-unavailable", "trash-count-limit", "stale-import-preview", "stale-import-source", "invalid-body", "unsupported-body-format", "body-size-limit", "trash-empty", "stale-purge-preview", "purge-blocked", "purge-backup-limit", "purge-changed", "purge-file-busy", "purge-write-failed", "invalid-purge", "unsafe-purge-file", "purge-unknown-file", "purge-plan-limit"};
 		state.notice = !state.healthy ? "recovery-required" : safe.contains(error.what()) ? error.what() : "operation-failed";
 	}
 	return state.Snapshot(context);
@@ -748,7 +1158,7 @@ std::string WorldService::PreviewImage(std::string_view payload, const fs::path&
 	return state.Snapshot(context);
 }
 
-std::string WorldService::PreviewImport(std::string_view payload, const fs::path& selected, WorldImport::Kind kind, const Context& context)
+std::string WorldService::PreviewImport(std::string_view payload, const fs::path& selected, const Context& context)
 {
 	auto& state = *m_impl;
 	try
@@ -760,14 +1170,14 @@ std::string WorldService::PreviewImport(std::string_view payload, const fs::path
 		if (selected.empty()) state.notice = "cancelled";
 		else
 		{
-			state.importSource = std::make_unique<WorldImport>(selected, kind, [](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); });
+			state.importSource = std::make_unique<WorldImport>(selected, [](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); });
 			state.importToken = NewGuid(); state.notice = "import-preview-ready";
 		}
 	}
 	catch (const std::exception& error)
 	{
 		state.importSource.reset(); state.importToken.clear();
-		const std::set<std::string> safe{"not-ready","recovery-required","stale-request","invalid-request","unsafe-source-path","unsafe-path","invalid-source","invalid-save-id","missing-pair","ambiguous-pair","no-worlds","invalid-zip","zip-integrity-failed","zip-size-limit","unsafe-zip-path","unsafe-zip-entry","duplicate-zip-path","duplicate-source-path","import-size-limit","import-count-limit","import-depth-limit","unsupported-title","unsupported-zip-compression","read-failed","invalid-file"};
+		const std::set<std::string> safe{"not-ready","recovery-required","stale-request","invalid-request","unsafe-source-path","unsafe-path","invalid-save-id","missing-pair","unsupported-import-format","unsupported-title","read-failed","invalid-file","invalid-body","unsupported-body-format","body-size-limit","unsupported-metadata"};
 		state.notice = safe.contains(error.what()) ? error.what() : "invalid-import-source";
 	}
 	return state.Snapshot(context);

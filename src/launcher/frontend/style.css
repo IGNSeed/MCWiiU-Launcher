@@ -643,13 +643,10 @@ main[data-view="world"] { overflow:hidden; }
 #world-import-dialog { width:min(680px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; scrollbar-width:none; padding:26px; border:1px solid #62626c; border-radius:9px; background:#151519; color:#eee; box-shadow:0 14px 48px #0008; }
 #world-import-dialog::-webkit-scrollbar { display:none; }
 #world-import-dialog h2 { margin:0 0 16px; font-size:1.25rem; }
-.world-import-sources { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }
-.world-import-sources button { padding:9px 13px; font-size:.85rem; }
-#world-import-candidates { display:grid; gap:10px; max-height:38vh; overflow:auto; scrollbar-width:none; }
-#world-import-candidates::-webkit-scrollbar { display:none; }
+#world-import-select { margin:18px 0; }
+#world-import-preview { margin:0 0 12px; }
+#world-purge-issues { color:#edb9a8; overflow-wrap:anywhere; }
 .world-import-candidate { display:flex; align-items:center; gap:13px; padding:14px; border:1px solid #35353d; border-radius:7px; }
-.world-import-candidate:has(input:checked) { border-color:#c9c9d0; background:#222228; }
-.world-import-candidate:has(input:disabled) { color:#96969f; }
 .world-import-candidate img { width:64px; height:64px; border-radius:5px; flex-shrink:0; }
 .world-import-candidate > div { min-width:0; overflow-wrap:anywhere; }
 .world-import-candidate strong { display:block; font-size:.95rem; font-weight:500; }

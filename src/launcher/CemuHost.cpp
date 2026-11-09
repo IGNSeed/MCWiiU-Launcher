@@ -1034,14 +1034,14 @@ std::string CemuHost::PreviewWorldImage(uint64_t requestId, std::string_view pay
 	return state.worlds->PreviewImage(payload, selectedFile, state.WorldContext());
 }
 
-std::string CemuHost::PreviewWorldImport(uint64_t requestId, std::string_view payload, const std::wstring& selected, int kind)
+std::string CemuHost::PreviewWorldImport(uint64_t requestId, std::string_view payload, const std::wstring& selected)
 {
 	auto& state = *m_impl->state;
 	std::lock_guard workLock(state.workMutex); std::lock_guard statusLock(state.statusMutex);
-	if (!state.worlds || !state.accounts || state.stop || state.failed || kind < 0 || kind > 2) return "{\"notice\":\"not-ready\"}";
+	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastWorldRequest = requestId;
-	return state.worlds->PreviewImport(payload, selected, static_cast<WorldImport::Kind>(kind), state.WorldContext());
+	return state.worlds->PreviewImport(payload, selected, state.WorldContext());
 }
 
 std::string CemuHost::AccountCommand(uint64_t requestId, std::string_view payload)
