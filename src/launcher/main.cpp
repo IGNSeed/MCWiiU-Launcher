@@ -10,6 +10,7 @@
 
 #include <Windows.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <wrl.h>
 #include <charconv>
 #include <cstdint>
@@ -689,6 +690,22 @@ namespace
 								});
 					}
 
+				}
+				else if (core && message.starts_with("world:open-folder:") && !display->m_stopping)
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("world:open-folder:").size())))
+						app->post([&, requestId = request->first, payload = std::string(request->second)] {
+							if (notifications.m_closing || display->m_stopping) return;
+							const auto snapshot = core->OpenWorldFolder(requestId, payload, [&](const std::wstring& folder) {
+								SHELLEXECUTEINFOW request{sizeof(SHELLEXECUTEINFOW)};
+								request.fMask = SEE_MASK_ASYNCOK | SEE_MASK_FLAG_NO_UI;
+								request.hwnd = window->native().hwnd; request.lpVerb = L"explore"; request.lpFile = folder.c_str(); request.nShow = SW_SHOWNORMAL;
+								return ShellExecuteExW(&request) != FALSE;
+							});
+							if (notifications.m_closing) return;
+							webview.execute("window.dispatchEvent(new CustomEvent('launcher-world-result', {detail:{requestId:" + std::to_string(requestId) + ",world:" + snapshot + "}}));");
+							publishCore(core->StatusJson());
+						});
 				}
 				else if (core && message.starts_with("world:command:"))
 				{

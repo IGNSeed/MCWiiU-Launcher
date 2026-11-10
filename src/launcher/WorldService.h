@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -27,6 +28,7 @@ public:
 	WorldService(std::filesystem::path configRoot, std::filesystem::path saveRoot);
 	~WorldService();
 	bool IsHealthy() const;
+	std::string OpenFolder(std::string_view payload, const Context& context, const std::function<bool(const std::filesystem::path&)>& open);
 	std::string Command(std::string_view payload, const Context& context);
 	std::string PreviewImage(std::string_view payload, const std::filesystem::path& selectedFile, const Context& context);
 	std::string PreviewImport(std::string_view payload, const std::filesystem::path& selected, std::string_view part, const Context& context);

@@ -54,7 +54,7 @@ namespace
 	struct DirectoryGuard
 	{
 		std::vector<HANDLE> handles;
-		explicit DirectoryGuard(fs::path path)
+		explicit DirectoryGuard(fs::path path, bool pin = false)
 		{
 			try
 			{
@@ -63,7 +63,7 @@ namespace
 				{
 					if (fs::is_directory(path))
 					{
-						const auto handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+						const auto handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | (pin ? FILE_LIST_DIRECTORY : 0), FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
 						Require(handle != INVALID_HANDLE_VALUE, "unsafe-path"); handles.push_back(handle);
 						BY_HANDLE_FILE_INFORMATION info{};
 						Require(GetFileInformationByHandle(handle, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT), "unsafe-path");
@@ -1062,6 +1062,29 @@ bool WorldService::IsHealthy() const
 {
 	try { CheckPath(m_impl->marker); return m_impl->healthy && !fs::exists(m_impl->marker); }
 	catch (...) { return false; }
+}
+
+std::string WorldService::OpenFolder(std::string_view payload, const Context& context, const std::function<bool(const fs::path&)>& open)
+{
+	auto& state = *m_impl;
+	try
+	{
+		DirectoryGuard configGuard(state.config, true), saveGuard(state.save, true); state.healthy = IsHealthy();
+		const auto json = Json(payload); state.Validate(json, context, true); Require(state.healthy, "recovery-required");
+		Require(json.MemberCount() == 3 && json.HasMember("op") && String(json["op"]) == "open-folder", "invalid-request");
+		Require(state.activeId == context.activeId && state.accountRevision == context.accountRevision, "stale-request");
+		const auto folder = state.Folder(context.activeId);
+		Require(fs::is_directory(folder), "world-folder-missing"); DirectoryGuard folderGuard(folder, true);
+		// Shell が受け取るまで親と対象を固定し、作成や別の保存先へのフォールバックは行わない。
+		Require(fs::is_directory(folder), "world-folder-missing");
+		state.notice = open && open(folder) ? "folder-opened" : "open-folder-failed";
+	}
+	catch (const std::exception& error)
+	{
+		const std::set<std::string> safe{"not-ready","recovery-required","stale-request","invalid-request","invalid-account","unsafe-path","world-folder-missing"};
+		state.notice = safe.contains(error.what()) ? error.what() : "open-folder-failed";
+	}
+	return state.Snapshot(context);
 }
 
 std::string WorldService::Command(std::string_view payload, const Context& context)

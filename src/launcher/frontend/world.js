@@ -5,9 +5,11 @@ const worldName = document.getElementById("world-name"), worldConfirm = document
 let worldSnapshot = null, worldSerial = Date.now(), worldPending = 0, worldPendingOp = "", worldTarget = null, worldFocus = null, worldVisible = false, worldView = "worlds";
 const worldImportDialog = document.getElementById("world-import-dialog"), worldImportConfirm = document.getElementById("world-import-confirm");
 let worldImportTarget = null, worldImportDesiredName = "", worldImportNameDirty = false, worldImportNameTimer = 0;
+let worldFolderCooldown = 0;
 let worldImportNameTouched = false;
 const worldImportName = document.getElementById("world-import-name");
 const worldNotices = {
+  "folder-opened":"", "folder-open-busy":"", "world-folder-missing":"ワールド保存フォルダが見つかりません。", "open-folder-failed":"エクスプローラーを開けませんでした。",
   ready:"", saved:"保存しました。", unchanged:"変更はありません。", cancelled:"操作を取り消しました。", "preview-ready":"プレビューを確認して Save を押してください。",
   deleted:"Trashへ移動しました。", restored:"元のAccountへ復元しました。", imported:"ワールドをインポートしました。", "import-preview-ready":"候補とインポート先を確認して Import を押してください。",
   "not-ready":"ゲームと終了処理が停止し、準備完了になってから操作してください。", "stale-request":"アカウントまたは一覧が変わりました。Refresh して操作し直してください。",
@@ -62,12 +64,13 @@ function sendWorld(op, payload, picker = false, importPart = null) {
   document.getElementById("world-dialog-notice").textContent = op === "list" ? "" : "処理中…";
   if (worldImportDialog.open) showWorldImportNotice("");
   updateWorldControls();
-  windowCommand(`world:${importPart !== null ? `select-import:${importPart}` : picker ? "select-image" : "command"}:${worldPending}:${JSON.stringify(payload)}`);
+  windowCommand(`world:${op === "open-folder" ? "open-folder" : importPart !== null ? `select-import:${importPart}` : picker ? "select-image" : "command"}:${worldPending}:${JSON.stringify(payload)}`);
 }
 function updateWorldControls() {
   const enabled = worldCanEdit();
   document.getElementById("world-refresh").disabled = !!worldPending || window.launcherCoreState?.corePhase !== "ready";
   document.getElementById("world-import").disabled = !enabled;
+  document.getElementById("world-open-folder").disabled = !enabled || performance.now() < worldFolderCooldown;
   document.getElementById("world-trash").disabled = !!worldPending || window.launcherCoreState?.corePhase !== "ready";
   document.getElementById("world-back").disabled = !!worldPending;
   worldList.setAttribute("aria-busy", String(!!worldPending));
@@ -102,6 +105,7 @@ function renderWorlds() {
   document.getElementById("world-account").textContent = state ? `${active?.name || "Active Account"} · ${state.activeId.toString(16).padStart(8,"0")}` : "";
   document.getElementById("world-recover").hidden = !state?.recoveryRequired;
   document.getElementById("world-title").textContent = worldView === "trash" ? "Recently Deleted" : "World";
+  document.getElementById("world-open-folder").hidden = worldView === "trash";
   document.getElementById("world-import").hidden = document.getElementById("world-trash").hidden = worldView === "trash";
   document.getElementById("world-back").hidden = document.getElementById("world-empty-trash").hidden = worldView !== "trash";
   document.getElementById("world-trash-capacity").hidden = worldView !== "trash";
@@ -268,6 +272,12 @@ window.updateWorldView = updateWorldView;
 worldList.addEventListener("click", event => {
   const button = event.target.closest("[data-world-operation]"); if (!button || button.disabled) return;
   const world = button.dataset.trash ? worldSnapshot?.trash.find(world => world.key === button.dataset.trash) : worldSnapshot?.worlds.find(world => world.id === button.dataset.world); if (world) openWorldDialog(button.dataset.worldOperation,world,button);
+});
+document.getElementById("world-open-folder").addEventListener("click", () => {
+  if (!worldCanEdit() || performance.now() < worldFolderCooldown) return;
+  worldFolderCooldown = performance.now() + 1000;
+  sendWorld("open-folder",{op:"open-folder",activeId:worldSnapshot.activeId,revision:worldSnapshot.revision});
+  setTimeout(updateWorldControls,1000);
 });
 document.getElementById("world-refresh").addEventListener("click", () => { const op = worldView === "trash" ? "trash-list" : "list"; sendWorld(op,{op}); });
 document.getElementById("world-trash").addEventListener("click", () => { worldView = "trash"; renderWorlds(); sendWorld("trash-list",{op:"trash-list"}); document.getElementById("world-back").focus(); });

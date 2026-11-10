@@ -32,6 +32,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <condition_variable>
+#include <chrono>
 
 std::atomic_bool g_isGPUInitFinished{false};
 
@@ -122,6 +123,8 @@ namespace
 		std::unique_ptr<AccountService> accounts;
 		std::unique_ptr<WorldService> worlds;
 		uint64_t lastWorldRequest = 0;
+		bool openingWorldFolder = false;
+		std::chrono::steady_clock::time_point nextWorldFolderOpen{};
 		uint64_t lastAccountRequest = 0;
 		bool friendsStarted = false;
 		uint64_t lastAvRequest = 0;
@@ -210,7 +213,7 @@ namespace
 		}
 		bool CanEditWorldsLocked() const
 		{
-			return corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
 		}
 		WorldService::Context WorldContext() const
 		{
@@ -1012,12 +1015,31 @@ std::string CemuHost::ManageFriends(uint64_t requestId, std::string_view payload
 	return FriendsManagementCommand(requestId, payload);
 }
 
+std::string CemuHost::OpenWorldFolder(uint64_t requestId, std::string_view payload, const std::function<bool(const std::wstring&)>& open)
+{
+	auto& state = *m_impl->state;
+	std::unique_lock workLock(state.workMutex); std::unique_lock statusLock(state.statusMutex);
+	if (GetCurrentThreadId() != state.uiThread || !state.worlds || !state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
+	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
+	state.lastWorldRequest = requestId;
+	if (std::chrono::steady_clock::now() < state.nextWorldFolderOpen) return "{\"notice\":\"folder-open-busy\"}";
+	return state.worlds->OpenFolder(payload, state.WorldContext(), [&](const fs::path& folder) {
+		state.openingWorldFolder = true; state.nextWorldFolderOpen = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		// Shell の COM 呼出し中は Core のロックを外し、起動・Account 変更は Ready gate で止める。
+		statusLock.unlock(); workLock.unlock();
+		bool opened = false;
+		try { opened = open && open(folder.native()); } catch (...) {}
+		workLock.lock(); statusLock.lock(); state.openingWorldFolder = false;
+		return opened;
+	});
+}
+
 std::string CemuHost::WorldCommand(uint64_t requestId, std::string_view payload)
 {
 	auto& state = *m_impl->state;
 	std::lock_guard workLock(state.workMutex);
 	std::lock_guard statusLock(state.statusMutex);
-	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!state.worlds || !state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastWorldRequest = requestId;
 	return state.worlds->Command(payload, state.WorldContext());
@@ -1028,7 +1050,7 @@ std::string CemuHost::PreviewWorldImage(uint64_t requestId, std::string_view pay
 	auto& state = *m_impl->state;
 	std::lock_guard workLock(state.workMutex);
 	std::lock_guard statusLock(state.statusMutex);
-	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!state.worlds || !state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastWorldRequest = requestId;
 	return state.worlds->PreviewImage(payload, selectedFile, state.WorldContext());
@@ -1038,7 +1060,7 @@ std::string CemuHost::PreviewWorldImport(uint64_t requestId, std::string_view pa
 {
 	auto& state = *m_impl->state;
 	std::lock_guard workLock(state.workMutex); std::lock_guard statusLock(state.statusMutex);
-	if (!state.worlds || !state.accounts || state.stop || state.failed) return "{\"notice\":\"not-ready\"}";
+	if (!state.worlds || !state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
 	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastWorldRequest = requestId;
 	return state.worlds->PreviewImport(payload, selected, part, state.WorldContext());
