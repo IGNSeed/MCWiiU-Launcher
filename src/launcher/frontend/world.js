@@ -5,6 +5,7 @@ const worldName = document.getElementById("world-name"), worldConfirm = document
 let worldSnapshot = null, worldSerial = Date.now(), worldPending = 0, worldPendingOp = "", worldTarget = null, worldFocus = null, worldVisible = false, worldView = "worlds";
 const worldImportDialog = document.getElementById("world-import-dialog"), worldImportConfirm = document.getElementById("world-import-confirm");
 let worldImportTarget = null, worldImportDesiredName = "", worldImportNameDirty = false, worldImportNameTimer = 0;
+let worldImportNameTouched = false;
 const worldImportName = document.getElementById("world-import-name");
 const worldNotices = {
   ready:"", saved:"保存しました。", unchanged:"変更はありません。", cancelled:"操作を取り消しました。", "preview-ready":"プレビューを確認して Save を押してください。",
@@ -59,7 +60,7 @@ function sendWorld(op, payload, picker = false, importPart = null) {
   worldPending = ++worldSerial; worldPendingOp = op;
   document.getElementById("world-notice").textContent = op === "list" ? "ワールドを読み込み中…" : "処理中…";
   document.getElementById("world-dialog-notice").textContent = op === "list" ? "" : "処理中…";
-  if (worldImportDialog.open) document.getElementById("world-import-notice").textContent = "検証中…";
+  if (worldImportDialog.open) showWorldImportNotice("");
   updateWorldControls();
   windowCommand(`world:${importPart !== null ? `select-import:${importPart}` : picker ? "select-image" : "command"}:${worldPending}:${JSON.stringify(payload)}`);
 }
@@ -172,21 +173,45 @@ function openWorldDialog(op, world, opener = document.activeElement) {
   (op === "rename" ? worldName : document.getElementById("world-cancel")).focus();
   if (["purge","empty-trash"].includes(op)) sendWorld("prepare-purge",{op:"prepare-purge",activeId:worldTarget.activeId,revision:worldTarget.revision,...(op === "purge" ? {trash:world.key,version:world.version} : {})});
 }
+function showWorldImportNotice(notice, op = "") {
+  const fields = {body:"world-import-body",metadata:"world-import-metadata",name:"world-import-name",icon:"world-import-image"};
+  const messages = {};
+  const quiet = ["","ready","cancelled","world-file-required","import-icon-required","import-preview-ready","invalid-name"];
+  if (!quiet.includes(notice)) {
+    const part = notice === "metadata-id-mismatch" ? "metadata" : op.startsWith("select-import-") ? op.slice(14) : "";
+    if (fields[part]) messages[part] = notice === "metadata-id-mismatch" ? "Save IDがWorld Fileと一致しません。" : notice === "invalid-image" ? "PNG / JPEG画像を選択してください。" : worldMessage(notice);
+    else messages.general = worldMessage(notice);
+  }
+  if (worldImportNameTouched && !document.getElementById("world-import-generated").hidden && !validWorldName(worldImportName.value)) messages.name = "有効な名前を1〜32 UTF-16単位で入力してください。";
+  for (const [part,id] of Object.entries(fields)) {
+    const error = document.getElementById(`world-import-${part}-error`);
+    error.textContent = messages[part] || ""; error.hidden = !messages[part];
+    document.getElementById(id).setAttribute("aria-invalid",String(!!messages[part]));
+  }
+  const general = document.getElementById("world-import-notice"); general.textContent = messages.general || ""; general.hidden = !messages.general;
+}
 function renderWorldImport() {
   if (!worldImportDialog.open) return;
-  const candidate = worldSnapshot?.importPreview?.candidate, row = worldNode("div",undefined,"world-import-candidate");
-  document.getElementById("world-import-body-file").textContent = candidate?.worldFile || "No file selected";
-  document.getElementById("world-import-metadata-file").textContent = candidate?.metadataFile || "Not selected — 新規生成";
-  document.getElementById("world-import-image-file").textContent = candidate?.imageFile || "World Icon — PNG / JPEG required";
-  document.getElementById("world-import-generated").hidden = !candidate?.worldFile || candidate.generated === false;
-  if (!worldImportNameDirty && document.activeElement !== worldImportName) worldImportName.value = candidate?.generated ? worldImportDesiredName : "";
-  if (candidate?.id) {
-    if (candidate.icon) { const image = document.createElement("img"); image.src = candidate.icon; image.alt = "World Icon"; row.append(image); }
-    const info = worldNode("div"); info.append(worldNode("strong",candidate.name || "World Name — 未入力"));
-    info.append(worldNode("p",`Save ID · ${candidate.id} · Source Account · ${candidate.account || "不明"}`));
-    info.append(worldNode("p",`${(candidate.size / 1048576).toFixed(2)} MiB · ${candidate.generated ? ".extを新規生成" : "選択した.extを使用"}`)); row.append(info);
+  const candidate = worldSnapshot?.importPreview?.candidate;
+  for (const [id,value,fallback] of [["world-import-body-file",candidate?.worldFile,"No file selected"],["world-import-metadata-file",candidate?.metadataFile,"Not selected"],["world-import-image-file",candidate?.imageFile,"PNG / JPEG"]]) {
+    const field = document.getElementById(id); field.textContent = value || fallback; field.title = value || "";
   }
-  document.getElementById("world-import-preview").replaceChildren(...(candidate?.id ? [row] : [])); updateWorldControls();
+  document.getElementById("world-import-clear-metadata").hidden = !candidate?.metadataFile;
+  document.getElementById("world-import-generated").hidden = !candidate?.worldFile || candidate.generated === false;
+  const image = document.getElementById("world-import-icon-image"), hasImage = candidate?.generated && !!candidate.icon;
+  image.hidden = !hasImage; if (hasImage) image.src = candidate.icon; else image.removeAttribute("src");
+  document.getElementById("world-import-icon-empty").hidden = hasImage;
+  if (!worldImportNameDirty && document.activeElement !== worldImportName) worldImportName.value = candidate?.generated ? worldImportDesiredName : "";
+  const ready = candidate?.ready && !worldImportNameDirty;
+  const row = worldNode("div",undefined,"world-import-candidate");
+  if (ready) {
+    const icon = document.createElement("img"); icon.src = candidate.icon; icon.alt = "World Icon"; row.append(icon);
+    const info = worldNode("div"); info.append(worldNode("strong",candidate.name));
+    info.append(worldNode("p",`Save ID · ${candidate.id} · ${(candidate.size / 1048576).toFixed(2)} MiB`)); row.append(info);
+  }
+  document.getElementById("world-import-preview").replaceChildren(ready ? row : worldNode("p",candidate?.worldFile ? (candidate.generated ? "名前とアイコンを指定してください。" : "Metadata Fileを確認してください。") : "ファイルを選択すると表示されます。","world-import-preview-empty"));
+  document.getElementById("world-import-account-hint").hidden = !ready || candidate.account === worldImportTarget?.activeId.toString(16).padStart(8,"0");
+  updateWorldControls();
 }
 function flushImportName() {
   clearTimeout(worldImportNameTimer);
@@ -199,11 +224,11 @@ function selectWorldImport(part) {
 }
 document.getElementById("world-import").addEventListener("click", () => {
   if (!worldCanEdit()) return;
-  worldImportTarget = {activeId:worldSnapshot.activeId,revision:worldSnapshot.revision}; worldImportDesiredName = ""; worldImportNameDirty = false; worldImportName.value = "";
+  worldImportTarget = {activeId:worldSnapshot.activeId,revision:worldSnapshot.revision}; worldImportDesiredName = ""; worldImportNameDirty = false; worldImportName.value = ""; worldImportNameTouched = false;
   const name = accountSnapshot?.accounts?.find(account => account.id === worldSnapshot.activeId)?.name || "Active Account";
   document.getElementById("world-import-destination").textContent = `Import to · ${name} · ${worldSnapshot.activeId.toString(16).padStart(8,"0")}`;
-  document.getElementById("world-import-notice").textContent = "World Fileを選択してください。.extは任意です。";
-  document.getElementById("world-import-preview").replaceChildren(); worldImportDialog.showModal(); worldImportDialog.scrollTop = 0;
+  showWorldImportNotice("");
+  document.getElementById("world-import-preview").replaceChildren(); worldImportDialog.showModal(); worldImportDialog.scrollTop = 0; worldImportDialog.querySelector(".world-import-content").scrollTop = 0;
   sendWorld("begin-import",{op:"begin-import",activeId:worldImportTarget.activeId,revision:worldImportTarget.revision});
 });
 for (const [id,part] of [["world-import-body","body"],["world-import-metadata","metadata"],["world-import-image","icon"]]) document.getElementById(id).addEventListener("click",() => selectWorldImport(part));
@@ -211,8 +236,8 @@ document.getElementById("world-import-clear-metadata").addEventListener("click",
   if (worldCanEdit() && worldImportTarget) sendWorld("clear-import-metadata",{op:"clear-import-metadata",activeId:worldImportTarget.activeId,revision:worldImportTarget.revision});
 });
 worldImportName.addEventListener("input",() => {
-  worldImportDesiredName = worldImportName.value; worldImportNameDirty = true; clearTimeout(worldImportNameTimer); updateWorldControls();
-  document.getElementById("world-import-notice").textContent = validWorldName(worldImportDesiredName) ? "プレビューを更新します…" : worldMessage("invalid-name");
+  worldImportDesiredName = worldImportName.value; worldImportNameDirty = true; worldImportNameTouched = true; clearTimeout(worldImportNameTimer); updateWorldControls();
+  renderWorldImport(); showWorldImportNotice("");
   worldImportNameTimer = setTimeout(flushImportName,200);
 });
 document.getElementById("world-import-cancel").addEventListener("click", () => { if (!worldPending) worldImportDialog.close(); });
@@ -286,7 +311,7 @@ window.addEventListener("launcher-world-result", event => {
   worldSnapshot = state;
   if (worldImportDialog.open) {
     if (["begin-import","clear-import-metadata","select-import-body","select-import-metadata"].includes(op) && state.notice !== "cancelled") {
-      clearTimeout(worldImportNameTimer); worldImportNameDirty = false; worldImportDesiredName = state.importPreview?.candidate.generated ? state.importPreview.candidate.name : ""; worldImportName.value = worldImportDesiredName;
+      clearTimeout(worldImportNameTimer); worldImportNameDirty = false; worldImportDesiredName = state.importPreview?.candidate.generated ? state.importPreview.candidate.name : ""; worldImportName.value = worldImportDesiredName; worldImportNameTouched = false;
     } else if (op === "name-import") {
       const sent = validWorldName(worldImportDesiredName) ? worldImportDesiredName : "";
       if (state.importPreview?.candidate.name === sent) worldImportNameDirty = false;
@@ -306,7 +331,7 @@ window.addEventListener("launcher-world-result", event => {
     if (op === "preview" && state.preview) document.getElementById("world-icon-preview").src = state.preview.icon;
     if (["saved","unchanged","recovered","deleted","restored","purged"].includes(state.notice)) worldDialog.close();
   }
-  if (worldImportDialog.open) { document.getElementById("world-import-notice").textContent = worldMessage(state.notice); renderWorldImport(); if (state.notice === "imported") worldImportDialog.close(); }
+  if (worldImportDialog.open) { renderWorldImport(); showWorldImportNotice(state.notice,op); if (state.notice === "imported") worldImportDialog.close(); }
   renderWorlds();
   if (worldImportDialog.open) {
     if (op === "begin-import") document.getElementById("world-import-body").focus();
