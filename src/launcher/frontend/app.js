@@ -1,6 +1,6 @@
 "use strict";
 
-const pages = ["home", "friends", "world", "settings"];
+const pages = ["home", "friends", "world", "texture", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
@@ -12,7 +12,7 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : "Settings";
+  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : "Settings";
   updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.();
 }, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
@@ -25,6 +25,7 @@ function showPage(selected, options = {}) {
   selectedPage = selected;
   window.updateFriendsView?.();
   window.updateWorldView?.();
+  window.updateTextureView?.();
   const focus = document.querySelector(`[data-page="${selected}"]`);
   if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
   navigation.forEach(item => {

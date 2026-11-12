@@ -213,3 +213,14 @@ bool FSCDeviceHostFS_Mount(std::string_view mountPath, std::string_view hostTarg
 // redirect device
 void fscDeviceRedirect_map();
 void fscDeviceRedirect_add(std::string_view virtualSourcePath, size_t fileSize, const fs::path& targetFilePath, sint32 priority);
+
+struct FSCOwnedRedirect
+{
+	std::string virtualPath;
+	fs::path targetPath;
+	size_t size;
+};
+// タイトル停止中に登録・解除する。既存の Graphic Pack と他の所有者には触れない。
+bool fscDeviceRedirect_setOwned(const void* owner, const std::vector<FSCOwnedRedirect>& files);
+void fscDeviceRedirect_removeOwned(const void* owner);
+size_t fscDeviceRedirect_ownedCount(const void* owner);

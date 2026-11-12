@@ -10,6 +10,7 @@
   <script src="app.js" defer></script>
   <script src="friends.js" defer></script>
   <script src="world.js" defer></script>
+  <script src="texture.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -28,6 +29,7 @@
         <button type="button" data-page="home" aria-current="page">Home</button>
         <button type="button" data-page="friends">Friends <span id="friends-badge" class="friends-badge" hidden></span></button>
         <button type="button" data-page="world">World</button>
+        <button type="button" data-page="texture">Texture</button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
@@ -65,6 +67,17 @@
         <p id="world-notice" class="footnote" role="status" aria-live="polite">準備完了後にワールドを表示します。</p>
         <button id="world-recover" type="button" hidden>中断した操作を復旧</button>
         <div id="world-list" class="world-list" aria-label="ワールド一覧" aria-busy="false"></div>
+      </section>
+      <section id="texture" aria-labelledby="texture-title" hidden>
+        <div class="settings-title-row"><h1 id="texture-title">Texture</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="texture-open-folder" type="button" title="Open Texture Folder" aria-label="Open Texture Folder" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/></svg></button><button id="texture-refresh" type="button" disabled>Refresh</button></div></div>
+        <p id="texture-notice" class="footnote" role="status" aria-live="polite">準備完了後にテクスチャを表示します。</p>
+        <h2 class="texture-heading">Current Texture</h2>
+        <div id="texture-current" class="texture-current" aria-live="polite"></div>
+        <p id="texture-loaded" class="footnote" hidden></p>
+        <button id="texture-recover" type="button" hidden>Default に復旧</button>
+        <hr class="texture-divider">
+        <h2 class="texture-heading">Available Textures</h2>
+        <div id="texture-list" class="texture-list" aria-label="利用可能なテクスチャ" aria-busy="false"></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
@@ -328,6 +341,13 @@
   <dialog id="account-confirmation" aria-labelledby="account-confirmation-title">
     <h2 id="account-confirmation-title"></h2><p id="account-confirmation-text"></p>
     <div class="dialog-actions"><button id="account-confirmation-cancel" type="button" autofocus>キャンセル</button><button id="account-confirmation-accept" type="button">続行</button></div>
+  </dialog>
+  <dialog id="texture-confirmation" aria-labelledby="texture-confirmation-title">
+    <h2 id="texture-confirmation-title">Texture を適用</h2>
+    <div id="texture-preview"></div>
+    <p id="texture-confirmation-count" class="footnote"></p>
+    <p id="texture-confirmation-notice" class="footnote" role="status"></p>
+    <div class="dialog-actions"><button id="texture-cancel" type="button" autofocus>Cancel</button><button id="texture-apply" type="button">Apply</button></div>
   </dialog>
   <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
     <h2 id="stop-confirmation-title">Minecraftを終了しますか？</h2>

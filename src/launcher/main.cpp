@@ -707,6 +707,29 @@ namespace
 							publishCore(core->StatusJson());
 						});
 				}
+				else if (core && message.starts_with("texture:command:") && !display->m_stopping)
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("texture:command:").size())))
+					{
+						core->TextureCommand(request->first, std::string(request->second), [&, requestId = request->first](std::string snapshot) {
+							if (!notifications.m_closing) webview.execute("window.dispatchEvent(new CustomEvent('launcher-texture-result', {detail:{requestId:" + std::to_string(requestId) + ",texture:" + snapshot + "}}));");
+						});
+						publishCore(core->StatusJson());
+					}
+				}
+				else if (core && message.starts_with("texture:open-folder:") && !display->m_stopping)
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("texture:open-folder:").size())); request && request->second == "{}")
+					{
+						const auto snapshot = core->OpenTextureFolder(request->first, [&](const std::wstring& folder) {
+							SHELLEXECUTEINFOW request{sizeof(SHELLEXECUTEINFOW)};
+							request.fMask = SEE_MASK_ASYNCOK | SEE_MASK_FLAG_NO_UI; request.hwnd = window->native().hwnd;
+							request.lpVerb = L"explore"; request.lpFile = folder.c_str(); request.nShow = SW_SHOWNORMAL;
+							return ShellExecuteExW(&request) != FALSE;
+						});
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-texture-result', {detail:{requestId:" + std::to_string(request->first) + ",texture:" + snapshot + "}}));");
+					}
+				}
 				else if (core && message.starts_with("world:command:"))
 				{
 					if (const auto request = ParseSaveRequest(message.substr(std::string_view("world:command:").size())))
@@ -787,7 +810,7 @@ namespace
 						else core->CancelStopGameConfirmation(ids->first, ids->second);
 					}
 				}
-				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world"))
+				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world" || message == "page:texture"))
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();

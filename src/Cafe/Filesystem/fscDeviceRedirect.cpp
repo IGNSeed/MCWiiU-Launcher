@@ -11,6 +11,24 @@ struct RedirectEntry
 
 FSAFileTree<RedirectEntry> redirectTree;
 
+namespace
+{
+	std::map<const void*, std::map<std::string, FSCOwnedRedirect>> s_ownedRedirects;
+	std::string RedirectKey(std::string_view path)
+	{
+		FSCPath parsed(path);
+		std::string result;
+		for (size_t i = 0; i < parsed.GetNodeCount(); ++i)
+		{
+			result += '/';
+			for (char c : parsed.GetNodeName(i)) result += c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+		}
+		return result;
+	}
+}
+
+extern std::recursive_mutex s_fscMutex;
+
 void fscDeviceRedirect_add(std::string_view virtualSourcePath, size_t fileSize, const fs::path& targetFilePath, sint32 priority)
 {
 	// check if source already has a redirection
@@ -32,6 +50,20 @@ class fscDeviceTypeRedirect : public fscDeviceC
 	FSCVirtualFile* fscDeviceOpenByPath(std::string_view path, FSC_ACCESS_FLAG accessFlags, void* ctx, sint32* fscStatus) override
 	{
 		RedirectEntry* redirectionEntry;
+		// fsc_open が FSC mutex を保持するため、解除とファイルを開く操作は競合しない。
+		if (HAS_FLAG(accessFlags, FSC_ACCESS_FLAG::OPEN_FILE))
+		{
+			const auto key = RedirectKey(path);
+			for (const auto& [owner, files] : s_ownedRedirects)
+			{
+				const auto it = files.find(key);
+				if (it != files.end())
+				{
+					// 書込み要求を下位の BASE/UPD に流さず、置換側も読み取り専用で開く。
+					return FSCVirtualFile_Host::OpenFile(it->second.targetPath, FSC_ACCESS_FLAG::OPEN_FILE | FSC_ACCESS_FLAG::READ_PERMISSION, *fscStatus);
+				}
+			}
+		}
 
 		if (HAS_FLAG(accessFlags, FSC_ACCESS_FLAG::OPEN_FILE) && redirectTree.getFile(path, redirectionEntry))
 			return FSCVirtualFile_Host::OpenFile(redirectionEntry->dstPath, accessFlags, *fscStatus);
@@ -58,6 +90,38 @@ void fscDeviceRedirect_map()
 {
 	if (_redirectMapped)
 		return;
-	fsc_mount("/", "/", &fscDeviceTypeRedirect::instance(), nullptr, FSC_PRIORITY_REDIRECT);
-	_redirectMapped = true;
+	_redirectMapped = fsc_mount("/", "/", &fscDeviceTypeRedirect::instance(), nullptr, FSC_PRIORITY_REDIRECT) == FSC_STATUS_OK;
+}
+
+bool fscDeviceRedirect_setOwned(const void* owner, const std::vector<FSCOwnedRedirect>& files)
+{
+	std::lock_guard lock(s_fscMutex);
+	if (!owner || s_ownedRedirects.contains(owner)) return false;
+	std::map<std::string, FSCOwnedRedirect> prepared;
+	for (const auto& file : files)
+	{
+		const auto key = RedirectKey(file.virtualPath);
+		if (!key.starts_with("/vol/content/common/") || !file.targetPath.is_absolute() || !prepared.emplace(key, file).second) return false;
+		RedirectEntry* existing;
+		if (redirectTree.getFile(file.virtualPath, existing)) return false;
+		for (const auto& [other, entries] : s_ownedRedirects) if (entries.contains(key)) return false;
+	}
+	if (prepared.empty()) return true;
+	fscDeviceRedirect_map();
+	if (!_redirectMapped) return false;
+	s_ownedRedirects.emplace(owner, std::move(prepared));
+	return true;
+}
+
+void fscDeviceRedirect_removeOwned(const void* owner)
+{
+	std::lock_guard lock(s_fscMutex);
+	s_ownedRedirects.erase(owner);
+}
+
+size_t fscDeviceRedirect_ownedCount(const void* owner)
+{
+	std::lock_guard lock(s_fscMutex);
+	const auto it = s_ownedRedirects.find(owner);
+	return it == s_ownedRedirects.end() ? 0 : it->second.size();
 }

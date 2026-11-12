@@ -46,6 +46,7 @@ set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/app.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/friends.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/world.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/texture.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
@@ -58,6 +59,7 @@ if(TARGET CemuCafe)
     target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}/..>")
     add_library(CemuNativeHost STATIC CemuHost.cpp CemuHost.h WorldService.cpp WorldService.h WorldImport.cpp WorldImport.h WorldMetadata.cpp WorldMetadata.h FriendsService.cpp FriendsService.h AccountService.cpp AccountService.h InputService.cpp InputService.h AvSettings.cpp AvSettings.h NativeOpenGL.cpp NativeOpenGL.h NativeSettings.cpp NativeSettings.h ../Cemu/Startup.cpp ../Cemu/GameLaunch.cpp)
     set_target_properties(CemuNativeHost PROPERTIES CXX_STANDARD 20 CEMU_NATIVE_HOST TRUE)
+    target_sources(CemuNativeHost PRIVATE TextureService.cpp TextureService.h TextureCompatibility.cpp TextureCompatibility.h)
     cemu_use_precompiled_header(CemuNativeHost)
     target_include_directories(CemuNativeHost PRIVATE ${RAPIDJSON_INCLUDE_DIRS})
     target_link_libraries(CemuNativeHost PRIVATE CemuAudio CemuCafe CemuCommon CemuComponents CemuConfig CemuInput CemuUtil CemuGui CemuResource pugixml::pugixml libzip::zip OpenGL::GL Dbghelp)
