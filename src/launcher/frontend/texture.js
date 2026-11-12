@@ -1,6 +1,7 @@
 "use strict";
 
 const textureDialog = document.getElementById("texture-confirmation");
+const textureFallbackIcon = "assets/pack_icon.png";
 let textureSnapshot = null, texturePending = 0, textureSerial = Date.now(), textureOperation = "";
 let textureVisible = false, textureRecovery = false, textureFocus = null, textureFolderCooldown = 0;
 const textureMessages = {
@@ -27,9 +28,14 @@ function textureCard(pack, badge) {
   const card = textureNode("div", undefined, "texture-card");
   const frame = textureNode("div", undefined, "texture-icon");
   const fallback = textureNode("span", undefined, "texture-icon-fallback"); fallback.setAttribute("aria-hidden","true"); frame.append(fallback);
-  if (pack?.icon && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon)) {
-    const image = new Image(); image.alt = ""; image.src = pack.icon; image.addEventListener("error", () => image.remove(), {once:true}); frame.append(image);
-  }
+  const customIcon = pack?.icon && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon);
+  const image = new Image(); image.alt = "";
+  let usingFallback = !customIcon;
+  image.addEventListener("error", () => {
+    if (!usingFallback) { usingFallback = true; image.src = textureFallbackIcon; }
+    else image.remove();
+  });
+  image.src = customIcon ? pack.icon : textureFallbackIcon; frame.append(image);
   const text = textureNode("div", undefined, "texture-copy");
   const name = textureNode("strong", pack?.name || "—", "texture-name"); name.title = pack?.name || "";
   const description = textureNode("p", pack?.description || "", "texture-description"); description.title = pack?.description || ""; text.append(name,description);

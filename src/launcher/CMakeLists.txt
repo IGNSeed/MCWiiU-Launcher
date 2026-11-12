@@ -50,7 +50,8 @@ set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/assets/minecraft-wiiu-home.png")
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/assets/minecraft-wiiu-home.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/assets/pack_icon.png")
 target_link_libraries(LauncherShell PRIVATE saucer::embedded)
 
 if(TARGET CemuCafe)
