@@ -19,6 +19,7 @@
 #include <set>
 #include <span>
 #include <stdexcept>
+#include <tuple>
 
 namespace fs = std::filesystem;
 namespace
@@ -208,13 +209,28 @@ namespace
 		return Hash(data);
 	}
 	bool Metadata(std::string_view path) { return path == "Common/res/description.txt" || path == "Common/res/gui/pack_icon.png"; }
-	void PackJson(Writer& writer, const Pack& pack, bool diagnostics = true)
+	std::string WarningSignature(const Pack& pack)
+	{
+		if (pack.id == "default" || !pack.problem.empty() || pack.issues.empty()) return {};
+		auto issues = pack.issues;
+		std::sort(issues.begin(), issues.end(), [](const auto& a, const auto& b) { return std::tie(a.path, a.code, a.actual, a.reference) < std::tie(b.path, b.code, b.actual, b.reference); });
+		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartArray(); writer.String("texture-warning-v1");
+		for (const auto& issue : issues)
+		{
+			if (!issue.warning) return {};
+			writer.StartArray(); writer.String(issue.path.data(), static_cast<rapidjson::SizeType>(issue.path.size())); writer.String(issue.code.data(), static_cast<rapidjson::SizeType>(issue.code.size()));
+			writer.Uint(issue.actual.first); writer.Uint(issue.actual.second); writer.Uint(issue.reference.first); writer.Uint(issue.reference.second); writer.EndArray();
+		}
+		writer.EndArray(); return Hash(std::string_view(buffer.GetString(), buffer.GetSize()));
+	}
+	void PackJson(Writer& writer, const Pack& pack, bool diagnostics = true, bool acknowledged = false)
 	{
 		writer.StartObject(); Text(writer, "id", pack.id); Text(writer, "name", pack.name); Text(writer, "kind", pack.kind); Text(writer, "source", pack.source);
 		Text(writer, "fingerprint", pack.fingerprint); Text(writer, "description", pack.description); Text(writer, "icon", pack.icon); Text(writer, "problem", pack.problem);
 		writer.Key("fileCount"); writer.Uint64(std::count_if(pack.files.begin(), pack.files.end(), [](const auto& file) { return !Metadata(file.path); }));
 		if (diagnostics)
 		{
+			Text(writer, "warningSignature", WarningSignature(pack)); writer.Key("warningAcknowledged"); writer.Bool(acknowledged);
 			Text(writer, "status", !pack.problem.empty() ? "error" : !pack.issues.empty() ? "warning" : "valid");
 			writer.Key("issueCount"); writer.Uint64(pack.issues.size());
 			writer.Key("issues"); writer.StartArray();
@@ -244,11 +260,75 @@ struct TextureService::Impl
 	bool running = false;
 	std::vector<std::unique_ptr<File>> pins;
 	std::unique_ptr<Guard> storageGuard;
+	std::map<std::string, std::pair<std::string, std::string>> acknowledgements;
+	bool acknowledgementsHealthy = false;
+	std::string acknowledgementNotice;
+	static constexpr size_t acknowledgementLimit = 1024, acknowledgementBytes = 256 * 1024;
 
 	Impl(fs::path config, fs::path baseCommon, fs::path updateCommon) : portable(std::move(config)), root(portable / "Textures"), storage(portable / ".launcher-textures"), base(std::move(baseCommon)), update(std::move(updateCommon))
 	{
-		try { Guard guard(portable); CreateDirectory(root); CreateDirectory(storage / "generations"); LoadCurrent(false); }
+		try { Guard guard(portable); CreateDirectory(root); CreateDirectory(storage / "generations"); LoadCurrent(false); LoadAcknowledgements(); }
 		catch (const std::exception& error) { notice = error.what(); }
+	}
+	void LoadAcknowledgements()
+	{
+		acknowledgements.clear(); acknowledgementsHealthy = false; acknowledgementNotice.clear();
+		try
+		{
+			Guard guard(storage); const auto path = storage / "warning-acknowledgements.json"; CheckPath(path);
+			if (fs::exists(path))
+			{
+				const auto json = Json(ReadText(path, acknowledgementBytes), acknowledgementBytes); Keys(json, {"schema", "acknowledgements"});
+				Require(json["schema"].IsUint() && json["schema"].GetUint() == 1 && json["acknowledgements"].IsArray() && json["acknowledgements"].Size() <= acknowledgementLimit, "invalid-acknowledgements");
+				for (const auto& item : json["acknowledgements"].GetArray())
+				{
+					Keys(item, {"id", "fingerprint", "warningSignature"});
+					const auto id = String(item["id"]), fingerprint = String(item["fingerprint"]), signature = String(item["warningSignature"]);
+					const auto colon = id.find(':');
+					Require(colon != std::string::npos && (id.substr(0, colon) == "folder" || id.substr(0, colon) == "zip") && Digest(id.substr(colon + 1)) && Digest(fingerprint) && Digest(signature), "invalid-acknowledgements");
+					Require(acknowledgements.emplace(id, std::pair{fingerprint, signature}).second, "invalid-acknowledgements");
+				}
+			}
+			acknowledgementsHealthy = true;
+		}
+		catch (const std::exception&) { acknowledgements.clear(); acknowledgementNotice = "acknowledgements-unavailable"; }
+	}
+	bool Acknowledged(const Pack& pack) const
+	{
+		if (!acknowledgementsHealthy) return false;
+		const auto signature = WarningSignature(pack); const auto record = acknowledgements.find(pack.id);
+		if (signature.empty() || record == acknowledgements.end() || record->second != std::pair{pack.fingerprint, signature}) return false;
+		// 実行中の古いスナップショットも、元パックの変更後は未確認として表示する。
+		return std::any_of(packs.begin(), packs.end(), [&](const auto& source) { return source.id == pack.id && source.fingerprint == pack.fingerprint && WarningSignature(source) == signature; });
+	}
+	void Acknowledge(const rapidjson::Value& json, bool confirmed)
+	{
+		Keys(json, {"op", "id", "fingerprint", "warningSignature", "revision"});
+		Require(json["revision"].IsUint64() && json["revision"].GetUint64() == revision, "stale-preview");
+		const auto id = String(json["id"]), fingerprint = String(json["fingerprint"]), signature = String(json["warningSignature"]);
+		const auto selected = std::find_if(packs.begin(), packs.end(), [&](const auto& pack) { return pack.id == id; });
+		Require(selected != packs.end() && !WarningSignature(*selected).empty(), "invalid-pack");
+		Require(fingerprint == selected->fingerprint && signature == WarningSignature(*selected), "source-changed");
+		Pack fresh;
+		try { fresh = ReadPack(*selected); }
+		catch (...) { acknowledgements.erase(id); throw; }
+		if (!fresh.problem.empty() || fresh.fingerprint != fingerprint || WarningSignature(fresh) != signature)
+		{
+			acknowledgements.erase(id); throw std::runtime_error("source-changed");
+		}
+		Require(acknowledgementsHealthy, "acknowledgements-unavailable");
+		auto next = acknowledgements;
+		if (confirmed) next[id] = {fingerprint, signature}; else next.erase(id);
+		Require(next.size() <= acknowledgementLimit, "acknowledgements-limit");
+		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartObject(); writer.Key("schema"); writer.Uint(1); writer.Key("acknowledgements"); writer.StartArray();
+		for (const auto& [key, value] : next)
+		{
+			writer.StartObject(); Text(writer, "id", key); Text(writer, "fingerprint", value.first); Text(writer, "warningSignature", value.second); writer.EndObject();
+		}
+		writer.EndArray(); writer.EndObject(); Require(buffer.GetSize() <= acknowledgementBytes, "acknowledgements-limit");
+		try { AtomicWrite(storage / "warning-acknowledgements.json", {buffer.GetString(), buffer.GetSize()}); }
+		catch (const std::exception&) { acknowledgements.clear(); acknowledgementsHealthy = false; acknowledgementNotice = "acknowledgements-save-failed"; throw std::runtime_error("acknowledgements-save-failed"); }
+		acknowledgements = std::move(next); notice = confirmed ? "warning-acknowledged" : "warning-unacknowledged"; token.clear(); ++revision;
 	}
 
 	Bytes Vanilla(std::string_view path)
@@ -528,15 +608,16 @@ struct TextureService::Impl
 			throw;
 		}
 	}
-	std::string Snapshot(bool canEdit)
+	std::string Snapshot(bool canEdit, bool canAcknowledge = false)
 	{
 		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartObject();
-		Text(writer, "notice", notice); Text(writer, "state", state); writer.Key("current"); PackJson(writer, current);
+		Text(writer, "notice", notice); Text(writer, "state", state); writer.Key("current"); PackJson(writer, current, true, healthy && Acknowledged(current));
+		Text(writer, "acknowledgementNotice", acknowledgementNotice); writer.Key("canAcknowledge"); writer.Bool(canAcknowledge && acknowledgementsHealthy);
 		writer.Key("revision"); writer.Uint64(revision); writer.Key("canEdit"); writer.Bool(canEdit && !running && healthy);
 		writer.Key("canRecover"); writer.Bool(canEdit && !running && !healthy); writer.Key("running"); writer.Bool(running);
 		Text(writer, "loadedId", loadedId); Text(writer, "loadedName", loadedName); Text(writer, "token", token);
-		writer.Key("preview"); if (!token.empty()) PackJson(writer, preview); else writer.Null();
-		writer.Key("packs"); writer.StartArray(); for (const auto& pack : packs) PackJson(writer, pack); writer.EndArray(); writer.EndObject(); return buffer.GetString();
+		writer.Key("preview"); if (!token.empty()) PackJson(writer, preview, true, Acknowledged(preview)); else writer.Null();
+		writer.Key("packs"); writer.StartArray(); for (const auto& pack : packs) PackJson(writer, pack, true, Acknowledged(pack)); writer.EndArray(); writer.EndObject(); return buffer.GetString();
 	}
 };
 
@@ -544,14 +625,19 @@ TextureService::TextureService(fs::path portable, fs::path baseCommon, fs::path 
 TextureService::~TextureService() = default;
 bool TextureService::IsHealthy() const { return m_impl->healthy; }
 
-std::string TextureService::Command(std::string_view payload, bool canEdit)
+std::string TextureService::Command(std::string_view payload, bool canEdit, bool canAcknowledge)
 {
 	auto& s = *m_impl; std::lock_guard lock(s.mutex); s.notice.clear();
 	try
 	{
+		s.LoadAcknowledgements();
 		const auto json = Json(payload, 8192); Require(json.HasMember("op"), "invalid-request"); const auto op = String(json["op"]);
 		if (op == "list") { Keys(json, {"op"}); s.token.clear(); ++s.revision; s.Scan(); s.LoadCurrent(!s.running); }
 		else if (op == "cancel") { Keys(json, {"op"}); s.token.clear(); }
+		else if (op == "acknowledge" || op == "unacknowledge")
+		{
+			Require(canAcknowledge, "not-ready"); s.Acknowledge(json, op == "acknowledge");
+		}
 		else
 		{
 			Require(canEdit && !s.running, "game-running");
@@ -582,15 +668,15 @@ std::string TextureService::Command(std::string_view payload, bool canEdit)
 	}
 	catch (const std::exception& error) { s.notice = error.what(); s.token.clear(); }
 	if (s.token.empty()) s.preview = Pack{};
-	return s.Snapshot(canEdit);
+	return s.Snapshot(canEdit, canAcknowledge);
 }
 
-std::string TextureService::OpenFolder(const std::function<bool(const fs::path&)>& open)
+std::string TextureService::OpenFolder(const std::function<bool(const fs::path&)>& open, bool canAcknowledge)
 {
 	auto& s = *m_impl; std::lock_guard lock(s.mutex);
 	try { Guard guard(s.portable); CreateDirectory(s.root); Guard pinned(s.root); Require(open(s.root), "folder-open-failed"); s.notice = "folder-opened"; }
 	catch (const std::exception& error) { s.notice = error.what(); }
-	return s.Snapshot(true);
+	return s.Snapshot(true, canAcknowledge);
 }
 
 std::vector<TextureService::OverlayFile> TextureService::BeginTitle(uint64_t titleId, uint16_t version)

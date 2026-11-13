@@ -520,6 +520,7 @@ namespace
 					COREWEBVIEW2_KEY_EVENT_KIND kind{};
 					COREWEBVIEW2_PHYSICAL_KEY_STATUS physical{};
 					if (FAILED(args->get_VirtualKey(&key)) || (key != VK_F11 && key != VK_F10 && key != VK_ESCAPE)) return S_OK;
+					if (key == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000)) return S_OK;
 #ifdef CEMU_NATIVE_HOST
 					if (key == VK_ESCAPE && (!display || (!display->m_stopConfirmation && (display->m_settingsSelected || display->m_launcherVisible)))) return S_OK;
 #else

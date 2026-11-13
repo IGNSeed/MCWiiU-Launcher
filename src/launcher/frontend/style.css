@@ -595,11 +595,13 @@ main[data-view="friends"] { overflow:hidden; }
 .friends-primary:hover:enabled { background:#fff; }
 .friend-row-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; flex-shrink:0; }
 .friend-row-actions button { font-size:.78rem; padding:7px 11px; }
-#friend-menu { position:fixed; inset:auto; margin:0; padding:5px; border:1px solid #4a4a53; border-radius:7px; background:#1b1b20; color:#eee; box-shadow:0 8px 24px #0007; opacity:0; transform:scale(.97); transition:opacity 180ms var(--motion-ease),transform 180ms var(--motion-ease),display 180ms allow-discrete,overlay 180ms allow-discrete; }
-#friend-menu:popover-open { opacity:1; transform:scale(1); }
-#friend-menu button { border:0; background:transparent; padding:10px 14px; color:inherit; }
-#friend-menu button:hover { background:#303037; }
-@starting-style { #friend-menu:popover-open { opacity:0; transform:scale(.97); } }
+:is(#friend-menu,#texture-menu) { position:fixed; inset:auto; margin:0; padding:5px; border:1px solid #4a4a53; border-radius:7px; background:#1b1b20; color:#eee; box-shadow:0 8px 24px #0007; opacity:0; transform:scale(.97); transition:opacity 180ms var(--motion-ease),transform 180ms var(--motion-ease),display 180ms allow-discrete,overlay 180ms allow-discrete; }
+:is(#friend-menu,#texture-menu):popover-open { opacity:1; transform:scale(1); }
+:is(#friend-menu,#texture-menu) button { border:0; background:transparent; padding:10px 14px; color:inherit; }
+:is(#friend-menu,#texture-menu) button:hover { background:#303037; }
+@starting-style { :is(#friend-menu,#texture-menu):popover-open { opacity:0; transform:scale(.97); } }
+#texture-menu { max-width:calc(100vw - 16px); }
+#texture-menu button { width:100%; text-align:left; }
 #friend-dialog { width:min(470px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:auto; padding:26px; border:1px solid #62626c; border-radius:9px; background:#151519; color:#eee; box-shadow:0 14px 48px #0008; }
 #friend-dialog h2 { margin:0 0 16px; font-size:1.25rem; }
 #friend-dialog-description { font-size:.9rem; color:#c0c0c8; line-height:1.6; }
@@ -718,6 +720,7 @@ main[data-view="world"] { overflow:hidden; }
 .texture-badge { flex-shrink:0; color:#bcbcc5; font-size:.75rem; }
 .texture-card button { flex-shrink:0; min-height:36px; padding:7px 17px; font-size:.82rem; }
 .texture-problem { margin:7px 0 0; color:#edb9a8; font-size:.78rem; line-height:1.5; overflow-wrap:anywhere; }
+.texture-acknowledged { margin:7px 0 0; color:#9999a4; font-size:.75rem; }
 .texture-diagnostics { margin-top:8px; color:#dfc7a0; font-size:.78rem; line-height:1.5; overflow-wrap:anywhere; }
 .texture-diagnostics summary { cursor:pointer; }
 .texture-diagnostics ul { margin:8px 0 0; padding-left:18px; }

@@ -6,6 +6,8 @@ let textureSnapshot = null, texturePending = 0, textureSerial = Date.now(), text
 let textureVisible = false, textureRecovery = false, textureFocus = null, textureFolderCooldown = 0;
 const textureMessages = {
   applied:"適用しました。次回の起動に反映されます。", recovered:"Default に復旧しました。", "preview-ready":"", "folder-opened":"", "folder-open-busy":"",
+  "warning-acknowledged":"この内容の動作確認を記録しました。", "warning-unacknowledged":"確認済みを解除しました。",
+  "acknowledgements-unavailable":"確認情報を読み込めません。互換性の警告を表示しています。", "acknowledgements-save-failed":"確認情報を保存できませんでした。互換性の警告を表示しています。", "acknowledgements-limit":"確認情報の保存件数が上限に達しました。不要な確認を解除してください。",
   "not-ready":"処理の完了後に操作してください。", "game-running":"ゲーム停止後に適用してください。", "source-changed":"パックが変更されました。Refresh して確認してください。",
   "recovery-required":"適用状態の復旧が必要です。", "selection-missing":"適用状態を確認できません。", "stale-preview":"確認の有効期限が切れました。もう一度選択してください。",
   "common-root-required":"直下に Common フォルダが必要です。", "invalid-zip":"ZIPを読み込めません。", "zip-crc":"ZIPの整合性を確認できません。", "duplicate-entry":"同じパスのファイルが重複しています。",
@@ -27,6 +29,7 @@ function textureNode(tag, text, className) {
 }
 function textureReady() { return window.launcherCoreState?.corePhase === "ready" && !window.launcherCoreState?.stopRequested; }
 function textureEditable() { return textureReady() && window.launcherCoreState?.canEditTextures === true && textureSnapshot?.canEdit === true && !texturePending; }
+function textureAcknowledgementEditable() { return textureReady() && window.launcherCoreState?.canAcknowledgeTextureWarnings === true && textureSnapshot?.canAcknowledge === true && !texturePending && !textureDialog.open; }
 function textureCard(pack, badge, showDetails = false) {
   const card = textureNode("div", undefined, "texture-card");
   const frame = textureNode("div", undefined, "texture-icon");
@@ -43,7 +46,9 @@ function textureCard(pack, badge, showDetails = false) {
   const name = textureNode("strong", pack?.name || "—", "texture-name"); name.title = pack?.name || "";
   const description = textureNode("p", pack?.description || "", "texture-description"); description.title = pack?.description || ""; text.append(name,description);
   if (pack?.problem) text.append(textureNode("p",`Error · ${textureMessage(pack.problem)}`,"texture-problem"));
-  if (pack?.issues?.length) {
+  const acknowledged = pack?.warningAcknowledged === true && pack.status === "warning" && !pack.problem;
+  if (acknowledged) text.append(textureNode("p","ユーザー確認済み","texture-acknowledged"));
+  if (pack?.issues?.length && !acknowledged) {
     const details = textureNode("details",undefined,"texture-diagnostics"); details.open = showDetails;
     const warning = pack.status === "warning";
     details.append(textureNode("summary",warning ? `Warning · ゲーム内での表示を確認してください (${pack.issueCount})` : `詳細 (${pack.issueCount})`));
@@ -61,8 +66,53 @@ function textureCard(pack, badge, showDetails = false) {
   }
   card.append(frame,text);
   if (badge) card.append(textureNode("span",badge,"texture-badge"));
+  if (!showDetails && pack?.status === "warning" && !pack.problem && pack.warningSignature) { card.dataset.texturePack = pack.id; card.tabIndex = 0; card.setAttribute("aria-haspopup","menu"); card.setAttribute("aria-label",`${pack.name} · テクスチャパック`); }
   return card;
 }
+const textureMenu = document.getElementById("texture-menu"), textureMenuConfirm = document.getElementById("texture-menu-confirm");
+let textureMenuTarget = null, textureMenuFocus = null;
+function focusTexturePack(target) {
+  if (!target || selectedPage !== "texture") return;
+  const container = document.getElementById(target.current ? "texture-current" : "texture-list");
+  const card = [...container.querySelectorAll("[data-texture-pack]")].find(node => node.dataset.texturePack === target.id);
+  (card || document.getElementById("texture-refresh")).focus({preventScroll:true});
+}
+function closeTextureMenu(restore = false) {
+  const target = textureMenuTarget; textureMenuTarget = null; textureMenu.hidePopover();
+  if (restore) focusTexturePack(target);
+}
+function textureMenuPack(target) {
+  if (!target || !textureAcknowledgementEditable() || selectedPage !== "texture" || target.revision !== textureSnapshot.revision || !target.opener.isConnected) return null;
+  if (target.current && textureSnapshot.state !== "known-pack") return null;
+  const pack = target.current ? textureSnapshot.current : textureSnapshot.packs.find(pack => pack.id === target.id);
+  return pack?.status === "warning" && !pack.problem && pack.id === target.id && pack.fingerprint === target.fingerprint && pack.warningSignature === target.warningSignature ? pack : null;
+}
+function openTextureMenu(event, keyboard = false) {
+  const card = event.target.closest("[data-texture-pack]");
+  if (!card) return;
+  const current = !!card.closest("#texture-current");
+  const pack = current ? textureSnapshot?.current : textureSnapshot?.packs.find(pack => pack.id === card.dataset.texturePack);
+  if (!pack) return;
+  const target = {id:pack.id,fingerprint:pack.fingerprint,warningSignature:pack.warningSignature,revision:textureSnapshot.revision,current,opener:card};
+  if (!textureMenuPack(target)) return;
+  event.preventDefault(); closeTextureMenu(); textureMenuTarget = target;
+  textureMenuConfirm.textContent = pack.warningAcknowledged ? "確認済みを解除" : "✓ 問題なく動作することを確認";
+  textureMenu.showPopover();
+  const rect = card.getBoundingClientRect(), x = keyboard ? rect.left : event.clientX, y = keyboard ? rect.bottom : event.clientY;
+  textureMenu.style.left = `${Math.max(8,Math.min(innerWidth - textureMenu.offsetWidth - 8,x))}px`;
+  textureMenu.style.top = `${Math.max(8,Math.min(innerHeight - textureMenu.offsetHeight - 8,y))}px`;
+  textureMenuConfirm.focus({preventScroll:true});
+}
+document.getElementById("texture").addEventListener("contextmenu",event => openTextureMenu(event));
+document.getElementById("texture").addEventListener("keydown",event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openTextureMenu(event,true); });
+textureMenuConfirm.addEventListener("click",() => {
+  const target = textureMenuTarget, pack = textureMenuPack(target); closeTextureMenu();
+  if (!pack) return;
+  textureMenuFocus = target; sendTexture(pack.warningAcknowledged ? "unacknowledge" : "acknowledge",{id:pack.id,fingerprint:pack.fingerprint,warningSignature:pack.warningSignature,revision:target.revision});
+});
+textureMenu.addEventListener("toggle",event => { if (event.newState === "closed" && textureMenuTarget) closeTextureMenu(true); });
+textureMenu.addEventListener("keydown",event => { if (["ArrowDown","ArrowUp","Home","End"].includes(event.key)) { event.preventDefault(); textureMenuConfirm.focus(); } else if (event.key === "Tab") closeTextureMenu(true); });
+window.addEventListener("resize",() => closeTextureMenu(true));
 function updateTextureControls() {
   const ready = textureReady(), busy = !!texturePending || window.launcherCoreState?.textureBusy === true;
   document.getElementById("texture-refresh").disabled = !ready || busy || textureDialog.open;
@@ -74,6 +124,7 @@ function updateTextureControls() {
   document.getElementById("texture-list").setAttribute("aria-busy",String(busy));
 }
 function renderTextures() {
+  closeTextureMenu();
   const state = textureSnapshot;
   const badges = {"default":"Default", "known-pack":"Active", "external-unknown":"External / Unknown", error:"Error", "recovery-required":"Recovery Required"};
   document.getElementById("texture-current").replaceChildren(textureCard(state?.current,badges[state?.state] || "—"));
@@ -94,6 +145,7 @@ function renderTextures() {
 }
 function sendTexture(op, extra = {}) {
   if (texturePending || !textureReady()) return;
+  closeTextureMenu();
   textureOperation = op; texturePending = ++textureSerial;
   document.getElementById("texture-notice").textContent = op === "list" ? "テクスチャを読み込み中…" : "処理中…";
   document.getElementById("texture-confirmation-notice").textContent = "";
@@ -103,7 +155,8 @@ function sendTexture(op, extra = {}) {
 function updateTextureView() {
   const visible = selectedPage === "texture" && !document.hidden;
   if (visible && !textureVisible && textureReady() && !texturePending) { textureVisible = true; sendTexture("list"); }
-  else if (!visible) textureVisible = false;
+  else if (!visible) { textureVisible = false; closeTextureMenu(); textureMenuFocus = null; }
+  if (!textureAcknowledgementEditable()) closeTextureMenu();
   if (visible && !textureReady()) document.getElementById("texture-notice").textContent = window.launcherCoreState?.phase === "unavailable" ? "Core がないため Texture の管理は利用できません。" : "準備完了後にテクスチャを表示します。";
   updateTextureControls();
 }
@@ -131,7 +184,7 @@ window.addEventListener("launcher-texture-result",event => {
   if (event.detail?.requestId !== texturePending) return;
   const op = textureOperation, state = event.detail.texture; texturePending = 0;
   const validIssue = issue => issue && ["warning","error"].includes(issue.severity) && typeof issue.path === "string" && typeof issue.code === "string" && ["width","height","defaultWidth","defaultHeight"].every(key => Number.isSafeInteger(issue[key]) && issue[key] >= 0 && issue[key] <= 8192);
-  const validPack = pack => pack && ["id","name","description","icon","problem","fingerprint","kind","source"].every(key => typeof pack[key] === "string") && (!pack.icon || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon)) && ["valid","warning","error"].includes(pack.status) && Array.isArray(pack.issues) && pack.issues.length <= 32 && pack.issues.every(validIssue) && Number.isSafeInteger(pack.issueCount) && pack.issueCount >= pack.issues.length;
+  const validPack = pack => pack && ["id","name","description","icon","problem","fingerprint","kind","source","warningSignature"].every(key => typeof pack[key] === "string") && typeof pack.warningAcknowledged === "boolean" && (!pack.warningSignature || /^[a-f0-9]{64}$/.test(pack.warningSignature)) && (!pack.icon || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon)) && ["valid","warning","error"].includes(pack.status) && Array.isArray(pack.issues) && pack.issues.length <= 32 && pack.issues.every(validIssue) && Number.isSafeInteger(pack.issueCount) && pack.issueCount >= pack.issues.length;
   if (state && Number.isSafeInteger(state.revision) && Array.isArray(state.packs) && state.packs.length <= 257 && validPack(state.current) && state.packs.every(validPack)) {
     textureSnapshot = state;
     if (op === "preview" && state.token && validPack(state.preview)) {
@@ -142,8 +195,9 @@ window.addEventListener("launcher-texture-result",event => {
     }
     if (["applied","recovered"].includes(state.notice)) textureDialog.close();
     renderTextures();
+    if (textureMenuFocus) { focusTexturePack(textureMenuFocus); textureMenuFocus = null; }
   }
-  const notice = textureMessage(state?.notice);
+  const notice = textureMessage(state?.notice || state?.acknowledgementNotice);
   document.getElementById("texture-notice").textContent = notice;
   if (textureDialog.open) document.getElementById("texture-confirmation-notice").textContent = notice;
   updateTextureControls();

@@ -235,6 +235,7 @@ namespace
 		}
 		bool CanEditInputLocked() const { return CanEditLiveSettingsLocked() && input && input->IsHealthy(); }
 		bool CanEditAudioLocked() const { return CanEditLiveSettingsLocked() && av && av->IsHealthy(); }
+		bool CanAcknowledgeTexturesLocked() const { return CanEditLiveSettingsLocked() && textures && !textureBusy; }
 		void ClearStopConfirmationLocked()
 		{
 			confirmationId = confirmationSession = confirmationGeneration = 0;
@@ -259,6 +260,7 @@ namespace
 				writer.Key("canEditWorlds"); writer.Bool(CanEditSettingsLocked() && worlds != nullptr);
 				writer.Key("canRecoverWorlds"); writer.Bool(CanEditWorldsLocked() && worlds != nullptr);
 				writer.Key("canEditTextures"); writer.Bool(CanEditWorldsLocked() && textures && (!worlds || worlds->IsHealthy()));
+				writer.Key("canAcknowledgeTextureWarnings"); writer.Bool(CanAcknowledgeTexturesLocked());
 				writer.Key("textureBusy"); writer.Bool(textureBusy);
 				writer.Key("nativeExitConfirmation"); writer.Bool(true);
 				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
@@ -1092,17 +1094,18 @@ void CemuHost::TextureCommand(uint64_t requestId, std::string payload, std::func
 		complete("{\"notice\":\"not-ready\"}"); return;
 	}
 	const bool editable = state->CanEditWorldsLocked() && (!state->worlds || state->worlds->IsHealthy());
+	const bool acknowledgeable = state->CanAcknowledgeTexturesLocked();
 	state->lastTextureRequest = requestId;
 	if (m_impl->textureWorker.joinable()) m_impl->textureWorker.join();
 	state->textureBusy = true;
 	try
 	{
-		m_impl->textureWorker = std::thread([state, payload = std::move(payload), complete = std::move(complete), editable] {
+		m_impl->textureWorker = std::thread([state, payload = std::move(payload), complete = std::move(complete), editable, acknowledgeable] {
 			const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 			std::string result = "{\"notice\":\"not-ready\"}";
 			if (SUCCEEDED(apartment))
 			{
-				result = state->textures->Command(payload, editable);
+				result = state->textures->Command(payload, editable, acknowledgeable);
 				CoUninitialize();
 			}
 			{
@@ -1124,8 +1127,9 @@ std::string CemuHost::OpenTextureFolder(uint64_t requestId, const std::function<
 	state.lastTextureRequest = requestId;
 	if (std::chrono::steady_clock::now() < state.nextTextureFolderOpen) return "{\"notice\":\"folder-open-busy\"}";
 	state.nextTextureFolderOpen = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	const bool acknowledgeable = state.CanAcknowledgeTexturesLocked();
 	state.textureBusy = true; statusLock.unlock(); workLock.unlock();
-	const auto result = state.textures->OpenFolder([&](const fs::path& path) { return open(path.native()); });
+	const auto result = state.textures->OpenFolder([&](const fs::path& path) { return open(path.native()); }, acknowledgeable);
 	workLock.lock(); statusLock.lock(); state.textureBusy = false; return result;
 }
 
