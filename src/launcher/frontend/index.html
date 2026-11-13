@@ -11,6 +11,7 @@
   <script src="friends.js" defer></script>
   <script src="world.js" defer></script>
   <script src="texture.js" defer></script>
+  <script src="graphic-packs.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -30,12 +31,14 @@
         <button type="button" data-page="friends">Friends <span id="friends-badge" class="friends-badge" hidden></span></button>
         <button type="button" data-page="world">World</button>
         <button type="button" data-page="texture">Texture</button>
+        <button type="button" data-page="graphic-packs">Graphic Packs</button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main data-view="home">
       <header class="topbar"><span id="page-label">Settings</span></header>
+      <p id="core-error" class="footnote core-error" role="alert" hidden></p>
       <section id="home" aria-label="Minecraft: Wii U Edition">
         <div class="home-art">
           <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
@@ -78,6 +81,12 @@
         <hr class="texture-divider">
         <h2 class="texture-heading">Available Textures</h2>
         <div id="texture-list" class="texture-list" aria-label="利用可能なテクスチャ" aria-busy="false"></div>
+      </section>
+      <section id="graphic-packs" aria-labelledby="graphic-packs-title" hidden>
+        <div class="settings-title-row"><h1 id="graphic-packs-title">Graphic Packs</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="graphic-packs-open-folder" type="button" disabled>フォルダを開く</button></div></div>
+        <p class="footnote">変更は次回ゲーム起動時に反映されます。追加したパックは次回Launcher起動時に認識します。対応するゲームバージョンは各パックの説明を確認してください。</p>
+        <p id="graphic-packs-notice" class="footnote" role="status" aria-live="polite">準備完了後にGraphic Packを表示します。</p>
+        <div id="graphic-packs-list" class="graphic-packs-list" aria-label="インストール済みGraphic Pack"></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
         <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>

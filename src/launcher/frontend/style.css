@@ -12,6 +12,18 @@
   font-size:16px;
 }
 
+#graphic-packs { padding-top:24px; }
+#graphic-packs .settings-title-row h1 { font-size:2rem; margin:0; }
+.graphic-packs-list { display:grid; gap:16px; padding-bottom:24px; }
+.core-error { flex-shrink:0; margin:16px 44px 0; padding:12px; border:1px solid #62626c; border-radius:5px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.graphic-pack { min-width:0; padding:20px; border:1px solid #48484f; border-radius:5px; }
+.graphic-pack-title { display:flex; gap:12px; align-items:center; overflow-wrap:anywhere; }
+.graphic-pack-title > span:first-of-type { flex:1; min-width:0; font-weight:600; }
+.graphic-pack-title > .footnote { flex-shrink:0; }
+.graphic-pack-description { white-space:pre-wrap; overflow-wrap:anywhere; margin:12px 0; }
+.graphic-pack-preset { margin-top:12px; flex-wrap:wrap; }
+.graphic-pack-preset select { max-width:100%; min-width:0; text-overflow:ellipsis; }
+
 * {
   box-sizing:border-box;
 }

@@ -59,6 +59,8 @@ public:
 	PatchEntry() {};
 	virtual ~PatchEntry() {};
 
+	virtual void ResetResolution() {}
+
 	virtual sint32 getLineNumber() { return -1; }
 
 	// apply relocation or evaluate any expressions for this entry
@@ -76,6 +78,7 @@ public:
 		m_expressionString.assign(expressionStr, expressionLen);
 	}
 
+	void ResetResolution() override { m_isResolved = false; }
 	sint32 getLineNumber() override { return m_lineNumber; }
 
 	PATCH_RESOLVE_RESULT resolve(PatchContext_t& ctx) override;
@@ -111,6 +114,7 @@ public:
 		m_expressionString.assign(expressionStr, expressionLen);
 	}
 
+	void ResetResolution() override { m_isResolved = false; }
 	sint32 getLineNumber() override { return m_lineNumber; }
 
 	PATCH_RESOLVE_RESULT resolve(PatchContext_t& ctx) override;
@@ -136,6 +140,7 @@ public:
 		m_symbolName.assign(symbolName, symbolNameLen);
 	}
 
+	void ResetResolution() override { m_isResolved = false; }
 	sint32 getLineNumber() override { return m_lineNumber; }
 
 	PATCH_RESOLVE_RESULT resolve(PatchContext_t& ctx) override;
@@ -181,6 +186,7 @@ public:
 			delete[] m_dataBackup;
 	}
 
+	void ResetResolution() override { m_addrRelocated = false; memcpy(m_dataWithRelocs, m_data, m_length); for (auto& reloc : m_relocs) reloc.m_isApplied = false; }
 	sint32 getLineNumber() override { return m_lineNumber; }
 
 	uint32 getAddr() const
@@ -232,6 +238,8 @@ public:
 		name = std::string(nameStr, nameLength);
 	}
 
+	~PatchGroup();
+
 	bool matchesCRC(uint32 crc)
 	{
 		for (auto& chk : list_moduleMatches)
@@ -257,6 +265,8 @@ public:
 		return name;
 	}
 
+	void TrackSymbol(uint32 address) { m_symbols.push_back(address); }
+
 	void setApplied() { m_isApplied = true; }
 	void resetApplied() { m_isApplied = false; }
 	bool isApplied() const { return m_isApplied; }
@@ -267,8 +277,11 @@ private:
 	std::vector<uint32> list_moduleMatches;
 	std::vector<PatchEntry*> list_patches;
 	std::vector<std::pair<std::string, GPCallbackType>> list_callbacks;
-	uint32 codeCaveSize;
+	uint32 codeCaveSize{};
 	MEMPTR<void> codeCaveMem;
 	bool m_isApplied{};
 	bool m_isRpxOnlyTarget{};
+	const RPLModule* m_appliedModule = nullptr;
+	std::vector<uint32> m_symbols;
+	std::vector<std::pair<MPTR, GPCallbackType>> m_appliedCallbacks;
 };

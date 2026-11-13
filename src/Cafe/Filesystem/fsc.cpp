@@ -83,7 +83,10 @@ void fsc_reset()
 	}
 	// init root node for each priority
 	for (sint32 i = 0; i < FSC_PRIORITY_COUNT; i++)
+	{
 		s_fscRootNodePerPrio[i] = new FSCMountPathNode(nullptr);
+		s_fscRootNodePerPrio[i]->priority = i;
+	}
 }
 
 /*

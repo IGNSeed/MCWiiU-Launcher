@@ -1,5 +1,6 @@
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Common/FileStream.h"
+#include "WindowSystem.h"
 #include "Cemu/PPCAssembler/ppcAssembler.h"
 #include "Cafe/OS/RPL/rpl_structs.h"
 #include "Cafe/OS/RPL/rpl_symbol_storage.h"
@@ -378,6 +379,12 @@ PATCH_RESOLVE_RESULT PatchEntryInstruction::resolve(PatchContext_t& ctx)
 		}
 		m_addrRelocated = true;
 	}
+	// 命令全体が割り当て済みの領域内にあることを検証する。
+	const uint64 end = uint64(m_addr) + m_size;
+	bool valid = m_addr < PatchGroup::CODECAVE_MAX_OFFSET && end <= resolverState.currentGroup->getCodeCaveSize();
+	for (const auto& section : ctx.matchedModule->sectionTable)
+		if (m_addr >= section.virtualAddress && end <= uint64(section.virtualAddress) + section.sectionSize) valid = true;
+	if (!valid || uint64(m_relocatedAddr) + m_size > 0x100000000ULL) return PATCH_RESOLVE_RESULT::INVALID_ADDRESS;
 	// apply relocations to instruction
 	for (auto& itr : this->m_relocs)
 	{
@@ -406,6 +413,7 @@ void PatchEntryInstruction::applyPatch()
 	uint8* patchAddr = (uint8*)memory_base + addr;
 	memcpy(m_dataBackup, patchAddr, m_length);
 	memcpy(patchAddr, m_dataWithRelocs, m_length);
+	if (memcmp(patchAddr, m_dataWithRelocs, m_length)) throw std::runtime_error("Graphic pack ASM memory verification failed");
 	PPCRecompiler_invalidateRange(addr, addr + m_length);
 }
 
@@ -419,6 +427,7 @@ void PatchEntryInstruction::undoPatch()
 	}
 	uint8* patchAddr = (uint8*)memory_base + addr;
 	memcpy(patchAddr, m_dataBackup, m_length);
+	if (memcmp(patchAddr, m_dataBackup, m_length)) throw std::runtime_error("Graphic pack ASM restore verification failed");
 	PPCRecompiler_invalidateRange(addr, addr + m_length);
 	rplSymbolStorage_removeRange(addr, m_length, RPL_STORED_SYMBOL_PATCH);
 	DebugSymbolStorage::ClearRange(addr, m_length);
@@ -433,6 +442,7 @@ bool registerU32Variable(PatchContext_t& ctx, std::string& name, uint32 value, P
 		return false;
 	}
 	ctx.map_values[name] = value;
+	associatedPatchGroup->TrackSymbol(value);
 	// keep track of address symbols for the debugger
 	rplSymbolStorage_store(ctx.graphicPack->GetName().data(), name.data(), value, RPL_STORED_SYMBOL_PATCH);
 
@@ -543,13 +553,32 @@ bool _resolverPass(PatchContext_t& patchContext, std::vector<UnresolvedPatches_t
 	return numResolvedEntries;
 }
 
-void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl)
+bool GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl)
 {
 	// init context information
 	PatchContext_t patchContext{};
 	patchContext.graphicPack = this;
 	patchContext.matchedModule = rpl;
 	resolverState.activePatchContext = &patchContext;
+	bool committed = false;
+	std::vector<PatchEntryInstruction*> written;
+	const auto callbackCount = m_callbacks.size();
+	auto cleanup = std::unique_ptr<void, std::function<void(void*)>>(this, [&](void*) {
+		resolverState.activePatchContext = nullptr;
+		if (committed) return;
+		for (auto it = written.rbegin(); it != written.rend(); ++it) (*it)->undoPatch();
+		m_callbacks.resize(callbackCount);
+		for (auto group : groups)
+		{
+			if (group->isApplied()) continue;
+			for (auto address : group->m_symbols) rplSymbolStorage_removeRange(address, 1, RPL_STORED_SYMBOL_PATCH);
+			group->m_symbols.clear();
+			group->m_appliedCallbacks.clear();
+			if (group->codeCaveMem) RPLLoader_ReleaseCodeCaveMem(group->codeCaveMem);
+			group->codeCaveMem = nullptr;
+			for (auto patch : group->list_patches) patch->ResetResolution();
+		}
+	});
 	// setup error handler
 	patchContext.errorHandler.setCurrentGraphicPack(this);
 	patchContext.errorHandler.setStage(PatchErrorHandler::STAGE::APPLY);
@@ -559,7 +588,7 @@ void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLM
 		if (patchGroup->isApplied())
 		{
 			patchContext.errorHandler.printError(patchGroup, -1, "Group already applied to a different module.");
-			return;
+			return false;
 		}
 	}
 	// allocate code cave for every group
@@ -572,7 +601,7 @@ void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLM
 			{
 				patchContext.errorHandler.printError(patchGroup, -1, fmt::format("Not enough code cave memory for {} bytes, the code caves of all graphic packs share {} bytes", patchGroup->codeCaveSize, MEMORY_CODECAVEAREA_SIZE));
 				patchContext.errorHandler.showStageErrorMessageBox();
-				return;
+				return false;
 			}
 			cemuLog_log(LogType::Force, "Applying patch group \'{}\' (Codecave: {:08x}-{:08x})", patchGroup->name, codeCaveMem.GetMPTR(), codeCaveMem.GetMPTR() + patchGroup->codeCaveSize);
 			patchGroup->codeCaveMem = codeCaveMem;
@@ -627,13 +656,46 @@ void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLM
 			for (auto& itr : patchContext.unresolvedSymbols)
 				patchContext.errorHandler.printError(itr.patchGroup, itr.lineNumber, fmt::format("Unresolved symbol: {}", itr.symbolName));
 			patchContext.errorHandler.showStageErrorMessageBox();
-			return;
+			return false;
 		}
 	}
 	if (!isUnresolvedPatchesEmpty() || patchContext.errorHandler.hasError())
 	{
 		patchContext.errorHandler.showStageErrorMessageBox();
-		return;
+		return false;
+	}
+	// 全アドレスとコールバックを確定してから実メモリへ書き込む。
+	std::vector<std::pair<uint64, uint64>> ranges;
+	if (s_launcherManaged)
+	{
+		for (const auto& pack : s_graphic_packs)
+			for (auto group : pack->list_patchGroups)
+				if (group->isApplied())
+					for (auto entry : group->list_patches)
+						if (auto instruction = dynamic_cast<PatchEntryInstruction*>(entry))
+							ranges.emplace_back(instruction->getRelocatedAddr(), uint64(instruction->getRelocatedAddr()) + instruction->getSize());
+	}
+	for (auto group : groups)
+	{
+		for (auto entry : group->list_patches)
+		{
+			if (auto instruction = dynamic_cast<PatchEntryInstruction*>(entry); instruction && s_launcherManaged)
+			{
+				const uint64 first = instruction->getRelocatedAddr(), last = first + instruction->getSize();
+				if (!first || last > 0x100000000ULL || std::any_of(ranges.begin(), ranges.end(), [&](auto range) { return first < range.second && range.first < last; }))
+				{
+					patchContext.errorHandler.printError(group, entry->getLineNumber(), fmt::format("Overlapping ASM write at 0x{:08x}", first));
+					return false;
+				}
+				ranges.emplace_back(first, last);
+			}
+		}
+		for (const auto& [name, type] : group->list_callbacks)
+			if (!patchContext.map_values.contains(name))
+			{
+				patchContext.errorHandler.printError(group, -1, "Unresolved callback: " + name);
+				return false;
+			}
 	}
 	// apply relocated patches
 	for (auto patchGroup : groups)
@@ -644,6 +706,7 @@ void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLM
 			if (patchInstruction == nullptr)
 				continue;
 			patchInstruction->applyPatch();
+			written.push_back(patchInstruction);
 		}
 		
 		for (const auto& [name, type] : patchGroup->list_callbacks)
@@ -652,38 +715,46 @@ void GraphicPack2::ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLM
             if (it != patchContext.map_values.end())
             {
                 m_callbacks.push_back(std::make_pair(it->second, type));
+                patchGroup->m_appliedCallbacks.emplace_back(it->second, type);
             }
             else
             {
                 patchContext.errorHandler.printError(patchGroup, -1, fmt::format("Failed to resolve .callback symbol: {}", name));
                 patchContext.errorHandler.showStageErrorMessageBox();
-                return;
+                return false;
             }
 		}
 	}
 	// mark groups as applied
 	for (auto patchGroup : groups)
+	{
+		patchGroup->m_appliedModule = rpl;
 		patchGroup->setApplied();
+		if (s_launcherManaged) cemuLog_log(LogType::Force, "Graphic pack ASM verified: pack={} group={} module={} checksum={:08x} cave={:08x} size={}", GetName(), patchGroup->name, rpl->moduleName, rpl->patchCRC, patchGroup->getCodeCaveBase(), patchGroup->getCodeCaveSize());
+	}
+	committed = true;
+	return true;
 }
 
 void GraphicPack2::UndoPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl)
 {
-	// restore original data
-	for (auto patchGroup : groups)
+	for (auto it = groups.rbegin(); it != groups.rend(); ++it)
 	{
-		if (!patchGroup->isApplied())
-			continue;
-		for (auto& patch : patchGroup->list_patches)
-		{
-			PatchEntryInstruction* patchInstruction = dynamic_cast<PatchEntryInstruction*>(patch);
-			if (patchInstruction == nullptr)
-				continue;
-			patchInstruction->undoPatch();
-		}
+		auto group = *it;
+		if (!group->isApplied() || group->m_appliedModule != rpl) continue;
+		for (auto entry = group->list_patches.rbegin(); entry != group->list_patches.rend(); ++entry)
+			if (auto instruction = dynamic_cast<PatchEntryInstruction*>(*entry)) instruction->undoPatch();
+		for (auto callback : group->m_appliedCallbacks) std::erase(m_callbacks, callback);
+		group->m_appliedCallbacks.clear();
+		for (auto address : group->m_symbols) rplSymbolStorage_removeRange(address, 1, RPL_STORED_SYMBOL_PATCH);
+		group->m_symbols.clear();
+		if (group->codeCaveMem) RPLLoader_ReleaseCodeCaveMem(group->codeCaveMem);
+		group->codeCaveMem = nullptr;
+		group->m_appliedModule = nullptr;
+		group->resetApplied();
+		if (s_launcherManaged) cemuLog_log(LogType::Force, "Graphic pack ASM restored: pack={} group={} module={}", GetName(), group->name, rpl->moduleName);
+		for (auto entry : group->list_patches) entry->ResetResolution();
 	}
-	// mark groups as not applied
-	for (auto patchGroup : groups)
-		patchGroup->resetApplied();
 }
 
 void GraphicPack2::NotifyModuleLoaded(const RPLModule* rpl)
@@ -691,13 +762,19 @@ void GraphicPack2::NotifyModuleLoaded(const RPLModule* rpl)
 	cemuLog_log(LogType::Force, "Loaded module \'{}\' with checksum 0x{:08x}", rpl->moduleName, rpl->patchCRC);
 
 	std::lock_guard<std::recursive_mutex> lock(mtx_patches);
+	if (std::find(list_modules.begin(), list_modules.end(), rpl) != list_modules.end()) return;
 	list_modules.emplace_back(rpl);
-
-	// todo - iterate all active graphic packs and apply any matching patch groups
+	try { for (const auto& pack : s_active_graphic_packs) pack->ApplyPatchesForModule(rpl); }
+	catch (const std::exception& error)
+	{
+		if (!s_launcherManaged) throw;
+		WindowSystem::ShowErrorDialog(error.what(), "Graphic Packs", WindowSystem::ErrorCategory::GRAPHIC_PACKS);
+	}
 }
 
 void GraphicPack2::NotifyModuleUnloaded(const RPLModule* rpl)
 {
 	std::lock_guard<std::recursive_mutex> lock(mtx_patches);
+	for (auto it = s_active_graphic_packs.rbegin(); it != s_active_graphic_packs.rend(); ++it) (*it)->RevertPatchesForModule(rpl);
 	list_modules.erase(std::remove(list_modules.begin(), list_modules.end(), rpl), list_modules.end());
 }

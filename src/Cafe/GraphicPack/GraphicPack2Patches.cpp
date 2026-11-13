@@ -39,6 +39,7 @@ void PatchErrorHandler::printError(class PatchGroup* patchGroup, sint32 lineNumb
 
 void PatchErrorHandler::showStageErrorMessageBox()
 {
+	if (GraphicPack2::IsLauncherManaged()) return;
 	std::string errorMsg;
 	if (m_gp)
 	{
@@ -76,6 +77,7 @@ bool GraphicPack2::LoadCemuPatches()
 	for (auto& p : fs::directory_iterator(path))
 	{
 		auto& path = p.path();
+		if (s_launcherManaged && !IsLauncherFile(path)) continue;
 		if (fs::is_regular_file(p.status()) && path.has_filename())
 		{
 			// check if filename matches
@@ -94,12 +96,13 @@ bool GraphicPack2::LoadCemuPatches()
 					if (!ParseCemuPatchesTxtInternal(patchesStream))
 					{
 						cemuLog_log(LogType::Force, "Error while processing \"{}\". No patches for this graphic pack will be applied.", _pathToUtf8(path));
-						cemu_assert_debug(list_patchGroups.empty());
+						m_patchLoadFailed = true;
 						return true; // return true since a .asm patch was found even if we could not parse it
 					}
 				}
 				else
 				{
+					m_patchLoadFailed = true;
 					cemuLog_log(LogType::Force, "Unable to load patch file \"{}\"", _pathToUtf8(path));
 				}
 				foundPatches = true;
@@ -120,6 +123,7 @@ void GraphicPack2::LoadPatchFiles()
 	fs::path path(m_rulesPath);
 	path.remove_filename();
 	path.append("patches.txt");
+	if (s_launcherManaged && !IsLauncherFile(path)) return;
 	FileStream* patchFile = FileStream::openFile2(path);
 	if (patchFile == nullptr)
 		return;
@@ -136,6 +140,7 @@ void GraphicPack2::LoadPatchFiles()
 void GraphicPack2::EnablePatches()
 {
 	std::lock_guard<std::recursive_mutex> lock(mtx_patches);
+	if (m_patchLoadFailed && s_launcherManaged) throw std::runtime_error("Graphic pack ASM parsing failed: " + GetName());
 	for (auto& itr : list_modules)
 		ApplyPatchesForModule(itr);
 }
@@ -147,8 +152,8 @@ void GraphicPack2::UnloadPatches()
 	std::lock_guard<std::recursive_mutex> lock(mtx_patches);
 	// if any patch groups were applied then revert here
 	// do this by calling RevertPatchesForModule for every module?
-	for (auto& itr : list_modules)
-		RevertPatchesForModule(itr);
+	for (auto itr = list_modules.rbegin(); itr != list_modules.rend(); ++itr)
+		RevertPatchesForModule(*itr);
 	// delete all patches
 	for (auto itr : list_patchGroups)
 		delete itr;
@@ -177,7 +182,10 @@ void GraphicPack2::ApplyPatchesForModule(const RPLModule* rpl)
 	}
 	// apply all groups at once
 	if (!list_groups.empty())
-		ApplyPatchGroups(list_groups, rpl);
+	{
+		if (!ApplyPatchGroups(list_groups, rpl) && s_launcherManaged)
+			throw std::runtime_error("Graphic pack ASM application failed: " + GetName());
+	}
 }
 
 void GraphicPack2::RevertPatchesForModule(const RPLModule* rpl)
@@ -188,7 +196,7 @@ void GraphicPack2::RevertPatchesForModule(const RPLModule* rpl)
 	std::vector<PatchGroup*> list_groups;
 	for (auto itr : list_patchGroups)
 	{
-		if (itr->matchesCRC(rpl->patchCRC) || (itr->m_isRpxOnlyTarget && rpl->IsRPX()))
+		if (itr->m_appliedModule == rpl)
 			list_groups.emplace_back(itr);
 	}
 	// undo all groups at once
@@ -198,3 +206,15 @@ void GraphicPack2::RevertPatchesForModule(const RPLModule* rpl)
 
 std::recursive_mutex GraphicPack2::mtx_patches;
 std::vector<const RPLModule*> GraphicPack2::list_modules;
+
+PatchGroup::~PatchGroup()
+{
+	if (codeCaveMem) RPLLoader_ReleaseCodeCaveMem(codeCaveMem);
+	for (auto entry : list_patches) delete entry;
+}
+
+size_t GraphicPack2::TrackedModuleCount()
+{
+	std::lock_guard lock(mtx_patches);
+	return list_modules.size();
+}

@@ -56,6 +56,8 @@ public:
 	std::string PreviewAccountZip(uint64_t requestId, const std::wstring& selectedFile);
 	std::string OpenWorldFolder(uint64_t requestId, std::string_view payload, const std::function<bool(const std::wstring&)>& open);
 	std::string WorldCommand(uint64_t requestId, std::string_view payload);
+	std::string GraphicPackCommand(uint64_t requestId, std::string_view payload);
+	std::string OpenGraphicPackFolder(uint64_t requestId, const std::function<bool(const std::wstring&)>& open);
 	void TextureCommand(uint64_t requestId, std::string payload, std::function<void(std::string)> complete);
 	std::string OpenTextureFolder(uint64_t requestId, const std::function<bool(const std::wstring&)>& open);
 	std::string PreviewWorldImage(uint64_t requestId, std::string_view payload, const std::wstring& selectedFile);

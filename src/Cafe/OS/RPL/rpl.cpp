@@ -1816,6 +1816,7 @@ void RPLLoader_UnloadModule(RPLDependency* rplDependency, bool skipPPCCalls)
 			PPCCoreCallback(rpl->entrypoint, rplDependency->coreinitHandle, 2); // 2 -> unload
 		}
 	}
+	GraphicPack2::NotifyModuleUnloaded(rpl);
 	// release memory
 	rplLoaderHeap_codeArea2.free(rpl->regionMappingBase_text.GetPtr());
 	rpl->regionMappingBase_text = nullptr;
@@ -2462,16 +2463,28 @@ private:
 };
 
 SimpleHeap<uint32, uint32> heapCodeCaveArea(MEMORY_CODECAVEAREA_ADDR, MEMORY_CODECAVEAREA_SIZE);
+static std::mutex s_codeCaveMutex;
+static std::set<uint32> s_codeCaveAllocations;
 
 MEMPTR<void> RPLLoader_AllocateCodeCaveMem(uint32 alignment, uint32 size)
 {
-	uint32 addr = heapCodeCaveArea.alloc(size, 256);
+	std::lock_guard lock(s_codeCaveMutex);
+	uint32 addr = heapCodeCaveArea.alloc(size, alignment);
+	if (addr) s_codeCaveAllocations.insert(addr);
 	return MEMPTR<void>{addr};
 }
 
 void RPLLoader_ReleaseCodeCaveMem(MEMPTR<void> addr)
 {
+	std::lock_guard lock(s_codeCaveMutex);
+	if (!s_codeCaveAllocations.erase(addr.GetMPTR())) { cemu_assert_debug(false); return; }
 	heapCodeCaveArea.free(addr.GetMPTR());
+}
+
+size_t RPLLoader_GetCodeCaveAllocationCount()
+{
+	std::lock_guard lock(s_codeCaveMutex);
+	return s_codeCaveAllocations.size();
 }
 
 void RPLLoader_UnloadAll()

@@ -222,5 +222,6 @@ struct FSCOwnedRedirect
 };
 // タイトル停止中に登録・解除する。既存の Graphic Pack と他の所有者には触れない。
 bool fscDeviceRedirect_setOwned(const void* owner, const std::vector<FSCOwnedRedirect>& files);
+bool fscDeviceRedirect_setOwnedPack(const void* owner, const std::vector<FSCOwnedRedirect>& files, std::string& conflict);
 void fscDeviceRedirect_removeOwned(const void* owner);
 size_t fscDeviceRedirect_ownedCount(const void* owner);

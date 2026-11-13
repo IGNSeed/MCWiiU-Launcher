@@ -13,11 +13,20 @@
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #include "Cafe/HW/Latte/Renderer/RendererOuputShader.h"
+#ifdef ENABLE_VULKAN
+#include "Cafe/HW/Latte/Renderer/Vulkan/RendererShaderVk.h"
+#endif
+#ifdef ENABLE_OPENGL
+#include "Cafe/HW/Latte/Renderer/OpenGL/RendererShaderGL.h"
+#endif
+#include "WindowSystem.h"
 #include <cinttypes>
 
 std::vector<GraphicPackPtr> GraphicPack2::s_graphic_packs;
 std::vector<GraphicPackPtr> GraphicPack2::s_active_graphic_packs;
 std::atomic_bool GraphicPack2::s_isReady;
+bool GraphicPack2::s_launcherManaged = false;
+int GraphicPack2::s_launcherVSyncFrequency = 0;
 
 #define GP_LEGACY_VERSION		(2)
 
@@ -194,13 +203,14 @@ bool GraphicPack2::DeactivateGraphicPack(const std::shared_ptr<GraphicPack2>& gr
 void GraphicPack2::ActivateForCurrentTitle()
 {
 	uint64 titleId = CafeSystem::GetForegroundTitleId();
+	struct ReadyOnExit { ~ReadyOnExit() { s_isReady = true; } } readyOnExit;
 	// activate graphic packs
 	for (const auto& gp : GraphicPack2::GetGraphicPacks())
 	{
 		if (!gp->IsEnabled())
 			continue;
 
-		if (!gp->ContainsTitleId(titleId))
+		if (!gp->MatchesTitle(titleId))
 			continue;
 
 		if (GraphicPack2::ActivateGraphicPack(gp))
@@ -228,18 +238,28 @@ void GraphicPack2::ActivateForCurrentTitle()
 				cemuLog_log(LogType::Force, logLine);
 			}
 		}
+		else if (s_launcherManaged)
+			throw std::runtime_error(fmt::format("Graphic pack activation failed: {}", gp->GetName()));
 	}
 	s_isReady = true;
 }
 
 void GraphicPack2::Reset()
 {
+	std::lock_guard lock(mtx_patches);
+	// GPU と PPC の停止後、モジュールとメモリが有効な間に逆順で解除する。
+	for (auto it = s_active_graphic_packs.rbegin(); it != s_active_graphic_packs.rend(); ++it)
+		(*it)->Deactivate();
+	for (auto it = s_graphic_packs.rbegin(); it != s_graphic_packs.rend(); ++it)
+		(*it)->Deactivate();
 	s_active_graphic_packs.clear();
+	list_modules.clear();
 	s_isReady = false;
 }
 
 void GraphicPack2::ClearGraphicPacks()
 {
+	Reset();
 	s_graphic_packs.clear();
 	s_active_graphic_packs.clear();
 }
@@ -594,6 +614,18 @@ std::string GraphicPack2::GetNormalizedPathString() const
 	return _pathToUtf8(MakeRelativePath(ActiveSettings::GetUserDataPath(), GetRulesPath()).lexically_normal());
 }
 
+bool GraphicPack2::IsMinecraftTitle(uint64_t id)
+{
+	return id == 0x00050000101dbe00ULL || id == 0x00050000101d9d00ULL || id == 0x00050000101d7500ULL;
+}
+
+bool GraphicPack2::MatchesTitle(uint64_t titleId) const
+{
+	if (!s_launcherManaged) return ContainsTitleId(titleId);
+	if (!IsMinecraftTitle(titleId)) return false;
+	return IsUniversal() || std::any_of(m_title_ids.begin(), m_title_ids.end(), IsMinecraftTitle);
+}
+
 bool GraphicPack2::ContainsTitleId(uint64_t title_id) const
 {
 	if (m_universal)
@@ -742,6 +774,7 @@ void GraphicPack2::LoadShaders()
 	fs::path path = GetRulesPath();
 	for (auto& it : fs::directory_iterator(path.remove_filename()))
 	{
+		if (s_launcherManaged && !IsLauncherFile(it.path())) continue;
 		if (!is_regular_file(it))
 			continue;
 
@@ -927,6 +960,30 @@ void GraphicPack2::LoadReplacedFiles()
 	fs::path gfxPackPath = GetRulesPath();
 	gfxPackPath = gfxPackPath.remove_filename();
 
+	if (s_launcherManaged)
+	{
+		std::vector<FSCOwnedRedirect> files;
+		for (const auto& path : m_launcherFiles)
+		{
+			const auto relative = path.lexically_relative(gfxPackPath);
+			auto it = relative.begin(); if (it == relative.end()) continue;
+			const auto folder = _pathToUtf8(*it); ++it;
+			std::string mount;
+			if (boost::iequals(folder, "content")) mount = "/vol/content";
+			else if (boost::iequals(folder, "code")) mount = CafeSystem::GetInternalVirtualCodeFolder();
+			else if (boost::iequals(folder, "aoc")) mount = fmt::format("/vol/aoc{:016x}", (CafeSystem::GetForegroundTitleId() & 0xffffffffULL) | 0x0005000c00000000ULL);
+			else continue;
+			while (mount.ends_with('/')) mount.pop_back();
+			for (; it != relative.end(); ++it) mount += "/" + _pathToUtf8(*it);
+			files.push_back({mount, path, fs::file_size(path)});
+		}
+
+		std::string conflict;
+		if (!fscDeviceRedirect_setOwnedPack(this, files, conflict))
+			throw std::runtime_error(fmt::format("Graphic pack {}: replacement conflict at {}", GetName(), conflict));
+		return;
+	}
+
 	// /content/
 	fs::path contentPath(gfxPackPath);
 	contentPath.append("content");
@@ -1066,6 +1123,7 @@ bool GraphicPack2::Activate()
 		return false;
 	}
 
+	m_activated = true;
 	// load shaders
 	LoadShaders();
 
@@ -1078,6 +1136,12 @@ bool GraphicPack2::Activate()
 	// load replaced files
 	LoadReplacedFiles();
 
+	if (s_launcherManaged && HasCustomVSyncFrequency())
+	{
+		if (m_vsync_frequency != (s_launcherVSyncFrequency ? s_launcherVSyncFrequency : 60))
+			throw std::runtime_error("Graphic pack VSync conflicts with Native Graphics: " + GetName());
+		if (!s_launcherVSyncFrequency) m_vsync_frequency = -1;
+	}
 	// set custom vsync
 	if (HasCustomVSyncFrequency())
 	{
@@ -1100,22 +1164,19 @@ bool GraphicPack2::Activate()
 
 bool GraphicPack2::Deactivate()
 {
-	if (!m_activated)
-		return false;
-
+	const bool activated = m_activated;
 	UnloadPatches();
+	fscDeviceRedirect_removeOwned(this);
+	m_patchedFilesLoaded = false;
+	m_patchLoadFailed = false;
+	m_callbacks.clear();
+	m_output_settings = {};
 
 	m_activated = false;
 	m_custom_shaders.clear();
 	m_texture_rules.clear();
 
-	m_output_shader.reset();
-	m_upscaling_shader.reset();
-	m_downscaling_shader.reset();
-
-	m_output_shader_ud.reset();
-	m_upscaling_shader_ud.reset();
-	m_downscaling_shader_ud.reset();
+	ClearOutputShaders();
 
 	m_output_shader_source.clear();
 	m_upscaling_shader_source.clear();
@@ -1128,7 +1189,23 @@ bool GraphicPack2::Deactivate()
 		LatteTiming_disableCustomVsyncFrequency();
 	}
 
-	return true;
+	return activated;
+}
+
+void GraphicPack2::ClearOutputShaders()
+{
+	m_output_shader.reset();
+	m_upscaling_shader.reset();
+	m_downscaling_shader.reset();
+	m_output_shader_ud.reset();
+	m_upscaling_shader_ud.reset();
+	m_downscaling_shader_ud.reset();
+}
+
+void GraphicPack2::ReleaseRendererResources()
+{
+	// Renderer と OpenGL Context が有効な GPU スレッド上で破棄する。
+	for (const auto& pack : s_graphic_packs) pack->ClearOutputShaders();
 }
 
 const std::string* GraphicPack2::FindCustomShaderSource(uint64 shaderBaseHash, uint64 shaderAuxHash, GP_SHADER_TYPE type, bool isVulkanRenderer, bool isMetalRenderer)
@@ -1174,6 +1251,53 @@ bool GraphicPack2::HasShaders() const
 	|| !m_output_shader_source.empty() || !m_upscaling_shader_source.empty() || !m_downscaling_shader_source.empty();
 }
 
+namespace
+{
+	std::string GraphicPackVertexSource(bool renderUpsideDown)
+	{
+		// 標準の出力シェーダーと同じ、実際の Renderer の頂点形式を使用する。
+		switch (g_renderer->GetType())
+		{
+		case RendererAPI::Vulkan: return RendererOutputShader::GetVulkanVertexSource(renderUpsideDown);
+		case RendererAPI::Metal: return RendererOutputShader::GetMetalVertexSource(renderUpsideDown);
+		default: return RendererOutputShader::GetOpenGlVertexSource(renderUpsideDown);
+		}
+	}
+
+	std::unique_ptr<RendererOutputShader> CreateGraphicPackOutputShader(bool renderUpsideDown, std::string& source, std::string_view name)
+	{
+		try
+		{
+			auto shader = std::make_unique<RendererOutputShader>(GraphicPackVertexSource(renderUpsideDown), source);
+#ifdef ENABLE_VULKAN
+			// DONE はコンパイル完了だけを表すため、無効なモジュールを描画に渡さない。
+			if (GraphicPack2::IsLauncherManaged() && g_renderer->GetType() == RendererAPI::Vulkan &&
+				(!static_cast<RendererShaderVk*>(shader->GetVertexShader())->GetShaderModule() || !static_cast<RendererShaderVk*>(shader->GetFragmentShader())->GetShaderModule()))
+				throw std::runtime_error("compiled shader module is unavailable");
+#endif
+#ifdef ENABLE_OPENGL
+			if (GraphicPack2::IsLauncherManaged() && g_renderer->GetType() == RendererAPI::OpenGL)
+			{
+				GLint vertexLinked = GL_FALSE, fragmentLinked = GL_FALSE;
+				glGetProgramiv(static_cast<RendererShaderGL*>(shader->GetVertexShader())->GetProgram(), GL_LINK_STATUS, &vertexLinked);
+				glGetProgramiv(static_cast<RendererShaderGL*>(shader->GetFragmentShader())->GetProgram(), GL_LINK_STATUS, &fragmentLinked);
+				if (!vertexLinked || !fragmentLinked) throw std::runtime_error("compiled shader program is unavailable");
+			}
+#endif
+			return shader;
+		}
+		catch (const std::exception& error)
+		{
+			if (!GraphicPack2::IsLauncherManaged()) throw;
+			source.clear();
+			const auto message = fmt::format("Graphic pack output shader compilation failed: {} ({})", name, error.what());
+			cemuLog_log(LogType::Force, message);
+			WindowSystem::ShowErrorDialog(message, "Graphic Packs", WindowSystem::ErrorCategory::GRAPHIC_PACKS);
+			return {};
+		}
+	}
+} // namespace
+
 RendererOutputShader* GraphicPack2::GetOuputShader(bool render_upside_down)
 {
 	if(render_upside_down)
@@ -1182,7 +1306,7 @@ RendererOutputShader* GraphicPack2::GetOuputShader(bool render_upside_down)
 			return m_output_shader_ud.get();
 
 		if (!m_output_shader_source.empty())
-			m_output_shader_ud = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_output_shader_source);
+			m_output_shader_ud = CreateGraphicPackOutputShader(render_upside_down, m_output_shader_source, GetName());
 
 		return m_output_shader_ud.get();
 	}
@@ -1192,7 +1316,7 @@ RendererOutputShader* GraphicPack2::GetOuputShader(bool render_upside_down)
 			return m_output_shader.get();
 
 		if (!m_output_shader_source.empty())
-			m_output_shader = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_output_shader_source);
+			m_output_shader = CreateGraphicPackOutputShader(render_upside_down, m_output_shader_source, GetName());
 
 		return m_output_shader.get();
 	}
@@ -1206,7 +1330,7 @@ RendererOutputShader* GraphicPack2::GetUpscalingShader(bool render_upside_down)
 			return m_upscaling_shader_ud.get();
 
 		if (!m_upscaling_shader_source.empty())
-			m_upscaling_shader_ud = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_upscaling_shader_source);
+			m_upscaling_shader_ud = CreateGraphicPackOutputShader(render_upside_down, m_upscaling_shader_source, GetName());
 
 		return m_upscaling_shader_ud.get();
 	}
@@ -1216,7 +1340,7 @@ RendererOutputShader* GraphicPack2::GetUpscalingShader(bool render_upside_down)
 			return m_upscaling_shader.get();
 
 		if (!m_upscaling_shader_source.empty())
-			m_upscaling_shader = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_upscaling_shader_source);
+			m_upscaling_shader = CreateGraphicPackOutputShader(render_upside_down, m_upscaling_shader_source, GetName());
 
 		return m_upscaling_shader.get();
 	}
@@ -1230,7 +1354,7 @@ RendererOutputShader* GraphicPack2::GetDownscalingShader(bool render_upside_down
 			return m_downscaling_shader_ud.get();
 
 		if (!m_downscaling_shader_source.empty())
-			m_downscaling_shader_ud = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_downscaling_shader_source);
+			m_downscaling_shader_ud = CreateGraphicPackOutputShader(render_upside_down, m_downscaling_shader_source, GetName());
 
 		return m_downscaling_shader_ud.get();
 	}
@@ -1240,7 +1364,7 @@ RendererOutputShader* GraphicPack2::GetDownscalingShader(bool render_upside_down
 			return m_downscaling_shader.get();
 
 		if (!m_downscaling_shader_source.empty())
-			m_downscaling_shader = std::make_unique<RendererOutputShader>(RendererOutputShader::GetOpenGlVertexSource(render_upside_down), m_downscaling_shader_source);
+			m_downscaling_shader = CreateGraphicPackOutputShader(render_upside_down, m_downscaling_shader_source, GetName());
 
 		return m_downscaling_shader.get();
 	}
@@ -1342,7 +1466,7 @@ std::vector<std::pair<MPTR, MPTR>> GraphicPack2::GetActiveRAMMappings()
 	{
 		if (!gp->IsEnabled())
 			continue;
-		if (!gp->ContainsTitleId(currentTitleId))
+		if (!gp->MatchesTitle(currentTitleId))
 			continue;
 		if (!gp->m_ramMappings.empty())
 			v.insert(v.end(), gp->m_ramMappings.begin(), gp->m_ramMappings.end());

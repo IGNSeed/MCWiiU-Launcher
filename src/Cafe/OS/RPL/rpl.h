@@ -50,6 +50,7 @@ RPLModule* RPLLoader_GetModuleByName(std::string_view name);
 
 MEMPTR<void> RPLLoader_AllocateCodeCaveMem(uint32 alignment, uint32 size);
 void RPLLoader_ReleaseCodeCaveMem(MEMPTR<void> addr);
+size_t RPLLoader_GetCodeCaveAllocationCount();
 
 // exports
 

@@ -94,15 +94,15 @@ XMLConfigParser CemuConfig::Load(XMLConfigParser& parser)
 		if(filename.empty()) // legacy loading
 		{
 			filename = element.get("filename", "");
-			fs::path path = fs::path(filename).lexically_normal();
+			fs::path path = _utf8ToPath(filename).lexically_normal();
 			graphic_pack_entries.try_emplace(path);
 			const std::string category = element.get("category", "");
 			const std::string preset = element.get("preset", "");
-			graphic_pack_entries[filename].try_emplace(category, preset);
+			graphic_pack_entries[path].try_emplace(category, preset);
 		}
 		else
 		{
-			fs::path path = fs::path(filename).lexically_normal();
+			fs::path path = _utf8ToPath(filename).lexically_normal();
 			graphic_pack_entries.try_emplace(path);
 
 			const bool disabled = element.get_attribute("disabled", false);

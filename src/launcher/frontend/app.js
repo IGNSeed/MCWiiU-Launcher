@@ -1,6 +1,6 @@
 "use strict";
 
-const pages = ["home", "friends", "world", "texture", "settings"];
+const pages = ["home", "friends", "world", "texture", "graphic-packs", "settings"];
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
@@ -12,7 +12,7 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : "Settings";
+  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : page === "graphic-packs" ? "Graphic Packs" : "Settings";
   updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.();
 }, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
@@ -26,6 +26,7 @@ function showPage(selected, options = {}) {
   window.updateFriendsView?.();
   window.updateWorldView?.();
   window.updateTextureView?.();
+  window.updateGraphicPacksView?.();
   const focus = document.querySelector(`[data-page="${selected}"]`);
   if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
   navigation.forEach(item => {
@@ -117,6 +118,9 @@ const coreLabels = {
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
+  const coreError = document.getElementById("core-error");
+  coreError.textContent = typeof state.error === "string" && state.error ? "ゲーム起動エラー: " + state.error : "";
+  coreError.hidden = !coreError.textContent;
   if (state.phase !== "ready" || state.sessionId !== launchRequestSession) launchPending = false;
   if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;

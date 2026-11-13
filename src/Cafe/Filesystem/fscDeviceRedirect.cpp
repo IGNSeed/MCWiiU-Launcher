@@ -14,9 +14,12 @@ FSAFileTree<RedirectEntry> redirectTree;
 namespace
 {
 	std::map<const void*, std::map<std::string, FSCOwnedRedirect>> s_ownedRedirects;
+	std::set<std::string> s_legacyPaths;
 	std::string RedirectKey(std::string_view path)
 	{
-		FSCPath parsed(path);
+		std::string normalized(path);
+		std::replace(normalized.begin(), normalized.end(), '\\', '/');
+		FSCPath parsed(normalized);
 		std::string result;
 		for (size_t i = 0; i < parsed.GetNodeCount(); ++i)
 		{
@@ -31,6 +34,11 @@ extern std::recursive_mutex s_fscMutex;
 
 void fscDeviceRedirect_add(std::string_view virtualSourcePath, size_t fileSize, const fs::path& targetFilePath, sint32 priority)
 {
+	std::lock_guard lock(s_fscMutex);
+	const auto key = RedirectKey(virtualSourcePath);
+	for (const auto& [owner, files] : s_ownedRedirects)
+		if (files.contains(key)) throw std::runtime_error("File replacement conflict at " + key);
+	s_legacyPaths.insert(key);
 	// check if source already has a redirection
 	RedirectEntry* existingEntry;
 	if (redirectTree.getFile(virtualSourcePath, existingEntry))
@@ -93,30 +101,50 @@ void fscDeviceRedirect_map()
 	_redirectMapped = fsc_mount("/", "/", &fscDeviceTypeRedirect::instance(), nullptr, FSC_PRIORITY_REDIRECT) == FSC_STATUS_OK;
 }
 
+namespace
+{
+	bool RegisterOwned(const void* owner, const std::vector<FSCOwnedRedirect>& files, bool pack, std::string& conflict)
+	{
+		std::lock_guard lock(s_fscMutex);
+		if (!owner || s_ownedRedirects.contains(owner)) return false;
+		std::map<std::string, FSCOwnedRedirect> prepared;
+		for (const auto& file : files)
+		{
+			const auto key = RedirectKey(file.virtualPath);
+			conflict = key;
+			const bool valid = pack ? key.starts_with("/vol/content/") || key.starts_with("/internal/") || key.starts_with("/vol/aoc0005000c") : key.starts_with("/vol/content/common/");
+			if (!valid || key.find("/../") != std::string::npos || key.ends_with("/..") || !file.targetPath.is_absolute() || !prepared.emplace(key, file).second || s_legacyPaths.contains(key)) return false;
+			for (const auto& [other, entries] : s_ownedRedirects) if (entries.contains(key)) return false;
+		}
+		if (prepared.empty()) return true;
+		fscDeviceRedirect_map();
+		if (!_redirectMapped) return false;
+		s_ownedRedirects.emplace(owner, std::move(prepared));
+		conflict.clear();
+		return true;
+	}
+}
+
 bool fscDeviceRedirect_setOwned(const void* owner, const std::vector<FSCOwnedRedirect>& files)
 {
-	std::lock_guard lock(s_fscMutex);
-	if (!owner || s_ownedRedirects.contains(owner)) return false;
-	std::map<std::string, FSCOwnedRedirect> prepared;
-	for (const auto& file : files)
-	{
-		const auto key = RedirectKey(file.virtualPath);
-		if (!key.starts_with("/vol/content/common/") || !file.targetPath.is_absolute() || !prepared.emplace(key, file).second) return false;
-		RedirectEntry* existing;
-		if (redirectTree.getFile(file.virtualPath, existing)) return false;
-		for (const auto& [other, entries] : s_ownedRedirects) if (entries.contains(key)) return false;
-	}
-	if (prepared.empty()) return true;
-	fscDeviceRedirect_map();
-	if (!_redirectMapped) return false;
-	s_ownedRedirects.emplace(owner, std::move(prepared));
-	return true;
+	std::string conflict;
+	return RegisterOwned(owner, files, false, conflict);
+}
+
+bool fscDeviceRedirect_setOwnedPack(const void* owner, const std::vector<FSCOwnedRedirect>& files, std::string& conflict)
+{
+	return RegisterOwned(owner, files, true, conflict);
 }
 
 void fscDeviceRedirect_removeOwned(const void* owner)
 {
 	std::lock_guard lock(s_fscMutex);
 	s_ownedRedirects.erase(owner);
+	if (s_ownedRedirects.empty() && s_legacyPaths.empty() && _redirectMapped)
+	{
+		fsc_unmount("/", FSC_PRIORITY_REDIRECT);
+		_redirectMapped = false;
+	}
 }
 
 size_t fscDeviceRedirect_ownedCount(const void* owner)

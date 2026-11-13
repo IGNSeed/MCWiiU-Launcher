@@ -933,7 +933,14 @@ namespace CafeSystem
 		s_titleStarted = true;
 		for (auto& module : s_iosuModules)
 			module->TitleStart();
-		cemu_initForGame();
+		try { cemu_initForGame(); }
+		catch (const std::exception& error)
+		{
+			if (!GraphicPack2::IsLauncherManaged()) throw;
+			cemuLog_log(LogType::Force, "Title initialization aborted: {}", error.what());
+			WindowSystem::ShowErrorDialog(error.what(), "Graphic Packs", WindowSystem::ErrorCategory::GRAPHIC_PACKS);
+			return;
+		}
 		// enter scheduler
 		if ((ActiveSettings::GetCPUMode() == CPUMode::MulticoreRecompiler || LaunchSettings::ForceMultiCoreInterpreter()) && !LaunchSettings::ForceInterpreter())
 			coreinit::OSSchedulerBegin(3);
@@ -1121,6 +1128,7 @@ namespace CafeSystem
 			GX2::_GX2DriverReset();
 			nn::save::ResetToDefaultState();
 			coreinit::__OSDeleteAllActivePPCThreads();
+			GraphicPack2::Reset();
 			RPLLoader_UnloadAll();
 			for (auto it = s_iosuModules.rbegin(); it != s_iosuModules.rend(); ++it)
 				(*it)->TitleStop();

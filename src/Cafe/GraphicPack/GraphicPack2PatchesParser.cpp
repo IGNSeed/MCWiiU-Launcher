@@ -30,13 +30,15 @@ void GraphicPack2::LogPatchesSyntaxError(sint32 lineNumber, std::string_view err
 		cemuLog_log(LogType::Force, fmt::format("Line {0}: {1}", lineNumber, errorMsg));
 	else
 		cemuLog_log(LogType::Force, fmt::format("{0}", errorMsg));
+	m_patchLoadFailed = true;
+	for (auto group : list_patchGroups) delete group;
 	list_patchGroups.clear();
 }
 
 void GraphicPack2::CancelParsingPatches()
 {
 	// unload everything, set error flag
-	cemu_assert_debug(false);
+	m_patchLoadFailed = true;
 }
 
 void GraphicPack2::AddPatchGroup(PatchGroup* group)
@@ -77,7 +79,7 @@ void GraphicPack2::AddPatchGroup(PatchGroup* group)
 void GraphicPack2::ParseCemuhookPatchesTxtInternal(MemStreamReader& patchesStream)
 {
 	sint32 lineNumber = 0;
-	PatchGroup* currentGroup = nullptr;
+	std::unique_ptr<PatchGroup> currentGroup;
 	while (true)
 	{
 		auto lineStr = patchesStream.readLine();
@@ -119,9 +121,9 @@ void GraphicPack2::ParseCemuhookPatchesTxtInternal(MemStreamReader& patchesStrea
 			// begin new group
 			if (currentGroup)
 			{
-				AddPatchGroup(currentGroup);
+				AddPatchGroup(currentGroup.release());
 			}
-			currentGroup = new PatchGroup(this, groupNameStr, groupNameLength);
+			currentGroup = std::make_unique<PatchGroup>(this, groupNameStr, groupNameLength);
 		}
 		else if (parser.compareCharacter(0, '0') && parser.compareCharacterI(1, 'x'))
 		{
@@ -151,6 +153,7 @@ void GraphicPack2::ParseCemuhookPatchesTxtInternal(MemStreamReader& patchesStrea
 				CancelParsingPatches();
 				return;
 			}
+			if (!currentGroup) { LogPatchesSyntaxError(lineNumber, "Instruction outside group"); return; }
 			currentGroup->list_patches.emplace_back(new PatchEntryInstruction(lineNumber, patchedAddress, { ctx.outputData.data(), ctx.outputData.size() }, ctx.list_relocs));
 		}
 		else if (parser.matchWordI("moduleMatches"))
@@ -208,6 +211,7 @@ void GraphicPack2::ParseCemuhookPatchesTxtInternal(MemStreamReader& patchesStrea
 				const char* expressionStr = parser.getCurrentPtr();
 				sint32 expressionLen = parser.getCurrentLen();
 				// create entry for symbol value assignment
+				if (!currentGroup) { LogPatchesSyntaxError(lineNumber, "Symbol outside group"); return; }
 				currentGroup->list_patches.emplace_back(new PatchEntryCemuhookSymbolValue(lineNumber, symbolStr, symbolLen, expressionStr, expressionLen));
 				continue;
 			}
@@ -220,7 +224,7 @@ void GraphicPack2::ParseCemuhookPatchesTxtInternal(MemStreamReader& patchesStrea
 		}
 	}
 	if (currentGroup)
-		AddPatchGroup(currentGroup);
+		AddPatchGroup(currentGroup.release());
 }
 
 static inline uint32 INVALID_ORIGIN = 0xFFFFFFFF;
@@ -228,7 +232,7 @@ static inline uint32 INVALID_ORIGIN = 0xFFFFFFFF;
 bool GraphicPack2::ParseCemuPatchesTxtInternal(MemStreamReader& patchesStream)
 {
 	sint32 lineNumber = 0;
-	PatchGroup* currentGroup = nullptr;
+	std::unique_ptr<PatchGroup> currentGroup;
 
 	struct  
 	{
@@ -264,7 +268,8 @@ bool GraphicPack2::ParseCemuPatchesTxtInternal(MemStreamReader& patchesStream)
 		uint32 codeCaveOrigin{};
 	}originInfo;
 	// labels dont get emitted immediately, instead they are assigned a VA after the next alignment zone
-	std::vector<PatchEntryLabel*> scheduledLabels; 
+	std::vector<PatchEntryLabel*> scheduledLabels;
+	auto labelsCleanup = std::unique_ptr<void, std::function<void(void*)>>(this, [&](void*) { for (auto label : scheduledLabels) delete label; });
 	// this is to prevent code like this from putting alignment bytes after the label. (The label 'sticks' to the data after it)
 	// .byte 123
 	// Label:
@@ -323,9 +328,9 @@ bool GraphicPack2::ParseCemuPatchesTxtInternal(MemStreamReader& patchesStream)
 			if (currentGroup)
 			{
 				flushLabels();
-				AddPatchGroup(currentGroup);
+				AddPatchGroup(currentGroup.release());
 			}
-			currentGroup = new PatchGroup(this, groupNameStr, groupNameLength);
+			currentGroup = std::make_unique<PatchGroup>(this, groupNameStr, groupNameLength);
 			// reset origin tracking
 			originInfo.reset();
 			continue;
@@ -558,6 +563,6 @@ bool GraphicPack2::ParseCemuPatchesTxtInternal(MemStreamReader& patchesStream)
 	flushLabels();
 
 	if (currentGroup)
-		AddPatchGroup(currentGroup);
+		AddPatchGroup(currentGroup.release());
 	return true;
 }

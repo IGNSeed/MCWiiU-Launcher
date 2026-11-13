@@ -6,6 +6,8 @@
 #include "FriendsService.h"
 #include "WorldService.h"
 #include "TextureService.h"
+#include "GraphicPackService.h"
+#include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Cafe/Account/Account.h"
 #include "Cafe/TitleList/SaveInfo.h"
 #include "Cemu/nex/FriendsSession.h"
@@ -127,6 +129,10 @@ namespace
 		std::unique_ptr<WorldService> worlds;
 		std::unique_ptr<TextureService> textures;
 		bool textureBusy = false;
+		std::unique_ptr<GraphicPackService> graphicPacks;
+		bool graphicPackBusy = false;
+		uint64_t lastGraphicPackRequest = 0;
+		std::chrono::steady_clock::time_point nextGraphicPackFolderOpen{};
 		uint64_t lastTextureRequest = 0;
 		std::chrono::steady_clock::time_point nextTextureFolderOpen{};
 		uint64_t lastWorldRequest = 0;
@@ -216,11 +222,11 @@ namespace
 		}
 		bool CanEditSettingsLocked() const
 		{
-			return CanEditWorldsLocked() && (!worlds || worlds->IsHealthy()) && (!textures || textures->IsHealthy());
+			return CanEditWorldsLocked() && (!worlds || worlds->IsHealthy()) && (!textures || textures->IsHealthy()) && (!graphicPacks || graphicPacks->IsHealthy());
 		}
 		bool CanEditWorldsLocked() const
 		{
-			return !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
 		}
 		WorldService::Context WorldContext() const
 		{
@@ -261,6 +267,7 @@ namespace
 				writer.Key("canRecoverWorlds"); writer.Bool(CanEditWorldsLocked() && worlds != nullptr);
 				writer.Key("canEditTextures"); writer.Bool(CanEditWorldsLocked() && textures && (!worlds || worlds->IsHealthy()));
 				writer.Key("canAcknowledgeTextureWarnings"); writer.Bool(CanAcknowledgeTexturesLocked());
+				writer.Key("canEditGraphicPacks"); writer.Bool(CanEditSettingsLocked() && bool(graphicPacks));
 				writer.Key("textureBusy"); writer.Bool(textureBusy);
 				writer.Key("nativeExitConfirmation"); writer.Bool(true);
 				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
@@ -627,7 +634,7 @@ struct CemuHost::Impl
 			ActiveSettings::SetPaths(true, ExecutablePath(), portable, portable, portable, state->runtime, failedPaths);
 			Require(failedPaths.empty(), "Isolated runtime is not writable");
 			GetConfigHandle().SetFilename((portable / "settings.xml").wstring());
-			GetConfigHandle().Load();
+			Require(GetConfigHandle().Load(), "Unable to load Cemu settings");
 			AccountService::EnforceOffline();
 			NetworkConfig::LoadOnce();
 			ActiveSettings::Init();
@@ -640,7 +647,8 @@ struct CemuHost::Impl
 			++state->commonInitCount;
 			CemuCommonInit(state->runtime, false);
 			state->inputReady = true;
-			cemuLog_log(LogType::Force, "NativeHost graphic packs: disabled; rules files are not loaded");
+			auto graphicPacks = std::make_unique<GraphicPackService>();
+			cemuLog_log(LogType::Force, "NativeHost graphic packs: Launcher-managed, new packs disabled");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
 			InitializeGlobalVulkan();
 			auto textures = std::make_unique<TextureService>(portable, state->runtime / "games/base/content/Common", portable / "mlc01/usr/title/0005000e/101dbe00/content/Common");
@@ -650,6 +658,7 @@ struct CemuHost::Impl
 				state->accounts = std::make_unique<AccountService>();
 				state->worlds = std::make_unique<WorldService>(ActiveSettings::GetConfigPath(), SaveInfo(0x00050000101dbe00ULL).GetPath());
 				state->textures = std::move(textures);
+				state->graphicPacks = std::move(graphicPacks);
 				state->corePhase = "ready";
 			}
 			state->Phase("ready");
@@ -682,9 +691,15 @@ struct CemuHost::Impl
 							iosuAct_invalidateAccountCache();
 							state->av->PrepareLaunch();
 							{ std::lock_guard lock(state->statusMutex); state->error.clear(); }
+							NativeSettings settings;
+							{ std::lock_guard lock(state->statusMutex); settings = state->nativeSettings; }
+							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height); }
 							auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
 							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
 							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
+							std::vector<std::string> texturePaths;
+							for (const auto& file : textureFiles) texturePaths.push_back(file.virtualPath);
+							state->graphicPacks->ValidateReplacements(texturePaths);
 							std::vector<FSCOwnedRedirect> redirects;
 							for (const auto& file : textureFiles) redirects.push_back({file.virtualPath, file.path, file.size});
 							Require(fscDeviceRedirect_setOwned(state->textures.get(), redirects), "Texture overlay conflicts with another redirect owner");
@@ -699,11 +714,6 @@ struct CemuHost::Impl
 								Require(hash == file.sha256, "Texture overlay resolved unexpected bytes");
 							}
 							cemuLog_log(LogType::Force, "NativeHost texture overlay: registered={} session={}", textureFiles.size(), state->sessionId.load());
-							NativeSettings settings;
-							{
-								std::lock_guard lock(state->statusMutex);
-								settings = state->nativeSettings;
-							}
 							Require(MinecraftNativeResolution::Begin(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion(), settings.width, settings.height), "Invalid native resolution session");
 							if (settings.vsyncFrequency) LatteTiming_setCustomVsyncFrequency(settings.vsyncFrequency);
 							else LatteTiming_disableCustomVsyncFrequency();
@@ -779,6 +789,7 @@ struct CemuHost::Impl
 					fscDeviceRedirect_removeOwned(state->textures.get());
 					Require(fscDeviceRedirect_ownedCount(state->textures.get()) == 0, "Texture overlay was not released");
 					state->textures->EndTitle();
+					{ std::lock_guard workLock(state->workMutex); state->graphicPacks->EndTitle(); }
 					state->av->EndTitle();
 					Require(!CafeSystem::IsTitleRunning() && Latte_GetStopSignal(), "Title threads did not stop");
 					ReleaseRenderer();
@@ -1371,9 +1382,17 @@ namespace WindowSystem
 			}, false);
 		}
 	}
-	void ShowErrorDialog(std::string_view message, std::string_view title, std::optional<ErrorCategory>)
+	void ShowErrorDialog(std::string_view message, std::string_view title, std::optional<ErrorCategory> category)
 	{
-		if (auto state = s_currentHost.lock()) state->Fail(fmt::format("{}: {}", title, message));
+		if (auto state = s_currentHost.lock())
+		{
+			if (category == ErrorCategory::GRAPHIC_PACKS)
+			{
+				{ std::lock_guard lock(state->statusMutex); state->error = fmt::format("{}: {}", title, message); }
+				state->StopTitle("graphic-pack-error");
+			}
+			else state->Fail(fmt::format("{}: {}", title, message));
+		}
 	}
 	void CaptureInput(const ControllerState& current, const ControllerState& last)
 	{
@@ -1382,3 +1401,25 @@ namespace WindowSystem
 			state->Stop();
 	}
 } // namespace WindowSystem
+
+std::string CemuHost::GraphicPackCommand(uint64_t requestId, std::string_view payload)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex); std::lock_guard statusLock(state.statusMutex);
+	if (!state.graphicPacks || !requestId || requestId <= state.lastGraphicPackRequest || state.graphicPackBusy) return "{\"notice\":\"stale-request\"}";
+	state.lastGraphicPackRequest = requestId;
+	return state.graphicPacks->Command(payload, state.CanEditSettingsLocked());
+}
+
+std::string CemuHost::OpenGraphicPackFolder(uint64_t requestId, const std::function<bool(const std::wstring&)>& open)
+{
+	auto& state = *m_impl->state;
+	std::unique_lock workLock(state.workMutex); std::unique_lock statusLock(state.statusMutex);
+	if (!state.graphicPacks || !requestId || requestId <= state.lastGraphicPackRequest || state.graphicPackBusy || state.stop || state.failed || GetCurrentThreadId() != state.uiThread) return "{\"notice\":\"not-ready\"}";
+	state.lastGraphicPackRequest = requestId;
+	if (std::chrono::steady_clock::now() < state.nextGraphicPackFolderOpen) return "{\"notice\":\"folder-open-busy\"}";
+	state.nextGraphicPackFolderOpen = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	state.graphicPackBusy = true; statusLock.unlock(); workLock.unlock();
+	const auto result = state.graphicPacks->OpenFolder([&](const fs::path& path) { return open(path.native()); });
+	workLock.lock(); statusLock.lock(); state.graphicPackBusy = false; return result;
+}

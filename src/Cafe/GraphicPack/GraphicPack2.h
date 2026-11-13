@@ -122,6 +122,14 @@ public:
 	void SetEnabled(bool state) { m_enabled = state; }
 
 	bool ContainsTitleId(uint64_t title_id) const;
+	bool MatchesTitle(uint64_t titleId) const;
+	static void SetLauncherManaged(bool managed) { s_launcherManaged = managed; }
+	static void SetLauncherVSyncFrequency(int frequency) { s_launcherVSyncFrequency = frequency; }
+	void SetLauncherFiles(std::vector<fs::path> files) { m_launcherFiles = std::move(files); }
+	bool IsLauncherFile(const fs::path& path) const { return std::find(m_launcherFiles.begin(), m_launcherFiles.end(), path) != m_launcherFiles.end(); }
+	static bool IsLauncherManaged() { return s_launcherManaged; }
+	static bool IsMinecraftTitle(uint64_t titleId);
+	static size_t TrackedModuleCount();
 	const std::vector<uint64_t>& GetTitleIds() const { return m_title_ids; }
 	bool HasCustomVSyncFrequency() const { return m_vsync_frequency >= 1; }
 	sint32 GetCustomVSyncFrequency() const { return m_vsync_frequency; }
@@ -182,14 +190,20 @@ public:
 
 	static void ActivateForCurrentTitle();
 	static void Reset();
+	static void ReleaseRendererResources();
 
 private:
 	bool Activate();
 	bool Deactivate();
+	void ClearOutputShaders();
 
 	static std::vector<std::shared_ptr<GraphicPack2>> s_graphic_packs;
 	static std::vector<std::shared_ptr<GraphicPack2>> s_active_graphic_packs;
 	static std::atomic_bool s_isReady;
+	static bool s_launcherManaged;
+	static int s_launcherVSyncFrequency;
+	std::vector<fs::path> m_launcherFiles;
+	bool m_patchLoadFailed = false;
 
 	template<typename TType>
 	void FillPresetConstants(TExpressionParser<TType>& parser) const
@@ -280,7 +294,7 @@ private:
 	bool ParseCemuPatchesTxtInternal(MemStreamReader& patchesStream);
 	void CancelParsingPatches();
 
-	void ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl);
+	bool ApplyPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl);
 	void UndoPatchGroups(std::vector<PatchGroup*>& groups, const RPLModule* rpl);
 
 	void AddPatchGroup(PatchGroup* group);
