@@ -188,10 +188,18 @@ namespace
 		std::string result(length, 0); WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), result.data(), length, nullptr, nullptr); return result;
 	}
 	struct Resource { std::string path, hash; size_t size; Bytes bytes; };
+	struct Issue
+	{
+		std::string path, code;
+		bool warning = false;
+		std::pair<uint32_t, uint32_t> actual{}, reference{};
+		bool operator==(const Issue&) const = default;
+	};
 	struct Pack
 	{
 		std::string id = "default", name = "Default", kind = "default", source, fingerprint, icon, description = "Original Minecraft textures", problem;
 		std::vector<Resource> files;
+		std::vector<Issue> issues;
 	};
 	std::string Fingerprint(const Pack& pack)
 	{
@@ -200,11 +208,26 @@ namespace
 		return Hash(data);
 	}
 	bool Metadata(std::string_view path) { return path == "Common/res/description.txt" || path == "Common/res/gui/pack_icon.png"; }
-	void PackJson(Writer& writer, const Pack& pack)
+	void PackJson(Writer& writer, const Pack& pack, bool diagnostics = true)
 	{
 		writer.StartObject(); Text(writer, "id", pack.id); Text(writer, "name", pack.name); Text(writer, "kind", pack.kind); Text(writer, "source", pack.source);
 		Text(writer, "fingerprint", pack.fingerprint); Text(writer, "description", pack.description); Text(writer, "icon", pack.icon); Text(writer, "problem", pack.problem);
-		writer.Key("fileCount"); writer.Uint64(std::count_if(pack.files.begin(), pack.files.end(), [](const auto& file) { return !Metadata(file.path); })); writer.EndObject();
+		writer.Key("fileCount"); writer.Uint64(std::count_if(pack.files.begin(), pack.files.end(), [](const auto& file) { return !Metadata(file.path); }));
+		if (diagnostics)
+		{
+			Text(writer, "status", !pack.problem.empty() ? "error" : !pack.issues.empty() ? "warning" : "valid");
+			writer.Key("issueCount"); writer.Uint64(pack.issues.size());
+			writer.Key("issues"); writer.StartArray();
+			for (size_t i = 0; i < std::min<size_t>(pack.issues.size(), 32); ++i)
+			{
+				const auto& issue = pack.issues[i]; writer.StartObject();
+				Text(writer, "severity", issue.warning ? "warning" : "error"); Text(writer, "path", issue.path); Text(writer, "code", issue.code);
+				writer.Key("width"); writer.Uint(issue.actual.first); writer.Key("height"); writer.Uint(issue.actual.second);
+				writer.Key("defaultWidth"); writer.Uint(issue.reference.first); writer.Key("defaultHeight"); writer.Uint(issue.reference.second); writer.EndObject();
+			}
+			writer.EndArray();
+		}
+		writer.EndObject();
 	}
 } // namespace
 
@@ -239,31 +262,76 @@ struct TextureService::Impl
 	void Validate(Pack& pack)
 	{
 		Require(!pack.files.empty(), "empty-pack");
+		pack.problem.clear(); pack.issues.clear(); pack.icon.clear(); pack.description.clear();
+		auto issue = [&](const Resource& file, const std::string& code, bool warning, const Bytes& vanilla = {}) {
+			Issue value{file.path, code, warning};
+			if (file.path.ends_with(".png"))
+			{
+				try { value.actual = TextureCompatibility::Png(file.bytes); } catch (const std::exception&) {}
+				try { if (!vanilla.empty()) value.reference = TextureCompatibility::Png(vanilla); } catch (const std::exception&) {}
+			}
+			pack.issues.push_back(std::move(value)); if (!warning && pack.problem.empty()) pack.problem = code;
+		};
+		// 安全に読み取った全ファイルから、リソースの互換性とは独立してメタデータを取得する。
 		for (auto& file : pack.files)
 		{
 			file.hash = Hash(file.bytes); file.size = file.bytes.size();
-			if (file.path == "Common/res/description.txt") { Require(file.bytes.size() <= 16384, "description-size-limit"); pack.description = Description(file.bytes); }
+			if (file.path == "Common/res/description.txt")
+			{
+				if (file.bytes.size() <= 16384) pack.description = Description(file.bytes);
+				else issue(file, "description-size-limit", false);
+			}
 			else if (file.path == "Common/res/gui/pack_icon.png")
 			{
 				try { Require(file.bytes.size() <= 4 * 1024 * 1024, "icon-size-limit"); pack.icon = "data:image/png;base64," + WorldMetadata::Base64(TextureCompatibility::Icon(file.bytes)); }
 				catch (const std::exception&) { pack.icon.clear(); }
 			}
-			else
+		}
+		const auto find = [&](const std::string& path) -> const Resource* { for (const auto& file : pack.files) if (file.path == path) return &file; return nullptr; };
+		for (const auto& file : pack.files)
+		{
+			if (Metadata(file.path)) continue;
+			Bytes vanilla;
+			try
 			{
-				const auto vanilla = Vanilla(file.path);
-				if (file.path.ends_with(".txt")) Require(!vanilla.empty() && file.bytes == vanilla, "unverified-sequence");
-				else TextureCompatibility::Resource(file.path, file.bytes, vanilla);
+				vanilla = Vanilla(file.path);
+				if (file.path.ends_with(".txt"))
+				{
+					const auto png = file.path.substr(0, file.path.size() - 4) + ".png";
+					if (TextureCompatibility::Animation(png))
+					{
+						const auto image = find(png); const auto original = image ? Bytes{} : Vanilla(png);
+						TextureCompatibility::Sequence(file.bytes, image ? image->bytes : original);
+						if (file.bytes != vanilla) issue(file, "animation-sequence", true);
+					}
+					else Require(!vanilla.empty() && file.bytes == vanilla, "unverified-sequence");
+				}
+				else
+				{
+					const auto warning = TextureCompatibility::Resource(file.path, file.bytes, vanilla);
+					if (!warning.empty()) issue(file, warning, true, vanilla);
+					if (TextureCompatibility::Animation(file.path))
+					{
+						const auto sequence = file.path.substr(0, file.path.size() - 4) + ".txt";
+						if (!find(sequence)) TextureCompatibility::Sequence(Vanilla(sequence), file.bytes);
+					}
+				}
 			}
+			catch (const std::exception& error) { issue(file, error.what(), false, vanilla); }
 		}
 		const std::string terrain = "Common/res/TitleUpdate/res/terrain";
-		const auto find = [&](const std::string& path) -> const Resource* { for (const auto& file : pack.files) if (file.path == path) return &file; return nullptr; };
 		const auto atlas = find(terrain + ".png"), mip2 = find(terrain + "MipMapLevel2.png"), mip3 = find(terrain + "MipMapLevel3.png");
 		if (atlas || mip2 || mip3)
 		{
-			Require(atlas && mip2 && mip3, "terrain-mipmaps-required");
-			const auto size = TextureCompatibility::Png(atlas->bytes), a = TextureCompatibility::Png(mip2->bytes), b = TextureCompatibility::Png(mip3->bytes);
-			Require(size.first == a.first * 2 && size.second == a.second * 2 && size.first == b.first * 4 && size.second == b.second * 4, "terrain-mipmap-size");
+			try
+			{
+				Require(atlas && mip2 && mip3, "terrain-mipmaps-required");
+				const auto size = TextureCompatibility::Png(atlas->bytes), a = TextureCompatibility::Png(mip2->bytes), b = TextureCompatibility::Png(mip3->bytes);
+				Require(size.first == a.first * 2 && size.second == a.second * 2 && size.first == b.first * 4 && size.second == b.second * 4, "terrain-mipmap-size");
+			}
+			catch (const std::exception& error) { issue(*(atlas ? atlas : mip2 ? mip2 : mip3), error.what(), false); }
 		}
+		std::stable_sort(pack.issues.begin(), pack.issues.end(), [](const auto& a, const auto& b) { return a.warning < b.warning; });
 		pack.fingerprint = Fingerprint(pack);
 	}
 	Pack ReadPack(const Pack& selected)
@@ -350,7 +418,7 @@ struct TextureService::Impl
 	}
 	std::string Manifest(const Pack& pack)
 	{
-		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartObject(); writer.Key("schema"); writer.Uint(1); writer.Key("pack"); PackJson(writer, pack);
+		rapidjson::StringBuffer buffer; Writer writer(buffer); writer.StartObject(); writer.Key("schema"); writer.Uint(1); writer.Key("pack"); PackJson(writer, pack, false);
 		writer.Key("files"); writer.StartArray();
 		for (const auto& file : pack.files) { writer.StartObject(); Text(writer, "path", file.path); Text(writer, "sha256", file.hash); writer.Key("size"); writer.Uint64(file.size); writer.EndObject(); }
 		writer.EndArray(); writer.EndObject(); return buffer.GetString();
@@ -388,7 +456,7 @@ struct TextureService::Impl
 				Keys(item, {"path", "sha256", "size"}); const auto name = String(item["path"]), hash = String(item["sha256"]); Relative(name);
 				Require(name.starts_with("Common/") && Digest(hash) && item["size"].IsUint64() && item["size"].GetUint64() <= s_fileLimit && seen.insert(Lower(name)).second, "invalid-manifest");
 				const auto size = static_cast<size_t>(item["size"].GetUint64()); total += size; Require(total <= s_totalLimit, "pack-size-limit");
-				const auto bytes = Read(path / Path(name)); Require(bytes.size() == size && Hash(bytes) == hash, "snapshot-hash-mismatch"); current.files.push_back({name, hash, size, {}});
+				auto bytes = Read(path / Path(name)); Require(bytes.size() == size && Hash(bytes) == hash, "snapshot-hash-mismatch"); current.files.push_back({name, hash, size, std::move(bytes)});
 			}
 			std::set<std::string> expected{"manifest.json"}; for (const auto& file : current.files) expected.insert(file.path);
 			for (const auto& entry : fs::recursive_directory_iterator(path)) { CheckPath(entry.path()); if (!entry.is_directory()) Require(expected.erase(Utf8(entry.path().lexically_relative(path))) == 1, "unknown-snapshot-file"); }
@@ -400,9 +468,11 @@ struct TextureService::Impl
 			else
 			{
 				Require((current.kind == "folder" || current.kind == "zip") && current.id == current.kind + ":" + Hash(current.source) && current.fingerprint == Fingerprint(current), "invalid-manifest");
+				Validate(current); Require(current.problem.empty(), current.problem.c_str());
 				if (sourceCheck)
 				{
 					const auto source = ReadPack(current);
+					Require(source.problem.empty(), source.problem.c_str());
 					if (source.fingerprint != current.fingerprint) { state = "external-unknown"; notice = "source-changed"; return; }
 					current.name = source.name; current.icon = source.icon; current.description = source.description;
 				}
@@ -410,6 +480,7 @@ struct TextureService::Impl
 			state = current.kind == "default" ? "default" : "known-pack"; healthy = true;
 		}
 		catch (const std::exception& error) { notice = error.what(); if (notice == "selection-missing" || notice == "source-changed" || notice == "file-busy-or-missing") state = "external-unknown"; }
+		for (auto& file : current.files) { file.bytes.clear(); file.bytes.shrink_to_fit(); }
 	}
 	void Apply(const Pack& pack, bool recovery)
 	{
@@ -493,6 +564,7 @@ std::string TextureService::Command(std::string_view payload, bool canEdit)
 					Keys(json, {"op", "id", "revision"}); Require(json["revision"].IsUint64() && json["revision"].GetUint64() == s.revision, "stale-preview");
 					const auto id = String(json["id"]); const auto pack = std::find_if(s.packs.begin(), s.packs.end(), [&](const auto& p) { return p.id == id; });
 					Require(pack != s.packs.end() && pack->problem.empty(), "invalid-pack"); s.preview = id == "default" ? Pack{} : s.ReadPack(*pack);
+					Require(s.preview.problem.empty(), s.preview.problem.c_str());
 					Require(id == "default" || s.preview.fingerprint == pack->fingerprint, "source-changed"); s.token = Guid(); s.expires = std::chrono::steady_clock::now() + std::chrono::minutes(5); s.notice = "preview-ready";
 					for (auto& file : s.preview.files) { file.bytes.clear(); file.bytes.shrink_to_fit(); }
 				}
@@ -500,6 +572,8 @@ std::string TextureService::Command(std::string_view payload, bool canEdit)
 				{
 					Keys(json, {"op", "token"}); Require(!s.token.empty() && String(json["token"]) == s.token && std::chrono::steady_clock::now() < s.expires, "stale-preview");
 					const auto pack = s.preview.id == "default" ? Pack{} : s.ReadPack(s.preview); Require(pack.fingerprint == s.preview.fingerprint, "source-changed");
+					Require(pack.problem.empty(), pack.problem.c_str());
+					Require(pack.issues == s.preview.issues, "source-changed");
 					s.token.clear(); s.Apply(pack, false); ++s.revision; s.Scan();
 				}
 				else throw std::runtime_error("invalid-request");

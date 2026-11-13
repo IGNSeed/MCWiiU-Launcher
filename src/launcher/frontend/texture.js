@@ -11,6 +11,9 @@ const textureMessages = {
   "common-root-required":"直下に Common フォルダが必要です。", "invalid-zip":"ZIPを読み込めません。", "zip-crc":"ZIPの整合性を確認できません。", "duplicate-entry":"同じパスのファイルが重複しています。",
   "unsafe-pack-path":"パックに安全でないパスがあります。", "unsafe-path":"安全な保存先を確認できません。", "unsafe-file":"リンクされたファイルは使用できません。", "zip-link-rejected":"ZIP内のリンクは使用できません。",
   "incompatible-png-size":"v560 の画像構成と一致しません。", "incompatible-terrain":"v560 の Terrain 構成と一致しません。", "terrain-mipmaps-required":"Terrain と2段階の Mipmap が必要です。", "terrain-mipmap-size":"Terrain と Mipmap の寸法が一致しません。",
+  "unusual-png-size":"通常とは異なる解像度です。ゲーム内での表示を確認してください。", "animation-layout":"アニメーションのフレーム数または解像度が通常と異なります。", "animation-sequence":"アニメーションの再生順序または時間が変更されています。",
+  "animation-strip-size":"アニメーション画像は正方形フレームを縦に並べてください。", "animation-frame-range":"アニメーション定義が画像に存在しないフレームを参照しています。", "invalid-animation-sequence":"アニメーション定義を読み込めません。", "animation-sequence-limit":"アニメーション定義の容量・再生数が上限を超えています。",
+  "incompatible-items":"Items は横16列・縦17行の正方形セルが必要です。", "incompatible-particles":"Particles は正方形の画像が必要です。", "incompatible-sky":"Sky の画像構成を確認できません。", "description-size-limit":"説明文の容量が上限を超えています。",
   "unsupported-resource":"v560 への対応を確認できないリソースがあります。", "unverified-sequence":"変更されたアニメーション定義には未対応です。", "invalid-png":"PNGを読み込めません。", "png-crc":"PNGの整合性を確認できません。", "png-size-limit":"画像のサイズが上限を超えています。",
   "media-not-v560":"Media が v560 の構成と一致しません。", "media-entry-mismatch":"Media のエントリーが v560 と一致しません。", "media-unverified-entry":"Media に未対応の変更があります。", "invalid-v560-hud":"v560 の HUD を検証できません。",
   "media-hud-prefix-changed":"HUD の構造が変更されています。", "media-hud-descriptor-changed":"HUD の画像定義が変更されています。", "media-hud-image-size":"HUD の画像サイズが一致しません。",
@@ -24,7 +27,7 @@ function textureNode(tag, text, className) {
 }
 function textureReady() { return window.launcherCoreState?.corePhase === "ready" && !window.launcherCoreState?.stopRequested; }
 function textureEditable() { return textureReady() && window.launcherCoreState?.canEditTextures === true && textureSnapshot?.canEdit === true && !texturePending; }
-function textureCard(pack, badge) {
+function textureCard(pack, badge, showDetails = false) {
   const card = textureNode("div", undefined, "texture-card");
   const frame = textureNode("div", undefined, "texture-icon");
   const fallback = textureNode("span", undefined, "texture-icon-fallback"); fallback.setAttribute("aria-hidden","true"); frame.append(fallback);
@@ -39,7 +42,23 @@ function textureCard(pack, badge) {
   const text = textureNode("div", undefined, "texture-copy");
   const name = textureNode("strong", pack?.name || "—", "texture-name"); name.title = pack?.name || "";
   const description = textureNode("p", pack?.description || "", "texture-description"); description.title = pack?.description || ""; text.append(name,description);
-  if (pack?.problem) text.append(textureNode("p",textureMessage(pack.problem),"texture-problem"));
+  if (pack?.problem) text.append(textureNode("p",`Error · ${textureMessage(pack.problem)}`,"texture-problem"));
+  if (pack?.issues?.length) {
+    const details = textureNode("details",undefined,"texture-diagnostics"); details.open = showDetails;
+    const warning = pack.status === "warning";
+    details.append(textureNode("summary",warning ? `Warning · ゲーム内での表示を確認してください (${pack.issueCount})` : `詳細 (${pack.issueCount})`));
+    const list = textureNode("ul");
+    for (const issue of pack.issues) {
+      const item = textureNode("li");
+      item.append(textureNode("strong",`${issue.severity === "warning" ? "Warning" : "Error"} · ${issue.path}`));
+      item.append(textureNode("p",textureMessage(issue.code)));
+      if (issue.width && issue.height) item.append(textureNode("p",`実際 ${issue.width}×${issue.height}${issue.defaultWidth && issue.defaultHeight ? ` · Default ${issue.defaultWidth}×${issue.defaultHeight}` : ""}`));
+      list.append(item);
+    }
+    details.append(list);
+    if (pack.issueCount > pack.issues.length) details.append(textureNode("p",`ほか ${pack.issueCount - pack.issues.length} 件。対象ファイルを確認してください。`));
+    text.append(details);
+  }
   card.append(frame,text);
   if (badge) card.append(textureNode("span",badge,"texture-badge"));
   return card;
@@ -104,19 +123,20 @@ textureDialog.addEventListener("cancel",event => { event.preventDefault(); cance
 textureDialog.addEventListener("close",() => { if (textureFocus?.isConnected) textureFocus.focus({preventScroll:true}); updateTextureControls(); });
 textureDialog.addEventListener("keydown",event => {
   if (event.key !== "Tab") return;
-  const controls = [...textureDialog.querySelectorAll("button")].filter(button => !button.disabled);
+  const controls = [...textureDialog.querySelectorAll("button, summary")].filter(control => !control.disabled);
   if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }
   else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus(); }
 });
 window.addEventListener("launcher-texture-result",event => {
   if (event.detail?.requestId !== texturePending) return;
   const op = textureOperation, state = event.detail.texture; texturePending = 0;
-  const validPack = pack => pack && ["id","name","description","icon","problem","fingerprint","kind","source"].every(key => typeof pack[key] === "string") && (!pack.icon || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon));
+  const validIssue = issue => issue && ["warning","error"].includes(issue.severity) && typeof issue.path === "string" && typeof issue.code === "string" && ["width","height","defaultWidth","defaultHeight"].every(key => Number.isSafeInteger(issue[key]) && issue[key] >= 0 && issue[key] <= 8192);
+  const validPack = pack => pack && ["id","name","description","icon","problem","fingerprint","kind","source"].every(key => typeof pack[key] === "string") && (!pack.icon || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(pack.icon)) && ["valid","warning","error"].includes(pack.status) && Array.isArray(pack.issues) && pack.issues.length <= 32 && pack.issues.every(validIssue) && Number.isSafeInteger(pack.issueCount) && pack.issueCount >= pack.issues.length;
   if (state && Number.isSafeInteger(state.revision) && Array.isArray(state.packs) && state.packs.length <= 257 && validPack(state.current) && state.packs.every(validPack)) {
     textureSnapshot = state;
     if (op === "preview" && state.token && validPack(state.preview)) {
       document.getElementById("texture-confirmation-title").textContent = "Texture を適用";
-      document.getElementById("texture-preview").replaceChildren(textureCard(state.preview));
+      document.getElementById("texture-preview").replaceChildren(textureCard(state.preview,undefined,true));
       document.getElementById("texture-confirmation-count").textContent = `${state.preview.fileCount} ファイルを置換 · 次回の起動に反映されます。`;
       textureDialog.showModal(); document.getElementById("texture-cancel").focus();
     }
