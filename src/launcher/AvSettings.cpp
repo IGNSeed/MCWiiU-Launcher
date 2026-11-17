@@ -189,24 +189,8 @@ AvSettings::AvSettings() : m_impl(std::make_unique<Impl>())
 			m_impl->gpu.push_back({++m_impl->tokenCounter, boost::nowide::widen(UuidText(device.uuid)), device.name});
 	}
 	catch (...) {}
-	// Launcher では保存済み OFF も移行し、通常 Cemu の既定値は変えない。
+	// Launcher の実行時動作は維持し、起動時に保存済み設定を書き換えない。
 	GetConfig().play_boot_sound = true;
-	try
-	{
-		if (fs::exists(m_impl->path))
-		{
-			const auto original = ReadAv(m_impl->path);
-			pugi::xml_document stored;
-			RequireAv(stored.load_buffer(original.data(), original.size()));
-			auto root = stored.child("content"); RequireAv(bool(root));
-			if (!root.child("play_boot_sound").text().as_bool())
-			{
-				SetAv(root, "play_boot_sound", "true");
-				m_impl->Persist(stored);
-			}
-		}
-	}
-	catch (...) { if (m_impl->notice != "recovery-required") m_impl->notice = "save-failed"; }
 	LatteOverlay_setSettings(m_impl->overlay);
 	m_impl->Refresh();
 	m_impl->RefreshChannels();
@@ -294,7 +278,10 @@ std::string AvSettings::Command(std::string_view payload, bool running)
 		const auto original = ReadAv(s.path);
 		pugi::xml_document document; RequireAv(document.load_buffer(original.data(), original.size()));
 		auto root = document.child("content"); RequireAv(bool(root));
-		auto graphic = root.child("Graphic"), audio = root.child("Audio"); RequireAv(graphic && audio);
+		auto graphic = root.child("Graphic"), audio = root.child("Audio");
+		// 省略された既定セクションは、ユーザーによる明示的な保存時だけ補う。
+		if (!graphic) graphic = root.append_child("Graphic");
+		if (!audio) audio = root.append_child("Audio");
 		const auto& c = GetConfig();
 		s.notice = "ready";
 		SetAv(root, "play_boot_sound", "true");

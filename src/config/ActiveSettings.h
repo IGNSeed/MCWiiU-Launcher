@@ -39,7 +39,8 @@ public:
 		   const fs::path& configPath,
 		   const fs::path& cachePath,
 		   const fs::path& dataPath,
-		   std::set<fs::path>& failedWriteAccess);
+		   std::set<fs::path>& failedWriteAccess,
+		   const fs::path& logPath = {});
 
 	static void Init();
 
@@ -53,6 +54,8 @@ public:
 	[[nodiscard]] static fs::path GetCachePath(TArgs&&... args){ return GetPath(s_cache_path, std::forward<TArgs>(args)...); };
 	template <typename ...TArgs>
 	[[nodiscard]] static fs::path GetDataPath(TArgs&&... args){ return GetPath(s_data_path, std::forward<TArgs>(args)...); };
+	template <typename ...TArgs>
+	[[nodiscard]] static fs::path GetLogPath(TArgs&&... args){ return GetPath(s_log_path, std::forward<TArgs>(args)...); };
 
 	[[nodiscard]] static fs::path GetMlcPath();
 
@@ -71,6 +74,7 @@ private:
 	inline static fs::path s_config_path;
 	inline static fs::path s_cache_path;
 	inline static fs::path s_data_path;
+	inline static fs::path s_log_path;
 	inline static fs::path s_executable_filename; // cemu.exe
 	inline static fs::path s_mlc_path;
 

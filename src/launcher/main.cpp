@@ -5,6 +5,8 @@
 #include "NativeGameHost.h"
 #include "LauncherPreferences.h"
 #include "LauncherIcon.h"
+#include "LauncherPaths.h"
+#include "SingleInstance.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
 #endif
@@ -32,6 +34,7 @@ namespace
 	bool s_guiOnly = false;
 	bool s_launchImmediately = false;
 	bool s_sessionDiagnostics = false;
+	SingleInstance* s_instance = nullptr;
 
 	struct IconDeleter
 	{
@@ -376,21 +379,20 @@ namespace
 	};
 #endif
 
-	void ReportStartupFailure()
+	void ReportStartupFailure(std::string_view detail = {})
 	{
 		s_startupExitCode = 1;
 		if (s_nativeHostDiagnostics)
 			return;
-		MessageBoxW(nullptr, L"LauncherShell could not start. Check the WebView2 Runtime and the application data directory.", L"MCWiiU Launcher", MB_OK | MB_ICONERROR);
-	}
-
-	std::filesystem::path UserDataPath()
-	{
-		std::vector<wchar_t> path(32768);
-		const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-		if (!length || length == path.size())
-			throw std::runtime_error("Unable to locate LauncherShell");
-		return std::filesystem::path(std::wstring(path.data(), length)).parent_path() / "user-data";
+		std::wstring message = L"MCWiiU Launcher を起動できません。Microsoft Edge WebView2 Runtime と LocalAppData のアクセス権を確認してください。既存の設定やデータは削除せず保持してください。";
+		const auto length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, detail.data(), static_cast<int>(detail.size()), nullptr, 0);
+		if (length > 0)
+		{
+			std::wstring text(length, L'\0');
+			MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, detail.data(), static_cast<int>(detail.size()), text.data(), length);
+			message += L"\n\n" + text;
+		}
+		MessageBoxW(nullptr, message.c_str(), L"MCWiiU Launcher", MB_OK | MB_ICONERROR);
 	}
 
 	coco::stray Start(saucer::application* app)
@@ -401,6 +403,7 @@ namespace
 			OwnedIcon smallIcon, bigIcon;
 			auto window = saucer::window::create(app).value();
 			const auto hwnd = window->native().hwnd;
+			s_instance->Attach(hwnd);
 			const auto dpi = GetDpiForWindow(hwnd);
 			smallIcon = LoadWindowIcon(GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CYSMICON, dpi));
 			bigIcon = LoadWindowIcon(GetSystemMetricsForDpi(SM_CXICON, dpi), GetSystemMetricsForDpi(SM_CYICON, dpi));
@@ -418,7 +421,7 @@ namespace
 				.window = window,
 				.attributes = false,
 				.persistent_cookies = true,
-				.storage_path = UserDataPath(),
+				.storage_path = LauncherPaths::Get().webview,
 				.browser_flags = {"--disable-background-networking", "--no-first-run"},
 			};
 			auto webview = saucer::webview::create(options).value();
@@ -438,9 +441,10 @@ namespace
 						   : saucer::policy::block;
 			});
 			NativeGameHost gameHost(window->native().hwnd, webview.native().controller, s_nativeHostDiagnostics, s_failHostInitialization);
-			const auto preferencesPath = UserDataPath() / "launcher-preferences.json";
+			const auto preferencesPath = LauncherPaths::Get().data / "launcher-preferences.json";
 			std::string preferencesNotice;
 			auto preferences = LauncherPreferences::Load(preferencesPath, preferencesNotice);
+			const bool preferencesHealthy = preferencesNotice != "load-failed";
 			const auto publishPreferences = [&] {
 				webview.execute("window.dispatchEvent(new CustomEvent('launcher-preferences', {detail:{values:" + preferences.Json() +
 					",notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
@@ -484,6 +488,12 @@ namespace
 					.titleStopped = [&] { return gameHost.SetOpenGLComposition(false) && display->ReturnHome(); },
 					.stopped = [&] {
 						s_startupExitCode = core->HasFailed() ? 1 : 0;
+						if (core->HasFailed())
+						{
+							ReportStartupFailure(core->ErrorMessage());
+							// 初期化失敗では設定応答を返せないため、保存待ちの終了要求を繰り返さない。
+							notifications.m_closeApproved = true;
+						}
 						window->close();
 						}
 					});
@@ -649,6 +659,7 @@ namespace
 					{
 						LauncherPreferences edited;
 						if (!LauncherPreferences::Parse(request->second, edited)) preferencesNotice = "invalid";
+						else if (!preferencesHealthy) preferencesNotice = "load-failed";
 						else if (edited == preferences) preferencesNotice = "saved";
 						else if (!edited.Save(preferencesPath)) preferencesNotice = "save-failed";
 						else { preferences = edited; preferencesNotice = "saved"; }
@@ -909,7 +920,7 @@ namespace
 		} catch (const std::exception& error)
 		{
 			OutputDebugStringA(error.what());
-			ReportStartupFailure();
+			ReportStartupFailure(error.what());
 			app->quit();
 		}
 	}
@@ -934,9 +945,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		s_launchImmediately = false;
 #endif
 	else if (!arguments.empty())
-		return 2;
+		ExitProcess(2);
 	try
 	{
+		SingleInstance instance;
+		// Native Core の静的 thread は共通初期化前にも存在するため、通常終了契約に合わせる。
+		if (!instance.IsPrimary()) ExitProcess(0);
+		s_instance = &instance;
+		auto& paths = LauncherPaths::Get();
+		paths.Initialize();
+		paths.CreateDefault(paths.data / "launcher-preferences.json", LauncherPreferences{}.Json());
 		int result;
 		{
 			auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
@@ -952,7 +970,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 	} catch (const std::exception& error)
 	{
 		OutputDebugStringA(error.what());
-		ReportStartupFailure();
-		return 1;
+		ReportStartupFailure(error.what());
+		ExitProcess(1);
 	}
 }

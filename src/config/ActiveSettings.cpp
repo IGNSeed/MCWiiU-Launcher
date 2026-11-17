@@ -17,7 +17,8 @@ void ActiveSettings::SetPaths(bool isPortableMode,
 		const fs::path& configPath,
 		const fs::path& cachePath,
 		const fs::path& dataPath,
-		std::set<fs::path>& failedWriteAccess)
+		std::set<fs::path>& failedWriteAccess,
+		const fs::path& logPath)
 {
 	cemu_assert_debug(!s_setPathsCalled); // can only change paths before loading
 	s_isPortableMode = isPortableMode;
@@ -26,8 +27,9 @@ void ActiveSettings::SetPaths(bool isPortableMode,
 	s_config_path = configPath;
 	s_cache_path = cachePath;
 	s_data_path = dataPath;
+	s_log_path = logPath.empty() ? userDataPath : logPath;
 	failedWriteAccess.clear();
-	for (auto&& path : {userDataPath, configPath, cachePath})
+	for (auto&& path : {userDataPath, configPath, cachePath, s_log_path})
 	{
 		std::error_code ec;
 		if (!fs::exists(path, ec))

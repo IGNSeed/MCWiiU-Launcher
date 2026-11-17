@@ -1,5 +1,6 @@
 #include "CemuHost.h"
 #include "NativeSettings.h"
+#include "LauncherPaths.h"
 #include "InputService.h"
 #include "AvSettings.h"
 #include "AccountService.h"
@@ -121,7 +122,8 @@ namespace
 		std::atomic<double> fps{0};
 		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
 		std::string phase = "idle", error;
-		fs::path runtime;
+		fs::path dataRoot;
+		bool gameInstalled = false, nativeSettingsHealthy = true;
 		NativeSettings nativeSettings;
 		std::unique_ptr<InputService> input;
 		std::unique_ptr<AvSettings> av;
@@ -258,7 +260,9 @@ namespace
 				writer.Key("corePhase"); writer.String(corePhase.c_str());
 				writer.Key("titlePhase"); writer.String(titlePhase.c_str());
 				writer.Key("stopReason"); writer.String(stopReason.c_str());
-				writer.Key("canLaunch"); writer.Bool(CanEditSettingsLocked());
+				writer.Key("gameInstalled"); writer.Bool(gameInstalled);
+				writer.Key("launchUnavailableReason"); writer.String(!gameInstalled ? "game-not-installed" : !nativeSettingsHealthy ? "native-settings-invalid" : "");
+				writer.Key("canLaunch"); writer.Bool(gameInstalled && nativeSettingsHealthy && CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
@@ -270,7 +274,7 @@ namespace
 				writer.Key("canEditGraphicPacks"); writer.Bool(CanEditSettingsLocked() && bool(graphicPacks));
 				writer.Key("textureBusy"); writer.Bool(textureBusy);
 				writer.Key("nativeExitConfirmation"); writer.Bool(true);
-				writer.Key("canEditNativeSettings"); writer.Bool(CanEditSettingsLocked());
+				writer.Key("canEditNativeSettings"); writer.Bool(nativeSettingsHealthy && CanEditSettingsLocked());
 				writer.Key("inputRecoveryPending"); writer.Bool(s_inputRecoveryPending);
 				writer.Key("inputReconnectCount"); writer.Uint64(inputReconnectCount);
 				writer.Key("canEditInput"); writer.Bool(CanEditInputLocked());
@@ -457,38 +461,36 @@ namespace
 			if (path == path.root_path()) break;
 		}
 	}
-	fs::path ValidateRuntime()
+	void ValidateStorageSettings()
 	{
-		fs::path manifest;
-		for (auto directory = ExecutablePath().parent_path(); !directory.empty(); directory = directory.parent_path())
-		{
-			const auto candidate = directory / ".local/runtime/performance/manifest.json";
-			if (fs::is_regular_file(candidate)) { manifest = candidate; break; }
-			if (directory == directory.root_path()) break;
-		}
-		Require(!manifest.empty(), "The isolated performance runtime manifest is required");
-		NoReparsePoints(manifest);
-		std::ifstream stream(manifest);
-		std::string text((std::istreambuf_iterator<char>(stream)), {});
-		rapidjson::Document document;
-		document.Parse(text.c_str());
-		Require(!document.HasParseError() && document.IsObject() && document.HasMember("role") && document["role"].IsString() &&
-			std::string_view(document["role"].GetString()) == "isolated-performance-working-copy", "Invalid runtime role");
-		const auto runtime = manifest.parent_path() / "cemu";
-		Require(document.HasMember("runtime") && document["runtime"].IsString() && fs::equivalent(runtime, _utf8ToPath(document["runtime"].GetString())), "Runtime manifest path mismatch");
-		NoReparsePoints(runtime / "portable/settings.xml");
-		NoReparsePoints(runtime / "portable/mlc01");
-		NoReparsePoints(runtime / "games/base/code/Minecraft.Client.rpx");
+		const auto& paths = LauncherPaths::Get();
+		const auto settingsPath = paths.data / "settings.xml";
+		paths.CheckPath(settingsPath);
+		Require(fs::file_size(settingsPath) <= 4 * 1024 * 1024, "Settings file is too large; original preserved");
 		pugi::xml_document settings;
-		Require(settings.load_file((runtime / "portable/settings.xml").c_str()), "Unable to read runtime settings");
+		Require(settings.load_file(settingsPath.c_str(), pugi::parse_full), "Invalid settings.xml; original preserved");
+		for (const auto& node : settings.children()) Require(node.type() != pugi::node_doctype, "Settings must not contain a doctype; original preserved");
 		const auto config = settings.child("content");
-		Require(fs::equivalent(_utf8ToPath(config.child_value("mlc_path")), runtime / "portable/mlc01"), "Runtime MLC mismatch");
-		const std::string_view api = config.child("Graphic").child_value("api");
-		Require(api == "0" || api == "1", "Only Vulkan or OpenGL is supported");
-		for (const auto& entry : config.child("GamePaths").children())
+		Require(config && !config.next_sibling("content"), "Invalid settings.xml structure; original preserved");
+		Require(!config.child("mlc_path").next_sibling("mlc_path") && !config.child("GamePaths").next_sibling("GamePaths"), "Duplicate storage settings; original preserved");
+		const auto mlc = _utf8ToPath(config.child_value("mlc_path"));
+		Require(mlc.empty() || (mlc.is_absolute() && _wcsicmp(mlc.lexically_normal().c_str(), (paths.data / "mlc01").c_str()) == 0),
+			"External MLC path is not allowed; settings.xml was preserved. Select Data/mlc01 before retrying");
+		const auto checkReference = [&](const char* value) {
+			const auto path = _utf8ToPath(value);
+			Require(paths.ContainsData(path), "External game path is not allowed; original settings/cache preserved");
+			paths.CheckPath(path);
+		};
+		for (const auto& entry : config.child("GamePaths").children()) checkReference(entry.child_value());
+		for (const auto& entry : config.child("GameCache").children()) checkReference(entry.child_value("path"));
+		const auto cache = paths.cache / "title_list_cache.xml";
+		paths.CheckPath(cache);
+		if (fs::exists(cache))
 		{
-			const auto gamePath = fs::weakly_canonical(_utf8ToPath(entry.child_value()));
-			Require(gamePath == fs::weakly_canonical(runtime / "games"), "Game paths must remain inside the isolated runtime");
+			Require(fs::file_size(cache) <= 16 * 1024 * 1024, "Title cache is too large; original preserved");
+			pugi::xml_document titles;
+			Require(titles.load_file(cache.c_str()) && titles.child("title_list"), "Invalid title cache; original preserved");
+			for (const auto& title : titles.child("title_list").children("title")) checkReference(title.child_value("path"));
 		}
 		if (auto state = s_currentHost.lock())
 		{
@@ -502,19 +504,24 @@ namespace
 				else Require(controller < 0, "This host supports only the configured controller exit hotkey");
 			}
 		}
-		for (const auto& [path, expected, version] : std::array<std::tuple<fs::path, std::string_view, unsigned>, 3>{{
-			{runtime / "games/base", "00050000101dbe00", 0},
-			{runtime / "portable/mlc01/usr/title/0005000e/101dbe00", "0005000e101dbe00", 560},
-			{runtime / "portable/mlc01/usr/title/0005000c/101dbe00", "0005000c101dbe00", 496}}})
+	}
+	bool HasInstalledGame(const fs::path& data)
+	{
+		// インストーラーと地域選択は後続 Phase。既存の JPN 起動契約だけを維持する。
+		const auto base = data / "games/base", update = data / "mlc01/usr/title/0005000e/101dbe00";
+		if (!fs::is_regular_file(base / "code/Minecraft.Client.rpx") || !fs::is_regular_file(update / "code/app.xml")) return false;
+		for (const auto& [path, id, version] : std::array<std::tuple<fs::path, std::string_view, unsigned>, 2>{{
+			{base, "00050000101dbe00", 0}, {update, "0005000e101dbe00", 560}}})
 		{
-			NoReparsePoints(path / "code/app.xml");
 			pugi::xml_document app;
-			Require(app.load_file((path / "code/app.xml").c_str()), "Missing title metadata");
+			if (!app.load_file((path / "code/app.xml").c_str())) return false;
 			auto title = std::string(app.child("app").child_value("title_id"));
 			std::transform(title.begin(), title.end(), title.begin(), [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-			Require(title == expected && (!version || std::stoul(app.child("app").child_value("title_version"), nullptr, 16) == version), "The fixed Minecraft v560 and DLC v496 are required");
+			unsigned parsedVersion = 0;
+			std::istringstream(app.child("app").child_value("title_version")) >> std::hex >> parsedVersion;
+			if (title != id || (version && parsedVersion != version)) return false;
 		}
-		return runtime;
+		return true;
 	}
 
 	VKAPI_ATTR VkResult VKAPI_CALL Present(VkQueue queue, const VkPresentInfoKHR* info)
@@ -620,20 +627,24 @@ struct CemuHost::Impl
 		{
 			Require(SUCCEEDED(apartment), "Core coordinator requires MTA");
 			state->Phase("validating");
-			state->runtime = ValidateRuntime();
-			const auto portable = state->runtime / "portable";
+			const auto& paths = LauncherPaths::Get();
+			state->dataRoot = paths.data;
+			const auto& data = paths.data;
+			ValidateStorageSettings();
+			{ std::lock_guard lock(state->statusMutex); state->gameInstalled = HasInstalledGame(data); }
 			// 中断した取引がある場合は、Default Account 作成を含む共通初期化より前に止める。
-			Require(!fs::exists(portable / ".launcher-account-transaction"), "Account recovery is required before starting Core");
-			const auto nativePath = portable / "launcher-native-settings.json";
+			Require(!fs::exists(data / ".launcher-account-transaction"), "Account recovery is required before starting Core");
+			const auto nativePath = data / "launcher-native-settings.json";
 			if (fs::exists(nativePath)) NoReparsePoints(nativePath);
 			{
 				std::lock_guard lock(state->statusMutex);
 				state->nativeSettings = NativeSettings::Load(nativePath, state->settingsNotice);
+				state->nativeSettingsHealthy = state->settingsNotice != "load-failed";
 			}
 			std::set<fs::path> failedPaths;
-			ActiveSettings::SetPaths(true, ExecutablePath(), portable, portable, portable, state->runtime, failedPaths);
-			Require(failedPaths.empty(), "Isolated runtime is not writable");
-			GetConfigHandle().SetFilename((portable / "settings.xml").wstring());
+			ActiveSettings::SetPaths(false, ExecutablePath(), data, data, paths.cache, data, failedPaths, paths.logs);
+			Require(failedPaths.empty(), "Application data is not writable");
+			GetConfigHandle().SetFilename((data / "settings.xml").wstring());
 			Require(GetConfigHandle().Load(), "Unable to load Cemu settings");
 			AccountService::EnforceOffline();
 			NetworkConfig::LoadOnce();
@@ -645,13 +656,13 @@ struct CemuHost::Impl
 			CafeSystem::SetImplementation(state.get());
 			commonStarted = true;
 			++state->commonInitCount;
-			CemuCommonInit(state->runtime, false);
+			CemuCommonInit(data, false, paths.cache / "title_list_cache.xml");
 			state->inputReady = true;
 			auto graphicPacks = std::make_unique<GraphicPackService>();
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: Launcher-managed, new packs disabled");
-			Require(fs::equivalent(ActiveSettings::GetMlcPath(), portable / "mlc01"), "Loaded MLC escaped the isolated runtime");
+			Require(fs::equivalent(ActiveSettings::GetMlcPath(), data / "mlc01"), "Loaded MLC escaped application data");
 			InitializeGlobalVulkan();
-			auto textures = std::make_unique<TextureService>(portable, state->runtime / "games/base/content/Common", portable / "mlc01/usr/title/0005000e/101dbe00/content/Common");
+			auto textures = std::make_unique<TextureService>(data, state->dataRoot / "games/base/content/Common", data / "mlc01/usr/title/0005000e/101dbe00/content/Common");
 			{
 				std::lock_guard lock(state->statusMutex);
 				state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>();
@@ -671,6 +682,12 @@ struct CemuHost::Impl
 				if (state->networkTest.exchange(false) && !state->stop)
 				{
 					state->accounts->RunConnectionTest();
+					state->Publish();
+					continue;
+				}
+				if (!state->stop && (!state->gameInstalled || !state->nativeSettingsHealthy))
+				{
+					state->launch = false;
 					state->Publish();
 					continue;
 				}
@@ -694,7 +711,7 @@ struct CemuHost::Impl
 							NativeSettings settings;
 							{ std::lock_guard lock(state->statusMutex); settings = state->nativeSettings; }
 							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height); }
-							auto prepared = GameLaunch::Prepare(state->runtime / "games/base");
+							auto prepared = GameLaunch::Prepare(state->dataRoot / "games/base");
 							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
 							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
 							std::vector<std::string> texturePaths;
@@ -903,7 +920,7 @@ void CemuHost::LaunchGame()
 	{
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
-		if (!m_impl->state->CanEditSettingsLocked()) return;
+		if (!m_impl->state->gameInstalled || !m_impl->state->nativeSettingsHealthy || !m_impl->state->CanEditSettingsLocked()) return;
 		if (m_impl->state->input) m_impl->state->input->CancelCapture();
 		m_impl->state->launch = true;
 		m_impl->state->titleStop = false;
@@ -918,6 +935,11 @@ void CemuHost::LaunchGame()
 	m_impl->state->wake.notify_all();
 }
 void CemuHost::StopGame() { m_impl->state->StopTitle("emulator-stop"); }
+std::string CemuHost::ErrorMessage() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	return m_impl->state->error;
+}
 bool CemuHost::BeginStopGameConfirmation(uint64_t sessionId)
 {
 	bool accepted = false;
@@ -978,11 +1000,12 @@ void CemuHost::SaveNativeSettings(std::string_view payload)
 	{
 		std::lock_guard workLock(state.workMutex);
 		std::lock_guard statusLock(state.statusMutex);
-		if (!state.CanEditSettingsLocked()) state.settingsNotice = "not-ready";
+		if (!state.nativeSettingsHealthy) state.settingsNotice = "load-failed";
+		else if (!state.CanEditSettingsLocked()) state.settingsNotice = "not-ready";
 		else if (!valid) state.settingsNotice = "invalid";
 		else
 		{
-			const auto path = state.runtime / "portable/launcher-native-settings.json";
+			const auto path = state.dataRoot / "launcher-native-settings.json";
 			const auto attributes = GetFileAttributesW(path.c_str());
 			if ((attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) || !settings.Save(path))
 				state.settingsNotice = "save-failed";
@@ -1234,7 +1257,7 @@ void CemuHost::RefreshSettingsInfo()
 		if (controller)
 		{
 			pugi::xml_document profile;
-			profile.load_file((state.runtime / "portable/controllerProfiles/controller0.xml").c_str());
+			profile.load_file((state.dataRoot / "controllerProfiles/controller0.xml").c_str());
 			// 実効 mapping の参照だけを読み、provider や SDL を追加初期化しない。
 			std::set<std::shared_ptr<ControllerBase>> devices;
 			for (size_t mapping = 0; mapping <= controller->get_highest_mapping_id(); ++mapping)

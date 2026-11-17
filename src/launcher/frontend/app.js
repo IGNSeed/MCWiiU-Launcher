@@ -126,6 +126,7 @@ window.addEventListener("launcher-core-state", (event) => {
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status] = coreLabels[phase] || coreLabels.idle;
   play.disabled = state.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
+  play.title = state.launchUnavailableReason === "game-not-installed" ? "Minecraft BASE と Update v560 がインストールされていません。" : state.launchUnavailableReason === "native-settings-invalid" ? "ゲーム設定ファイルを読み込めません。元のファイルは保持されています。" : "";
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
   if (hasConfirmation) {

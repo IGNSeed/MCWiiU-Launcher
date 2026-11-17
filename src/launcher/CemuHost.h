@@ -40,6 +40,7 @@ public:
 	uint64_t StopConfirmationId() const;
 	bool IsTitleStopping() const;
 	bool HasFailed() const;
+	std::string ErrorMessage() const;
 	void UpdateWindowState(SIZE physicalSize, UINT dpi, bool visible, bool focused, bool fullscreen);
 	void InputMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	std::string StatusJson() const;

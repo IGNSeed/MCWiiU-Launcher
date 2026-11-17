@@ -151,7 +151,7 @@ void cemuLog_thread()
 
 fs::path cemuLog_GetLogFilePath()
 {
-    return ActiveSettings::GetUserDataPath("log.txt");
+    return ActiveSettings::GetLogPath("log.txt");
 }
 
 void cemuLog_createLogFile(bool triggeredByCrash)

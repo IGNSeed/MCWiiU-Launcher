@@ -71,7 +71,7 @@ void WindowsInitCwd(const fs::path& workingDirectory)
 		executablePath.resize(i);
 	else
 		executablePath.clear();
-	// Launcher の EXE とデータが別配置でも、明示した runtime から参照する。
+	// Launcher では EXE の配置によらず、明示した専用データ領域を使用する。
 	if (workingDirectory.empty())
 		SetCurrentDirectoryW(fs::path(executablePath).parent_path().c_str());
 	else if (!SetCurrentDirectoryW(workingDirectory.c_str()))
@@ -81,7 +81,7 @@ void WindowsInitCwd(const fs::path& workingDirectory)
 	#endif
 }
 
-void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks)
+void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks, const fs::path& titleCachePath)
 {
 	reconfigureGLDrivers();
 	reconfigureVkDrivers();
@@ -106,7 +106,7 @@ void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks)
 	// init Cafe system
 	CafeSystem::Initialize();
 	// init title list
-	CafeTitleList::Initialize(ActiveSettings::GetUserDataPath("title_list_cache.xml"));
+	CafeTitleList::Initialize(titleCachePath.empty() ? ActiveSettings::GetUserDataPath("title_list_cache.xml") : titleCachePath);
 	for (auto& it : GetConfig().game_paths)
 		CafeTitleList::AddScanPath(_utf8ToPath(it));
 	fs::path mlcPath = ActiveSettings::GetMlcPath();
