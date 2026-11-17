@@ -5,6 +5,8 @@ if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "LauncherShell requires Windows x64 with MSVC")
 endif()
 
+enable_language(RC)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -33,6 +35,11 @@ if(TARGET CemuCafe)
 endif()
 
 add_executable(LauncherShell WIN32 main.cpp NativeExitDialog.cpp NativeExitDialog.h NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
+target_sources(LauncherShell PRIVATE LauncherIcon.rc LauncherIcon.h)
+target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}>")
+set_property(SOURCE LauncherIcon.rc APPEND PROPERTY OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/LauncherIcon.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-icon.ico")
 target_compile_features(LauncherShell PRIVATE cxx_std_23)
 target_compile_options(LauncherShell PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherShell PRIVATE NOMINMAX LAUNCHER_VERSION="${PROJECT_VERSION}")

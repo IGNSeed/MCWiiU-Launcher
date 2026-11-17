@@ -4,6 +4,7 @@
 
 #include "NativeGameHost.h"
 #include "LauncherPreferences.h"
+#include "LauncherIcon.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
 #endif
@@ -15,10 +16,12 @@
 #include <charconv>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace
@@ -29,6 +32,24 @@ namespace
 	bool s_guiOnly = false;
 	bool s_launchImmediately = false;
 	bool s_sessionDiagnostics = false;
+
+	struct IconDeleter
+	{
+		void operator()(HICON icon) const
+		{
+			DestroyIcon(icon);
+		}
+	};
+	using OwnedIcon = std::unique_ptr<std::remove_pointer_t<HICON>, IconDeleter>;
+
+	OwnedIcon LoadWindowIcon(int width, int height)
+	{
+		OwnedIcon icon(static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_LAUNCHER_APP),
+			IMAGE_ICON, width, height, LR_DEFAULTCOLOR)));
+		if (!icon)
+			OutputDebugStringW(L"MCWiiU Launcher: failed to load application icon\n");
+		return icon;
+	}
 
 	std::optional<std::pair<uint64_t, std::string_view>> ParseSaveRequest(std::string_view message)
 	{
@@ -376,7 +397,17 @@ namespace
 	{
 		try
 		{
+			// window より先に宣言し、例外経路でも HWND 破棄後にアイコンを解放する。
+			OwnedIcon smallIcon, bigIcon;
 			auto window = saucer::window::create(app).value();
+			const auto hwnd = window->native().hwnd;
+			const auto dpi = GetDpiForWindow(hwnd);
+			smallIcon = LoadWindowIcon(GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CYSMICON, dpi));
+			bigIcon = LoadWindowIcon(GetSystemMetricsForDpi(SM_CXICON, dpi), GetSystemMetricsForDpi(SM_CYICON, dpi));
+			if (smallIcon)
+				SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon.get()));
+			if (bigIcon)
+				SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(bigIcon.get()));
 			window->set_title("MCWiiU Launcher");
 			window->set_decorations(saucer::window::decoration::partial);
 			window->set_size({1120, 760});

@@ -1,0 +1,3 @@
+#include "LauncherIcon.h"
+
+IDI_LAUNCHER_APP ICON "assets/app-icon.ico"
