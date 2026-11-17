@@ -193,7 +193,16 @@ public:
 	static void ReleaseRendererResources();
 
 private:
-	bool Activate();
+	enum class ActivationResult
+	{
+		Activated,
+		SkippedRenderer,
+		SkippedVendor,
+		Failed,
+	};
+
+	static ActivationResult ActivateGraphicPackWithResult(const std::shared_ptr<GraphicPack2>& graphic_pack);
+	ActivationResult Activate();
 	bool Deactivate();
 	void ClearOutputShaders();
 

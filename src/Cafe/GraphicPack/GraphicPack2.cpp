@@ -169,14 +169,19 @@ bool GraphicPack2::LoadGraphicPack(const fs::path& rulesPath, IniParser& rules)
 
 bool GraphicPack2::ActivateGraphicPack(const std::shared_ptr<GraphicPack2>& graphic_pack)
 {
-	if (graphic_pack->Activate())
+	return ActivateGraphicPackWithResult(graphic_pack) == ActivationResult::Activated;
+}
+
+GraphicPack2::ActivationResult GraphicPack2::ActivateGraphicPackWithResult(const std::shared_ptr<GraphicPack2>& graphic_pack)
+{
+	const auto result = graphic_pack->Activate();
+	if (result == ActivationResult::Activated)
 	{
 		s_active_graphic_packs.push_back(graphic_pack);
 		g_debuggerDispatcher.NotifyGraphicPacksModified();
-		return true;
 	}
 
-	return false;
+	return result;
 }
 
 bool GraphicPack2::DeactivateGraphicPack(const std::shared_ptr<GraphicPack2>& graphic_pack)
@@ -213,7 +218,8 @@ void GraphicPack2::ActivateForCurrentTitle()
 		if (!gp->MatchesTitle(titleId))
 			continue;
 
-		if (GraphicPack2::ActivateGraphicPack(gp))
+		const auto result = ActivateGraphicPackWithResult(gp);
+		if (result == ActivationResult::Activated)
 		{
 			if (gp->GetPresets().empty())
 			{
@@ -238,7 +244,7 @@ void GraphicPack2::ActivateForCurrentTitle()
 				cemuLog_log(LogType::Force, logLine);
 			}
 		}
-		else if (s_launcherManaged)
+		else if (s_launcherManaged && result == ActivationResult::Failed)
 			throw std::runtime_error(fmt::format("Graphic pack activation failed: {}", gp->GetName()));
 	}
 	s_isReady = true;
@@ -606,7 +612,7 @@ bool GraphicPack2::RequiresRestart(bool changeEnableState, bool changePreset)
 bool GraphicPack2::Reload()
 {
 	Deactivate();
-	return Activate();
+	return Activate() == ActivationResult::Activated;
 }
 
 std::string GraphicPack2::GetNormalizedPathString() const
@@ -1021,25 +1027,31 @@ void GraphicPack2::LoadReplacedFiles()
 	}
 }
 
-bool GraphicPack2::Activate()
+GraphicPack2::ActivationResult GraphicPack2::Activate()
 {
 	if (m_activated)
-		return true;
+		return ActivationResult::Activated;
 
 	// check if gp should be loaded
 	if (m_renderer_api.has_value() && m_renderer_api.value() != g_renderer->GetType())
-		return false;
+	{
+		cemuLog_log(LogType::Force, "Skip graphic pack: {} (rendererFilter does not match the current rendering API)", GetVirtualPath());
+		return ActivationResult::SkippedRenderer;
+	}
 
 	if (m_gfx_vendor.has_value())
 	{
 		auto vendor = g_renderer->GetVendor();
 		if (m_gfx_vendor.value() != vendor)
-			return false;
+		{
+			cemuLog_log(LogType::Force, "Skip graphic pack: {} (vendorFilter does not match the current GPU vendor)", GetVirtualPath());
+			return ActivationResult::SkippedVendor;
+		}
 	}
 
 	FileStream* fs_rules = FileStream::openFile2(m_rulesPath);
 	if (!fs_rules)
-		return false;
+		return ActivationResult::Failed;
 	std::vector<uint8> rulesData;
 	fs_rules->extract(rulesData);
 	delete fs_rules;
@@ -1120,7 +1132,7 @@ bool GraphicPack2::Activate()
 	catch(const std::exception& ex)
 	{
 		cemuLog_log(LogType::Force, ex.what());
-		return false;
+		return ActivationResult::Failed;
 	}
 
 	m_activated = true;
@@ -1159,7 +1171,7 @@ bool GraphicPack2::Activate()
 		}
 	}
 	m_activated = true;
-	return true;
+	return ActivationResult::Activated;
 }
 
 bool GraphicPack2::Deactivate()
