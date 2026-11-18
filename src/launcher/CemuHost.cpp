@@ -16,6 +16,7 @@
 
 #include "Cemu/Startup.h"
 #include "Cemu/GameLaunch.h"
+#include "Cafe/TitleList/TitleList.h"
 #include "Cafe/CafeSystem.h"
 #include "Cafe/Filesystem/fsc.h"
 #include "Cafe/IOSU/legacy/iosu_act.h"
@@ -123,7 +124,13 @@ namespace
 		std::atomic_uint32_t swapchainWidth{0}, swapchainHeight{0};
 		std::string phase = "idle", error;
 		fs::path dataRoot;
-		bool gameInstalled = false, nativeSettingsHealthy = true;
+		bool gameInstalled = false, launchRegionSupported = false, nativeSettingsHealthy = true;
+		std::shared_ptr<GameInstallationService> installation;
+		std::atomic_bool installationRequested{false};
+		std::atomic_bool installationCancelled{false};
+		bool installationBusy = false;
+		GameInstallationService::Request installationRequest;
+		std::optional<GameInstallationService::Progress> installationQueueProgress;
 		NativeSettings nativeSettings;
 		std::unique_ptr<InputService> input;
 		std::unique_ptr<AvSettings> av;
@@ -228,11 +235,32 @@ namespace
 		}
 		bool CanEditWorldsLocked() const
 		{
-			return !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+		}
+		bool RegionManagersAvailable() const
+		{
+			const auto region = installation->GetSnapshot().region;
+			return region == GameInstallationService::Region::None || region == GameInstallationService::Region::JPN;
+		}
+		GameInstallationService::Snapshot InstallationStatusLocked() const
+		{
+			auto result = installation->GetSnapshot();
+			if (installationQueueProgress)
+			{
+				result.progress = *installationQueueProgress;
+				if (result.progress.completion == GameInstallationService::Completion::Running)
+				{
+					result.ready = result.launchSupported = false;
+					result.state = result.progress.operation == GameInstallationService::Operation::ChangeRegion ? GameInstallationService::State::ChangingRegion :
+						result.progress.operation == GameInstallationService::Operation::Uninstall || result.progress.operation == GameInstallationService::Operation::RemoveDLC ? GameInstallationService::State::Uninstalling :
+						result.progress.operation == GameInstallationService::Operation::ReinstallBase || result.progress.operation == GameInstallationService::Operation::ReinstallUpdate ? GameInstallationService::State::Reinstalling : GameInstallationService::State::Installing;
+				}
+			}
+			return result;
 		}
 		WorldService::Context WorldContext() const
 		{
-			WorldService::Context result{ActiveSettings::GetPersistentId(), accounts->Revision(), CanEditWorldsLocked(), {}};
+			WorldService::Context result{ActiveSettings::GetPersistentId(), accounts->Revision(), CanEditWorldsLocked() && RegionManagersAvailable(), {}};
 			for (const auto& account : Account::GetAccounts())
 				result.accounts.push_back({account.GetPersistentId(), boost::nowide::narrow(account.GetMiiName().data(), account.GetMiiName().size())});
 			return result;
@@ -243,7 +271,7 @@ namespace
 		}
 		bool CanEditInputLocked() const { return CanEditLiveSettingsLocked() && input && input->IsHealthy(); }
 		bool CanEditAudioLocked() const { return CanEditLiveSettingsLocked() && av && av->IsHealthy(); }
-		bool CanAcknowledgeTexturesLocked() const { return CanEditLiveSettingsLocked() && textures && !textureBusy; }
+		bool CanAcknowledgeTexturesLocked() const { return !installationBusy && RegionManagersAvailable() && CanEditLiveSettingsLocked() && textures && !textureBusy; }
 		void ClearStopConfirmationLocked()
 		{
 			confirmationId = confirmationSession = confirmationGeneration = 0;
@@ -261,15 +289,20 @@ namespace
 				writer.Key("titlePhase"); writer.String(titlePhase.c_str());
 				writer.Key("stopReason"); writer.String(stopReason.c_str());
 				writer.Key("gameInstalled"); writer.Bool(gameInstalled);
-				writer.Key("launchUnavailableReason"); writer.String(!gameInstalled ? "game-not-installed" : !nativeSettingsHealthy ? "native-settings-invalid" : "");
-				writer.Key("canLaunch"); writer.Bool(gameInstalled && nativeSettingsHealthy && CanEditSettingsLocked());
+				const auto installed = InstallationStatusLocked();
+				writer.Key("installationState"); writer.String(GameInstallationService::StateName(installed.state));
+				writer.Key("installationBusy"); writer.Bool(installationBusy);
+				writer.Key("gameRegion"); writer.Int(static_cast<int>(installed.region));
+				writer.Key("canManageGameData"); writer.Bool(CanEditSettingsLocked());
+				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "region-support-pending" : !nativeSettingsHealthy ? "native-settings-invalid" : "");
+				writer.Key("canLaunch"); writer.Bool(gameInstalled && launchRegionSupported && nativeSettingsHealthy && CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
 				writer.Key("canEditAccounts"); writer.Bool(CanEditSettingsLocked() && accounts != nullptr);
-				writer.Key("canEditWorlds"); writer.Bool(CanEditSettingsLocked() && worlds != nullptr);
-				writer.Key("canRecoverWorlds"); writer.Bool(CanEditWorldsLocked() && worlds != nullptr);
-				writer.Key("canEditTextures"); writer.Bool(CanEditWorldsLocked() && textures && (!worlds || worlds->IsHealthy()));
+				writer.Key("canEditWorlds"); writer.Bool(RegionManagersAvailable() && CanEditSettingsLocked() && worlds != nullptr);
+				writer.Key("canRecoverWorlds"); writer.Bool(RegionManagersAvailable() && CanEditWorldsLocked() && worlds != nullptr);
+				writer.Key("canEditTextures"); writer.Bool(RegionManagersAvailable() && CanEditWorldsLocked() && textures && (!worlds || worlds->IsHealthy()));
 				writer.Key("canAcknowledgeTextureWarnings"); writer.Bool(CanAcknowledgeTexturesLocked());
 				writer.Key("canEditGraphicPacks"); writer.Bool(CanEditSettingsLocked() && bool(graphicPacks));
 				writer.Key("textureBusy"); writer.Bool(textureBusy);
@@ -480,6 +513,14 @@ namespace
 			const auto path = _utf8ToPath(value);
 			Require(paths.ContainsData(path), "External game path is not allowed; original settings/cache preserved");
 			paths.CheckPath(path);
+			bool titlePath = false;
+			for (auto current = path.lexically_normal(); !current.empty(); current = current.parent_path())
+			{
+				if (_wcsicmp(current.c_str(), (paths.data / "mlc01/usr/title").lexically_normal().c_str()) == 0 ||
+					_wcsicmp(current.c_str(), (paths.data / "mlc01/sys/title").lexically_normal().c_str()) == 0) { titlePath = true; break; }
+				if (current == current.root_path()) break;
+			}
+			Require(titlePath, "Legacy game paths require explicit MLC installation; original settings/cache preserved");
 		};
 		for (const auto& entry : config.child("GamePaths").children()) checkReference(entry.child_value());
 		for (const auto& entry : config.child("GameCache").children()) checkReference(entry.child_value("path"));
@@ -505,25 +546,6 @@ namespace
 			}
 		}
 	}
-	bool HasInstalledGame(const fs::path& data)
-	{
-		// インストーラーと地域選択は後続 Phase。既存の JPN 起動契約だけを維持する。
-		const auto base = data / "games/base", update = data / "mlc01/usr/title/0005000e/101dbe00";
-		if (!fs::is_regular_file(base / "code/Minecraft.Client.rpx") || !fs::is_regular_file(update / "code/app.xml")) return false;
-		for (const auto& [path, id, version] : std::array<std::tuple<fs::path, std::string_view, unsigned>, 2>{{
-			{base, "00050000101dbe00", 0}, {update, "0005000e101dbe00", 560}}})
-		{
-			pugi::xml_document app;
-			if (!app.load_file((path / "code/app.xml").c_str())) return false;
-			auto title = std::string(app.child("app").child_value("title_id"));
-			std::transform(title.begin(), title.end(), title.begin(), [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-			unsigned parsedVersion = 0;
-			std::istringstream(app.child("app").child_value("title_version")) >> std::hex >> parsedVersion;
-			if (title != id || (version && parsedVersion != version)) return false;
-		}
-		return true;
-	}
-
 	VKAPI_ATTR VkResult VKAPI_CALL Present(VkQueue queue, const VkPresentInfoKHR* info)
 	{
 		const auto result = s_present(queue, info);
@@ -631,7 +653,13 @@ struct CemuHost::Impl
 			state->dataRoot = paths.data;
 			const auto& data = paths.data;
 			ValidateStorageSettings();
-			{ std::lock_guard lock(state->statusMutex); state->gameInstalled = HasInstalledGame(data); }
+			const auto installed = state->installation->GetSnapshot();
+			Require(installed.state != GameInstallationService::State::RecoveryRequired, "Game installation recovery is required before starting Core");
+			{
+				std::lock_guard lock(state->statusMutex);
+				state->gameInstalled = installed.ready;
+				state->launchRegionSupported = installed.launchSupported;
+			}
 			// 中断した取引がある場合は、Default Account 作成を含む共通初期化より前に止める。
 			Require(!fs::exists(data / ".launcher-account-transaction"), "Account recovery is required before starting Core");
 			const auto nativePath = data / "launcher-native-settings.json";
@@ -662,7 +690,7 @@ struct CemuHost::Impl
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: Launcher-managed, new packs disabled");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), data / "mlc01"), "Loaded MLC escaped application data");
 			InitializeGlobalVulkan();
-			auto textures = std::make_unique<TextureService>(data, state->dataRoot / "games/base/content/Common", data / "mlc01/usr/title/0005000e/101dbe00/content/Common");
+			auto textures = std::make_unique<TextureService>(data, GameInstallationService::TitlePath(data, 0x00050000101dbe00ULL) / "content/Common", data / "mlc01/usr/title/0005000e/101dbe00/content/Common");
 			{
 				std::lock_guard lock(state->statusMutex);
 				state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>();
@@ -672,12 +700,59 @@ struct CemuHost::Impl
 				state->graphicPacks = std::move(graphicPacks);
 				state->corePhase = "ready";
 			}
+			if (state->launch && (!state->nativeSettingsHealthy || !state->installation->TryBeginPlay())) state->launch = false;
 			state->Phase("ready");
 			while (!state->stop)
 			{
 				{
 					std::unique_lock lock(state->workMutex);
-					state->wake.wait(lock, [&] { return state->stop || state->launch || state->networkTest; });
+					state->wake.wait(lock, [&] { return state->stop || state->launch || state->networkTest || state->installationRequested; });
+				}
+				if (state->installationRequested.exchange(false))
+				{
+					GameInstallationService::Request request;
+					{ std::lock_guard lock(state->workMutex); request = std::move(state->installationRequest); }
+					// 走査中の TitleInfo と配置 rename を競合させない。待機は coordinator で行う。
+					while (CafeTitleList::IsScanning()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					if (!state->stop && !state->installationCancelled)
+					{
+						const auto accepted = state->installation->Start(std::move(request));
+						if (state->stop || state->installationCancelled) state->installation->Cancel();
+						{
+							std::lock_guard lock(state->statusMutex);
+							if (accepted) state->installationQueueProgress.reset();
+							else
+							{
+								state->installationQueueProgress->completion = GameInstallationService::Completion::Failed;
+								state->installationQueueProgress->result = accepted;
+								state->installationQueueProgress->cancellable = false;
+							}
+						}
+						if (accepted) state->installation->Wait();
+						const auto current = state->installation->GetSnapshot();
+						if (current.state != GameInstallationService::State::RecoveryRequired)
+						{
+							CafeTitleList::Refresh();
+							while (CafeTitleList::IsScanning()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+						}
+						std::lock_guard lock(state->statusMutex);
+						state->gameInstalled = current.ready;
+						state->launchRegionSupported = current.launchSupported;
+						++state->gameListRevision;
+					}
+					{
+						std::lock_guard lock(state->statusMutex);
+						state->installationBusy = false;
+						if (state->installationQueueProgress && state->installationCancelled)
+						{
+							state->installationQueueProgress->completion = GameInstallationService::Completion::Cancelled;
+							state->installationQueueProgress->phase = GameInstallationService::Phase::Completed;
+							state->installationQueueProgress->cancellable = false;
+							state->installationQueueProgress->result = {GameInstallationService::Error::Cancelled, "Installation cancelled before starting"};
+						}
+					}
+					state->Publish();
+					continue;
 				}
 				if (state->networkTest.exchange(false) && !state->stop)
 				{
@@ -685,9 +760,10 @@ struct CemuHost::Impl
 					state->Publish();
 					continue;
 				}
-				if (!state->stop && (!state->gameInstalled || !state->nativeSettingsHealthy))
+				if (!state->stop && (!state->gameInstalled || !state->launchRegionSupported || !state->nativeSettingsHealthy))
 				{
 					state->launch = false;
+					state->installation->EndPlay();
 					state->Publish();
 					continue;
 				}
@@ -711,7 +787,7 @@ struct CemuHost::Impl
 							NativeSettings settings;
 							{ std::lock_guard lock(state->statusMutex); settings = state->nativeSettings; }
 							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height); }
-							auto prepared = GameLaunch::Prepare(state->dataRoot / "games/base");
+							auto prepared = GameLaunch::Prepare(state->installation->GetSnapshot().basePath);
 							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
 							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
 							std::vector<std::string> texturePaths;
@@ -826,6 +902,7 @@ struct CemuHost::Impl
 							std::lock_guard workLock(state->workMutex);
 							std::lock_guard statusLock(state->statusMutex);
 							state->launch = false;
+							state->installation->EndPlay();
 							state->titleStop = false;
 							s_inputRecoveryPending = false;
 							state->titlePhase = "stopped";
@@ -840,6 +917,8 @@ struct CemuHost::Impl
 			state->Fail(error.what());
 		}
 		state->Stop();
+		state->installation->Cancel();
+		state->installation->Wait();
 		if (commonStarted)
 		{
 			state->Phase("stopping");
@@ -889,10 +968,12 @@ struct CemuHost::Impl
 	}
 };
 
-CemuHost::CemuHost(HWND root, HWND canvas, Callbacks callbacks) : m_impl(std::make_unique<Impl>())
+CemuHost::CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation) : m_impl(std::make_unique<Impl>())
 {
 	Require(s_currentHost.expired(), "Only one Core host may exist");
 	m_impl->state = std::make_shared<HostState>(root, canvas, std::move(callbacks));
+	Require(installation != nullptr, "Game installation service is required");
+	m_impl->state->installation = std::move(installation);
 	s_currentHost = m_impl->state;
 	s_windowInfo.window_main = {WindowSystem::WindowHandleInfo::Backend::Windows, nullptr, canvas};
 	s_windowInfo.canvas_main = s_windowInfo.window_main;
@@ -920,7 +1001,8 @@ void CemuHost::LaunchGame()
 	{
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
-		if (!m_impl->state->gameInstalled || !m_impl->state->nativeSettingsHealthy || !m_impl->state->CanEditSettingsLocked()) return;
+		if (!m_impl->state->gameInstalled || !m_impl->state->launchRegionSupported || !m_impl->state->nativeSettingsHealthy || !m_impl->state->CanEditSettingsLocked()) return;
+		if (!m_impl->state->installation->TryBeginPlay()) return;
 		if (m_impl->state->input) m_impl->state->input->CancelCapture();
 		m_impl->state->launch = true;
 		m_impl->state->titleStop = false;
@@ -979,7 +1061,41 @@ bool CemuHost::HasStopGameConfirmation() const
 	std::lock_guard lock(m_impl->state->statusMutex);
 	return m_impl->state->confirmationId != 0 && m_impl->state->CanStopGameLocked();
 }
-void CemuHost::RequestStop() { m_impl->state->Stop(); }
+GameInstallationService::Result CemuHost::StartGameDataOperation(GameInstallationService::Request request)
+{
+	auto& state = *m_impl->state;
+	{
+		std::lock_guard workLock(state.workMutex);
+		std::lock_guard statusLock(state.statusMutex);
+		if (!state.CanEditSettingsLocked()) return {GameInstallationService::Error::Busy, "Stop the game and other management operations first"};
+		state.installationQueueProgress = GameInstallationService::Progress{request.operation, GameInstallationService::Phase::Analyzing, 0, 0, 0, 0, true, GameInstallationService::Completion::Running, {}};
+		state.installationRequest = std::move(request);
+		state.installationCancelled = false;
+		state.installationBusy = true;
+		state.installationRequested = true;
+	}
+	state.Publish();
+	state.wake.notify_all();
+	return {};
+}
+GameInstallationService::Snapshot CemuHost::GameDataStatus() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	return m_impl->state->InstallationStatusLocked();
+}
+std::future<GameInstallationService::Analysis> CemuHost::AnalyzeGameSource(std::filesystem::path selected) const
+{
+	return std::async(std::launch::async, [installation = m_impl->state->installation, selected = std::move(selected)] { return installation->AnalyzeSource(selected); });
+}
+void CemuHost::CancelGameDataOperation()
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	state.installationCancelled = true;
+	state.installation->Cancel();
+}
+void CemuHost::RequestStop() { m_impl->state->installation->Cancel(); m_impl->state->Stop(); }
 void CemuHost::ReportDisplayFailure() { m_impl->state->Fail("Unable to switch launcher display mode"); }
 bool CemuHost::IsStopped() const { return m_impl->state->stopped; }
 bool CemuHost::IsRunning() const
@@ -1127,7 +1243,7 @@ void CemuHost::TextureCommand(uint64_t requestId, std::string payload, std::func
 	{
 		complete("{\"notice\":\"not-ready\"}"); return;
 	}
-	const bool editable = state->CanEditWorldsLocked() && (!state->worlds || state->worlds->IsHealthy());
+	const bool editable = state->RegionManagersAvailable() && state->CanEditWorldsLocked() && (!state->worlds || state->worlds->IsHealthy());
 	const bool acknowledgeable = state->CanAcknowledgeTexturesLocked();
 	state->lastTextureRequest = requestId;
 	if (m_impl->textureWorker.joinable()) m_impl->textureWorker.join();

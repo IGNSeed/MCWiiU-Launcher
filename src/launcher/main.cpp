@@ -6,6 +6,7 @@
 #include "LauncherPreferences.h"
 #include "LauncherIcon.h"
 #include "LauncherPaths.h"
+#include "GameInstallationService.h"
 #include "SingleInstance.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
@@ -35,6 +36,7 @@ namespace
 	bool s_launchImmediately = false;
 	bool s_sessionDiagnostics = false;
 	SingleInstance* s_instance = nullptr;
+	std::shared_ptr<GameInstallationService> s_installation;
 
 	struct IconDeleter
 	{
@@ -496,7 +498,7 @@ namespace
 						}
 						window->close();
 						}
-					});
+					}, s_installation);
 				gameHost.stateChanged = [&] {
 					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
 						!display->m_stopConfirmation && !display->m_settingsSelected && !display->m_launcherVisible && core->IsRunning());
@@ -954,12 +956,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		s_instance = &instance;
 		auto& paths = LauncherPaths::Get();
 		paths.Initialize();
+		s_installation = std::make_shared<GameInstallationService>(paths);
+		const auto installation = s_installation->Initialize();
+		if (!installation) throw std::runtime_error(installation.message);
 		paths.CreateDefault(paths.data / "launcher-preferences.json", LauncherPreferences{}.Json());
 		int result;
 		{
 			auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
 			result = application.run(Start);
 		}
+		s_installation.reset();
 		const auto exitCode = s_startupExitCode ? s_startupExitCode : result;
 #ifdef CEMU_NATIVE_HOST
 		// CemuApp::OnExit と同じ終了契約。Core/GPU/Input と全 UI の明示破棄後に

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "GameInstallationService.h"
 #include <Windows.h>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -21,12 +23,16 @@ public:
 		std::function<void()> stopped;
 	};
 
-	CemuHost(HWND root, HWND canvas, Callbacks callbacks);
+	CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation);
 	~CemuHost();
 	CemuHost(const CemuHost&) = delete;
 	CemuHost& operator=(const CemuHost&) = delete;
 	void Start(bool launchImmediately);
 	void LaunchGame();
+	GameInstallationService::Result StartGameDataOperation(GameInstallationService::Request request);
+	GameInstallationService::Snapshot GameDataStatus() const;
+	std::future<GameInstallationService::Analysis> AnalyzeGameSource(std::filesystem::path selected) const;
+	void CancelGameDataOperation();
 	void StopGame();
 	bool BeginStopGameConfirmation(uint64_t sessionId);
 	void CancelStopGameConfirmation(uint64_t sessionId, uint64_t confirmationId);
