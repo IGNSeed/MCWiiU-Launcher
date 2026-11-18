@@ -286,7 +286,7 @@ namespace
 				if (depth == 1)
 				{
 					const std::wstring_view name(value, length);
-					if (name == L"title_id" || name == L"title_version" || name == L"region" || name == L"argstr")
+					if (name == L"title_id" || name == L"title_version" || name == L"region" || name == L"argstr" || name == L"longname_ja" || name == L"longname_en")
 					{
 						field = name;
 						Require(values.emplace(field, L"").second, Error::InvalidMetadata, "Duplicate title XML field");
@@ -342,6 +342,14 @@ namespace
 			Require(Size(executable.value) != 0, Error::InvalidMetadata, "Minecraft executable is missing or empty");
 		}
 		if (requireV560 && title.type == Service::TitleType::Update) Require(title.version == 560, Error::UnsupportedVersion, "Only update v560 is supported");
+		const auto& name = meta[L"longname_ja"].empty() ? meta[L"longname_en"] : meta[L"longname_ja"];
+		if (!name.empty())
+		{
+			const auto count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), static_cast<int>(name.size()), nullptr, 0, nullptr, nullptr);
+			Require(count > 0, Error::InvalidMetadata, "Invalid title name encoding");
+			title.name.resize(count);
+			WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, name.data(), static_cast<int>(name.size()), title.name.data(), count, nullptr, nullptr);
+		}
 		title.source = source;
 		title.destination = Service::TitlePath(data, title.id);
 		return title;
@@ -653,10 +661,13 @@ struct GameInstallationService::Impl
 		std::vector<Title> titles;
 		Publish(Phase::Analyzing);
 		Require(request.sources.size() <= 3, Error::InvalidMetadata, "Select at most three installation sources");
-		for (const auto& source : request.sources)
+		Require(request.expectedSources.empty() || request.expectedSources.size() == request.sources.size(), Error::InvalidMetadata, "Invalid source identity count");
+		for (size_t index = 0; index < request.sources.size(); ++index)
 		{
-			auto analysis = Analyze(source, &cancelled);
+			auto analysis = Analyze(request.sources[index], &cancelled);
 			if (!analysis.result) throw Failure(analysis.result.error, analysis.result.message.c_str());
+			if (!request.expectedSources.empty()) Require(analysis.title.id == request.expectedSources[index].id && analysis.title.version == request.expectedSources[index].version,
+				Error::InvalidMetadata, "Selected title changed after review; select and review the source again");
 			for (const auto& other : titles) Require(other.id != analysis.title.id, Error::InvalidMetadata, "Duplicate input title");
 			titles.push_back(std::move(analysis.title));
 		}

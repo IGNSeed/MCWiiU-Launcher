@@ -7,6 +7,7 @@
 #include "LauncherIcon.h"
 #include "LauncherPaths.h"
 #include "GameInstallationService.h"
+#include "GameDataBridge.h"
 #include "SingleInstance.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
@@ -98,6 +99,29 @@ namespace
 			m_webview.off(saucer::webview::event::dom_ready);
 		}
 	};
+
+	std::optional<GameInstallationService::Path> SelectGameSource(HWND owner, bool folder)
+	{
+		Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+		if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
+			throw std::runtime_error("Cannot create game source picker");
+		const DWORD options = FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_DONTADDTORECENT |
+			(folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST);
+		const COMDLG_FILTERSPEC types[]{{L"Wii U title metadata (meta.xml)", L"meta.xml"}};
+		if (FAILED(dialog->SetOptions(options)) || (!folder && FAILED(dialog->SetFileTypes(1, types))) ||
+			FAILED(dialog->SetTitle(folder ? L"Select Wii U title folder (code / content / meta)" : L"Select meta.xml")))
+			throw std::runtime_error("Cannot configure game source picker");
+		const auto shown = dialog->Show(owner);
+		if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return std::nullopt;
+		if (FAILED(shown)) throw std::runtime_error("Cannot show game source picker");
+		Microsoft::WRL::ComPtr<IShellItem> item;
+		PWSTR path = nullptr;
+		if (FAILED(dialog->GetResult(&item)) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
+			throw std::runtime_error("Cannot read selected game source");
+		GameInstallationService::Path result(path);
+		CoTaskMemFree(path);
+		return result;
+	}
 
 #ifdef CEMU_NATIVE_HOST
 	std::optional<std::wstring> SelectDumplingZip(HWND owner, bool network = false, bool image = false)
@@ -529,12 +553,53 @@ namespace
 				gameHost.shortcut = [&](UINT key) { const auto session = core->SessionId(); app->post([&, key, session] { display->Shortcut(key, session); }); };
 			}
 #endif
+			GameDataBridge gameData({
+				.snapshot = [&] {
+#ifdef CEMU_NATIVE_HOST
+					if (core) return core->GameDataStatus();
+#endif
+					return s_installation->GetSnapshot();
+				},
+				.canManage = [&] {
+					if (!preferencesHealthy || notifications.m_closeRequested || notifications.m_closing) return false;
+#ifdef CEMU_NATIVE_HOST
+					return core && core->CanManageGameData();
+#else
+					return true;
+#endif
+				},
+				.start = [&](GameInstallationService::Request request) {
+#ifdef CEMU_NATIVE_HOST
+					if (core) return core->StartGameDataOperation(std::move(request));
+#endif
+					return s_installation->Start(std::move(request));
+				},
+				.cancel = [&] {
+#ifdef CEMU_NATIVE_HOST
+					if (core) { core->CancelGameDataOperation(); return; }
+#endif
+					s_installation->Cancel();
+				},
+				.analyze = [&](GameInstallationService::Path path) {
+#ifdef CEMU_NATIVE_HOST
+					if (core) return core->AnalyzeGameSource(std::move(path));
+#endif
+					return std::async(std::launch::async, [installation = s_installation, path = std::move(path)] { return installation->AnalyzeSource(path); });
+				}
+			},
+#ifdef CEMU_NATIVE_HOST
+				core != nullptr
+#else
+				false
+#endif
+			);
 			notifications.m_closeListener = window->on<saucer::window::event::close>([&] {
+				if (notifications.m_closeApproved && gameData.IsWorking()) return saucer::policy::block;
 				// Alt+F4 も、WebView 内の未送信の保存要求が完了してから閉じる。
 				if (notifications.m_frontendReady && !notifications.m_closeApproved)
 				{
 					if (!notifications.m_closeRequested)
-						webview.execute("window.dispatchEvent(new Event('launcher-close-request'));");
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-close-request', {detail:{gameDataBusy:" + std::string(gameData.IsWorking() ? "true" : "false") + "}}));");
 					notifications.m_closeRequested = true;
 					return saucer::policy::block;
 				}
@@ -639,7 +704,7 @@ namespace
 					return saucer::status::unhandled;
 #ifdef CEMU_NATIVE_HOST
 				if (display && display->m_stopping && message != "window:close" && message != "window:close-confirmed" &&
-					!message.starts_with("settings:save:") && !message.starts_with("preferences:save:") && !message.starts_with("av:command:"))
+					!message.starts_with("settings:save:") && !message.starts_with("preferences:save:") && !message.starts_with("av:command:") && !message.starts_with("game-data:command:"))
 					return saucer::status::handled;
 #endif
 
@@ -653,7 +718,22 @@ namespace
 				else if (message == "window:close-confirmed" && notifications.m_closeRequested)
 				{
 					notifications.m_closeApproved = true;
+					gameData.BeginClose();
 					window->close();
+				}
+				else if (message == "window:close-cancelled" && !notifications.m_closeApproved)
+					notifications.m_closeRequested = false;
+				else if (message.starts_with("game-data:command:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("game-data:command:").size())))
+					{
+						// COM の message callback を抜けてから標準ダイアログを開く。
+						app->post([&, id = request->first, payload = std::string(request->second)] {
+							if (notifications.m_closing) return;
+							const auto json = gameData.Handle(id, payload, [&](bool folder) { return SelectGameSource(window->native().hwnd, folder); });
+							if (!notifications.m_closing) webview.execute("window.dispatchEvent(new CustomEvent('launcher-game-data', {detail:" + json + "}));");
+						});
+					}
 				}
 				else if (message.starts_with("preferences:save:"))
 				{
@@ -671,7 +751,9 @@ namespace
 				}
 #ifdef CEMU_NATIVE_HOST
 				else if (core && message == "game:start")
-					core->LaunchGame();
+				{
+					if (!notifications.m_closeRequested && !gameData.IsWorking()) core->LaunchGame();
+				}
 				else if (core && message.starts_with("settings:save:"))
 				{
 					const auto payload = message.substr(std::string_view("settings:save:").size());
@@ -958,7 +1040,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		paths.Initialize();
 		s_installation = std::make_shared<GameInstallationService>(paths);
 		const auto installation = s_installation->Initialize();
-		if (!installation) throw std::runtime_error(installation.message);
+		if (!installation) throw std::runtime_error(installation.message + "\nGame data recovery is required. Existing files were preserved. Do not delete transaction files; retain a backup and inspect the installation journal before retrying.");
 		paths.CreateDefault(paths.data / "launcher-preferences.json", LauncherPreferences{}.Json());
 		int result;
 		{

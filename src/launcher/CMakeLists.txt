@@ -46,7 +46,7 @@ target_compile_options(LauncherInstallation PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherInstallation PRIVATE NOMINMAX)
 target_link_libraries(LauncherInstallation PUBLIC LauncherStorage PRIVATE XmlLite Shlwapi Bcrypt)
 
-add_executable(LauncherShell WIN32 main.cpp NativeExitDialog.cpp NativeExitDialog.h NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
+add_executable(LauncherShell WIN32 GameDataBridge.cpp GameDataBridge.h main.cpp NativeExitDialog.cpp NativeExitDialog.h NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
 target_sources(LauncherShell PRIVATE LauncherIcon.rc LauncherIcon.h)
 target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}>")
 set_property(SOURCE LauncherIcon.rc APPEND PROPERTY OBJECT_DEPENDS
@@ -63,6 +63,7 @@ saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
 set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/app.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/game-data.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/friends.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/world.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/texture.js"

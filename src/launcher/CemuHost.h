@@ -31,6 +31,7 @@ public:
 	void LaunchGame();
 	GameInstallationService::Result StartGameDataOperation(GameInstallationService::Request request);
 	GameInstallationService::Snapshot GameDataStatus() const;
+	bool CanManageGameData() const;
 	std::future<GameInstallationService::Analysis> AnalyzeGameSource(std::filesystem::path selected) const;
 	void CancelGameDataOperation();
 	void StopGame();

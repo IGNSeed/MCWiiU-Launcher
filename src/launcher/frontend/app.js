@@ -1,6 +1,6 @@
 "use strict";
 
-const pages = ["home", "friends", "world", "texture", "graphic-packs", "settings"];
+const pages = ["home", "friends", "world", "texture", "graphic-packs", "settings", "setup"];
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
@@ -12,7 +12,7 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : page === "graphic-packs" ? "Graphic Packs" : "Settings";
+  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : page === "graphic-packs" ? "Graphic Packs" : page === "setup" ? "Setup" : "Settings";
   updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.();
 }, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
@@ -27,7 +27,7 @@ function showPage(selected, options = {}) {
   window.updateWorldView?.();
   window.updateTextureView?.();
   window.updateGraphicPacksView?.();
-  const focus = document.querySelector(`[data-page="${selected}"]`);
+  const focus = document.querySelector(`[data-page="${selected === "setup" ? "home" : selected}"]`);
   if (!game && pages.some(name => document.getElementById(name).contains(document.activeElement))) focus.focus({preventScroll:true});
   navigation.forEach(item => {
     if (item.dataset.page === selected) item.setAttribute("aria-current", "page");
@@ -49,7 +49,9 @@ function windowCommand(command) {
 const play = document.getElementById("play");
 let launchPending = false, launchRequestSession = 0;
 play.addEventListener("click", () => {
-  if (play.disabled || launchPending || settingsBusy() || window.launcherCoreState?.canLaunch !== true) return;
+  if (play.disabled || launchPending || settingsBusy()) return;
+  if (window.GameDataUI?.canSetup()) { window.GameDataUI.onPlay(); return; }
+  if (window.GameDataUI?.busy() || window.launcherCoreState?.canLaunch !== true) return;
   launchPending = true;
   launchRequestSession = window.launcherCoreState.sessionId;
   play.disabled = true;
@@ -125,7 +127,7 @@ window.addEventListener("launcher-core-state", (event) => {
   if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status] = coreLabels[phase] || coreLabels.idle;
-  play.disabled = state.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
+  updatePlay();
   play.title = state.launchUnavailableReason === "game-not-installed" ? "Minecraft BASE と Update v560 がインストールされていません。" : state.launchUnavailableReason === "native-settings-invalid" ? "ゲーム設定ファイルを読み込めません。元のファイルは保持されています。" : "";
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
@@ -211,7 +213,7 @@ function settingsBusy() { return pendingSave !== null || saveQueue.length > 0 ||
 function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function draft(scope) { return desired[scope] || confirmed[scope]; }
 function updatePlay() {
-  play.disabled = window.launcherCoreState?.canLaunch !== true || launchPending || settingsBusy() || closeAfterSaves;
+  play.disabled = (window.launcherCoreState?.canLaunch !== true && !window.GameDataUI?.canSetup()) || window.GameDataUI?.busy() || launchPending || settingsBusy() || closeAfterSaves;
 }
 function note(scope, text) {
   document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note").textContent = text;
@@ -323,15 +325,18 @@ window.addEventListener("launcher-settings-result", (event) => {
   if (scope === "native") renderNative(); else renderPreferences();
   drainSaves();
 });
-window.addEventListener("launcher-close-request", () => {
-  commitFps();
-  stopInputView();
-  closeAfterSaves = true;
-  nativeGraphics.disabled = document.getElementById("update-preferences").disabled = true;
-  navigation.forEach((button) => { button.disabled = true; });
-  tabs.forEach((tab) => { tab.disabled = true; });
-  play.disabled = true;
-  drainSaves();
+window.addEventListener("launcher-close-request", (event) => {
+  const finish = () => {
+    commitFps();
+    stopInputView();
+    closeAfterSaves = true;
+    nativeGraphics.disabled = document.getElementById("update-preferences").disabled = true;
+    navigation.forEach((button) => { button.disabled = true; });
+    tabs.forEach((tab) => { tab.disabled = true; });
+    play.disabled = true;
+    drainSaves();
+  };
+  if (window.GameDataUI) window.GameDataUI.beforeClose(event, finish); else finish();
 });
 function setInfo(id, entries) {
   const list = document.getElementById(id);

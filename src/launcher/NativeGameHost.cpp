@@ -367,6 +367,15 @@ void NativeGameHost::UpdateLayout()
 			client.bottom - height, client.right, client.bottom};
 		m_layoutFailed = !SetBounds(gameBounds) || m_layoutFailed;
 	}
+	else if (!m_gameLayout && !IsIconic(m_parent) && IsWindowVisible(m_parent) && client.right > 0 && client.bottom > 0)
+	{
+		// Core を持たない画面でも、最大化への復帰時に残る最小化 Bounds と非表示を補正する。
+		RECT bounds{};
+		BOOL visible = FALSE;
+		m_layoutFailed = FAILED(m_controller->get_Bounds(&bounds)) || FAILED(m_controller->get_IsVisible(&visible)) ||
+			(!EqualRect(&client, &bounds) && FAILED(m_controller->put_Bounds(client))) ||
+			(!visible && FAILED(m_controller->put_IsVisible(TRUE)));
+	}
 	else if (m_gameLayout && !IsIconic(m_parent) && client.right > 0 && client.bottom > 0)
 	{
 		const auto dpi = GetDpiForWindow(m_parent);

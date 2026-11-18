@@ -12,6 +12,7 @@
   <script src="world.js" defer></script>
   <script src="texture.js" defer></script>
   <script src="graphic-packs.js" defer></script>
+  <script src="game-data.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -39,10 +40,19 @@
     <main data-view="home">
       <header class="topbar"><span id="page-label">Settings</span></header>
       <p id="core-error" class="footnote core-error" role="alert" hidden></p>
+      <div id="game-data-banner" class="game-data-banner" role="status" hidden><span id="game-data-banner-text"></span><button id="game-data-view-progress" type="button">進捗を表示</button></div>
+      <section id="setup" aria-labelledby="setup-title" hidden>
+        <h1 id="setup-title">Minecraft Wii U Setup</h1>
+        <p id="setup-step" class="footnote" role="status"></p>
+        <div id="setup-stage" class="game-data-card"></div>
+        <p id="setup-notice" class="footnote game-data-error" role="status" aria-live="polite"></p>
+        <div class="game-data-actions setup-actions"><button id="setup-leave" type="button">キャンセル</button><button id="setup-back" type="button" hidden>前へ</button><button id="setup-next" type="button">次へ</button></div>
+      </section>
       <section id="home" aria-label="Minecraft: Wii U Edition">
         <div class="home-art">
           <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
           <div class="home-play"><button id="play" type="button" disabled>PLAY</button></div>
+          <p id="home-game-data-note" class="footnote game-data-home-note" role="status"></p>
         </div>
       </section>
       <section id="friends" aria-labelledby="friends-title" hidden>
@@ -97,6 +107,7 @@
           <button id="tab-graphics" type="button" role="tab" aria-selected="false" aria-controls="panel-graphics" data-tab="graphics" tabindex="-1">Graphics</button>
           <button id="tab-audio" type="button" role="tab" aria-selected="false" aria-controls="panel-audio" data-tab="audio" tabindex="-1">Audio</button>
           <button id="tab-overlay" type="button" role="tab" aria-selected="false" aria-controls="panel-overlay" data-tab="overlay" tabindex="-1">Overlay</button>
+          <button id="tab-game-data" type="button" role="tab" aria-selected="false" aria-controls="panel-game-data" data-tab="game-data" tabindex="-1">Game Data</button>
           <button id="tab-account" type="button" role="tab" aria-selected="false" aria-controls="panel-account" data-tab="account" tabindex="-1">Account</button>
         </div>
         <div class="settings-content">
@@ -229,6 +240,16 @@
             <p id="overlay-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
             <p class="footnote">変更はゲーム実行中にも反映され、自動保存されます。Debug Information は描画APIが提供する情報を表示します。Friends は通知の表示設定で、オンライン接続を開始しません。</p>
           </div>
+          <div id="panel-game-data" role="tabpanel" aria-labelledby="tab-game-data" hidden>
+            <h2 class="settings-heading">Minecraft: Wii U Edition</h2>
+            <dl id="game-data-summary" class="settings-info game-data-review"></dl>
+            <p id="game-data-region-note" class="footnote"></p>
+            <p id="game-data-notice" class="footnote game-data-error" role="status" aria-live="polite">状態を取得中…</p>
+            <div class="game-data-actions"><button type="button" data-game-operation="Setup" disabled>Install Game</button><button type="button" data-game-operation="InstallUpdate" disabled>Install Update</button><button type="button" data-game-operation="InstallDLC" disabled>Install DLC</button><button type="button" data-game-operation="ReinstallBase" disabled>Reinstall BASE</button><button type="button" data-game-operation="ReinstallUpdate" disabled>Reinstall Update</button></div>
+            <div class="game-data-card"><label for="game-data-region">New Region</label><div class="game-data-actions"><select id="game-data-region" disabled><option>JPN</option><option>USA</option><option>EUR</option></select><button type="button" data-game-operation="ChangeRegion" disabled>Change Region</button></div><p class="footnote">BASEと対応するUpdate v560を選択します。旧地域のセーブ・DLC・パック設定は保持します。USA / EURのゲーム起動は次フェーズ対応予定です。</p></div>
+            <div class="game-data-card"><label for="game-data-dlc">Installed DLC</label><div class="game-data-actions"><select id="game-data-dlc" aria-label="削除対象のDLCタイトルID" disabled></select><button type="button" data-game-operation="RemoveDLC" disabled>Remove DLC</button></div><p class="footnote">選択したタイトルIDのDLCだけを削除します。</p></div>
+            <div class="game-data-card"><button type="button" data-game-operation="Uninstall" class="world-danger" disabled>Uninstall Game Data</button><p class="footnote">BASE・Update・DLCのみを削除します。ワールド・セーブ・Account・Mii・Controller Profiles・Graphic Packs・Textures・各種設定・WebView2データは保持します。</p></div>
+          </div>
           <div id="panel-account" role="tabpanel" aria-labelledby="tab-account" hidden>
             <h2 class="settings-heading">Active Account</h2>
             <fieldset id="account-management" disabled>
@@ -358,6 +379,10 @@
     <p id="texture-confirmation-count" class="footnote"></p>
     <p id="texture-confirmation-notice" class="footnote" role="status"></p>
     <div class="dialog-actions"><button id="texture-cancel" type="button" autofocus>Cancel</button><button id="texture-apply" type="button">Apply</button></div>
+  </dialog>
+  <dialog id="game-data-confirmation" aria-labelledby="game-data-confirm-title" aria-describedby="game-data-confirm-text">
+    <h2 id="game-data-confirm-title"></h2><p id="game-data-confirm-text" class="footnote"></p>
+    <div class="dialog-actions"><button id="game-data-confirm-cancel" type="button" autofocus>キャンセル</button><button id="game-data-confirm-accept" type="button">実行する</button></div>
   </dialog>
   <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
     <h2 id="stop-confirmation-title">Minecraftを終了しますか？</h2>

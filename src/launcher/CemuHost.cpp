@@ -293,9 +293,9 @@ namespace
 				writer.Key("installationState"); writer.String(GameInstallationService::StateName(installed.state));
 				writer.Key("installationBusy"); writer.Bool(installationBusy);
 				writer.Key("gameRegion"); writer.Int(static_cast<int>(installed.region));
-				writer.Key("canManageGameData"); writer.Bool(CanEditSettingsLocked());
-				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "region-support-pending" : !nativeSettingsHealthy ? "native-settings-invalid" : "");
-				writer.Key("canLaunch"); writer.Bool(gameInstalled && launchRegionSupported && nativeSettingsHealthy && CanEditSettingsLocked());
+				writer.Key("canManageGameData"); writer.Bool(nativeSettingsHealthy && CanEditSettingsLocked() && installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error);
+				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !nativeSettingsHealthy ? "native-settings-invalid" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "region-support-pending" : "");
+				writer.Key("canLaunch"); writer.Bool(installed.launchSupported && gameInstalled && launchRegionSupported && nativeSettingsHealthy && CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
@@ -1067,7 +1067,7 @@ GameInstallationService::Result CemuHost::StartGameDataOperation(GameInstallatio
 	{
 		std::lock_guard workLock(state.workMutex);
 		std::lock_guard statusLock(state.statusMutex);
-		if (!state.CanEditSettingsLocked()) return {GameInstallationService::Error::Busy, "Stop the game and other management operations first"};
+		if (!state.nativeSettingsHealthy || !state.CanEditSettingsLocked() || state.installation->GetSnapshot().state == GameInstallationService::State::RecoveryRequired) return {GameInstallationService::Error::Busy, "Stop the game and other management operations first; check native settings and recovery status"};
 		state.installationQueueProgress = GameInstallationService::Progress{request.operation, GameInstallationService::Phase::Analyzing, 0, 0, 0, 0, true, GameInstallationService::Completion::Running, {}};
 		state.installationRequest = std::move(request);
 		state.installationCancelled = false;
@@ -1082,6 +1082,13 @@ GameInstallationService::Snapshot CemuHost::GameDataStatus() const
 {
 	std::lock_guard lock(m_impl->state->statusMutex);
 	return m_impl->state->InstallationStatusLocked();
+}
+bool CemuHost::CanManageGameData() const
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	const auto installed = m_impl->state->InstallationStatusLocked();
+	return m_impl->state->nativeSettingsHealthy && m_impl->state->CanEditSettingsLocked() &&
+		installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error;
 }
 std::future<GameInstallationService::Analysis> CemuHost::AnalyzeGameSource(std::filesystem::path selected) const
 {

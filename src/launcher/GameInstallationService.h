@@ -38,18 +38,22 @@ public:
 		Path source, destination;
 		uint64_t bytes = 0, files = 0;
 		Relation relation = Relation::NewTitle;
+		std::string name;
 	};
 	struct Analysis
 	{
 		Result result;
 		Title title;
 	};
+	struct SourceIdentity { uint64_t id = 0; uint16_t version = 0; };
 	struct Request
 	{
 		Operation operation = Operation::Install;
 		std::vector<Path> sources;
 		// RemoveDLC はこの ID だけを操作する。Uninstall は全管理タイトルを対象にする。
 		uint64_t dlcTitleId = 0;
+		// UI で確認したタイトルと、worker が再解析したタイトルを照合する。
+		std::vector<SourceIdentity> expectedSources;
 	};
 	struct Progress
 	{
