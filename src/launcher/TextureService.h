@@ -24,6 +24,7 @@ public:
 	std::string OpenFolder(const std::function<bool(const std::filesystem::path&)>& open, bool canAcknowledge = false);
 	std::vector<OverlayFile> BeginTitle(uint64_t titleId, uint16_t version);
 	void EndTitle();
+	void Rebind(std::filesystem::path baseCommon, std::filesystem::path updateCommon);
 
 private:
 	struct Impl;

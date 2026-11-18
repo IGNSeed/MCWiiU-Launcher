@@ -70,7 +70,8 @@ public:
 		State state = State::NotInstalled;
 		Region region = Region::None;
 		std::vector<Title> titles;
-		Path basePath;
+		Path basePath, updatePath;
+		uint64_t baseTitleId = 0, updateTitleId = 0, dlcTitleId = 0, saveTitleId = 0;
 		bool ready = false, launchSupported = false, legacyDataPresent = false;
 		Result result;
 		Progress progress;

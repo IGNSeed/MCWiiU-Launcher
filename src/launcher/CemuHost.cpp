@@ -11,6 +11,7 @@
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Cafe/Account/Account.h"
 #include "Cafe/TitleList/SaveInfo.h"
+#include "Cafe/TitleList/MinecraftTitle.h"
 #include "Cemu/nex/FriendsSession.h"
 #include "NativeOpenGL.h"
 
@@ -129,6 +130,7 @@ namespace
 		std::atomic_bool installationRequested{false};
 		std::atomic_bool installationCancelled{false};
 		bool installationBusy = false;
+		std::atomic_uint64_t managerGeneration{0}, managerTitleId{0};
 		GameInstallationService::Request installationRequest;
 		std::optional<GameInstallationService::Progress> installationQueueProgress;
 		NativeSettings nativeSettings;
@@ -239,8 +241,25 @@ namespace
 		}
 		bool RegionManagersAvailable() const
 		{
-			const auto region = installation->GetSnapshot().region;
-			return region == GameInstallationService::Region::None || region == GameInstallationService::Region::JPN;
+			const auto installed = installation->GetSnapshot();
+			return !installationBusy && installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error &&
+				MinecraftTitle::IsBase(installed.baseTitleId) && managerTitleId == installed.baseTitleId;
+		}
+		void RebindManagersLocked(const GameInstallationService::Snapshot& installed)
+		{
+			Require(!textureBusy && !openingWorldFolder, "Managers are still in use");
+			const bool known = installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error && MinecraftTitle::IsBase(installed.baseTitleId);
+			const auto titleId = known ? installed.baseTitleId : 0;
+			std::unique_ptr<WorldService> nextWorlds;
+			if (titleId)
+			{
+				// 既存 JPN の保管・復旧記録は元の場所で保持する。他地域の記録は共有しない。
+				const auto config = titleId == 0x00050000101dbe00ULL ? dataRoot : dataRoot / ".launcher-world-regions" / fmt::format("{:016x}", titleId);
+				LauncherPaths::Get().CheckPath(config); fs::create_directories(config); LauncherPaths::Get().CheckPath(config);
+				nextWorlds = std::make_unique<WorldService>(config, SaveInfo(installed.saveTitleId).GetPath(), titleId, (managerGeneration + 1) << 32);
+			}
+			textures->Rebind(known ? installed.basePath / "content/Common" : fs::path{}, known ? installed.updatePath / "content/Common" : fs::path{});
+			worlds = std::move(nextWorlds); managerTitleId = titleId; ++managerGeneration;
 		}
 		GameInstallationService::Snapshot InstallationStatusLocked() const
 		{
@@ -293,8 +312,11 @@ namespace
 				writer.Key("installationState"); writer.String(GameInstallationService::StateName(installed.state));
 				writer.Key("installationBusy"); writer.Bool(installationBusy);
 				writer.Key("gameRegion"); writer.Int(static_cast<int>(installed.region));
+				writer.Key("gameRegionName"); writer.String(MinecraftTitle::RegionName(installed.baseTitleId));
+				writer.Key("gameTitleId"); writer.String(fmt::format("{:016x}", installed.baseTitleId).c_str());
+				writer.Key("managerGeneration"); writer.Uint64(managerGeneration);
 				writer.Key("canManageGameData"); writer.Bool(nativeSettingsHealthy && CanEditSettingsLocked() && installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error);
-				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !nativeSettingsHealthy ? "native-settings-invalid" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "region-support-pending" : "");
+				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !nativeSettingsHealthy ? "native-settings-invalid" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "game-data-unavailable" : "");
 				writer.Key("canLaunch"); writer.Bool(installed.launchSupported && gameInstalled && launchRegionSupported && nativeSettingsHealthy && CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
@@ -690,13 +712,13 @@ struct CemuHost::Impl
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: Launcher-managed, new packs disabled");
 			Require(fs::equivalent(ActiveSettings::GetMlcPath(), data / "mlc01"), "Loaded MLC escaped application data");
 			InitializeGlobalVulkan();
-			auto textures = std::make_unique<TextureService>(data, GameInstallationService::TitlePath(data, 0x00050000101dbe00ULL) / "content/Common", data / "mlc01/usr/title/0005000e/101dbe00/content/Common");
+			auto textures = std::make_unique<TextureService>(data, fs::path{}, fs::path{});
 			{
 				std::lock_guard lock(state->statusMutex);
 				state->input = std::make_unique<InputService>(); state->av = std::make_unique<AvSettings>();
 				state->accounts = std::make_unique<AccountService>();
-				state->worlds = std::make_unique<WorldService>(ActiveSettings::GetConfigPath(), SaveInfo(0x00050000101dbe00ULL).GetPath());
 				state->textures = std::move(textures);
+				state->RebindManagersLocked(installed);
 				state->graphicPacks = std::move(graphicPacks);
 				state->corePhase = "ready";
 			}
@@ -735,7 +757,9 @@ struct CemuHost::Impl
 							CafeTitleList::Refresh();
 							while (CafeTitleList::IsScanning()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
 						}
+						std::lock_guard workLock(state->workMutex);
 						std::lock_guard lock(state->statusMutex);
+						state->RebindManagersLocked(current);
 						state->gameInstalled = current.ready;
 						state->launchRegionSupported = current.launchSupported;
 						++state->gameListRevision;
@@ -786,9 +810,12 @@ struct CemuHost::Impl
 							{ std::lock_guard lock(state->statusMutex); state->error.clear(); }
 							NativeSettings settings;
 							{ std::lock_guard lock(state->statusMutex); settings = state->nativeSettings; }
-							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height); }
-							auto prepared = GameLaunch::Prepare(state->installation->GetSnapshot().basePath);
-							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == 0x00050000101dbe00ULL && CafeSystem::GetForegroundTitleVersion() == 560, "Minecraft v560 preparation failed");
+							const auto installed = state->installation->GetSnapshot();
+							Require(installed.launchSupported && MinecraftTitle::IsBase(installed.baseTitleId) && state->managerTitleId == installed.baseTitleId, "Installed Minecraft title is unavailable");
+							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height, installed.baseTitleId); }
+							auto prepared = GameLaunch::Prepare(installed.basePath);
+							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == installed.baseTitleId && CafeSystem::GetForegroundTitleVersion() == 560 &&
+								CafeTitleList::HasTitleAndVersion(installed.updateTitleId, 560), "Minecraft v560 preparation failed");
 							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
 							std::vector<std::string> texturePaths;
 							for (const auto& file : textureFiles) texturePaths.push_back(file.virtualPath);
@@ -1235,7 +1262,8 @@ std::string CemuHost::WorldCommand(uint64_t requestId, std::string_view payload)
 	auto& state = *m_impl->state;
 	std::lock_guard workLock(state.workMutex);
 	std::lock_guard statusLock(state.statusMutex);
-	if (!state.worlds || !state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
+	if (!state.accounts || state.stop || state.failed || state.openingWorldFolder) return "{\"notice\":\"not-ready\"}";
+	if (!state.worlds) return "{\"notice\":\"installation-region-required\",\"activeId\":0,\"revision\":0,\"canEdit\":false,\"recoveryRequired\":false,\"worlds\":[],\"accounts\":[],\"trash\":[],\"trashBytes\":0}";
 	if (!requestId || requestId <= state.lastWorldRequest) return "{\"notice\":\"stale-request\"}";
 	state.lastWorldRequest = requestId;
 	return state.worlds->Command(payload, state.WorldContext());
@@ -1246,18 +1274,19 @@ void CemuHost::TextureCommand(uint64_t requestId, std::string payload, std::func
 	auto state = m_impl->state;
 	std::lock_guard workLock(state->workMutex);
 	std::lock_guard statusLock(state->statusMutex);
-	if (!state->textures || state->stop || state->failed || state->textureBusy || !requestId || requestId <= state->lastTextureRequest)
+	if (!state->textures || state->stop || state->failed || state->installationBusy || state->textureBusy || !requestId || requestId <= state->lastTextureRequest)
 	{
 		complete("{\"notice\":\"not-ready\"}"); return;
 	}
 	const bool editable = state->RegionManagersAvailable() && state->CanEditWorldsLocked() && (!state->worlds || state->worlds->IsHealthy());
 	const bool acknowledgeable = state->CanAcknowledgeTexturesLocked();
+	const auto managerGeneration = state->managerGeneration.load();
 	state->lastTextureRequest = requestId;
 	if (m_impl->textureWorker.joinable()) m_impl->textureWorker.join();
 	state->textureBusy = true;
 	try
 	{
-		m_impl->textureWorker = std::thread([state, payload = std::move(payload), complete = std::move(complete), editable, acknowledgeable] {
+		m_impl->textureWorker = std::thread([state, payload = std::move(payload), complete = std::move(complete), editable, acknowledgeable, managerGeneration] {
 			const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 			std::string result = "{\"notice\":\"not-ready\"}";
 			if (SUCCEEDED(apartment))
@@ -1268,8 +1297,8 @@ void CemuHost::TextureCommand(uint64_t requestId, std::string payload, std::func
 			{
 				std::lock_guard workLock(state->workMutex); std::lock_guard statusLock(state->statusMutex); state->textureBusy = false;
 			}
-			state->callbacks.post([state, complete, result = std::move(result)] {
-				if (state->alive && !state->stop) { complete(result); state->Publish(); }
+			state->callbacks.post([state, complete, result = std::move(result), managerGeneration] {
+				if (state->alive && !state->stop) { complete(managerGeneration == state->managerGeneration ? result : "{\"notice\":\"not-ready\"}"); state->Publish(); }
 			});
 		});
 	}
@@ -1280,7 +1309,7 @@ std::string CemuHost::OpenTextureFolder(uint64_t requestId, const std::function<
 {
 	auto& state = *m_impl->state;
 	std::unique_lock workLock(state.workMutex); std::unique_lock statusLock(state.statusMutex);
-	if (!state.textures || state.stop || state.failed || state.textureBusy || GetCurrentThreadId() != state.uiThread || !requestId || requestId <= state.lastTextureRequest) return "{\"notice\":\"not-ready\"}";
+	if (!state.textures || state.stop || state.failed || state.installationBusy || state.textureBusy || GetCurrentThreadId() != state.uiThread || !requestId || requestId <= state.lastTextureRequest) return "{\"notice\":\"not-ready\"}";
 	state.lastTextureRequest = requestId;
 	if (std::chrono::steady_clock::now() < state.nextTextureFolderOpen) return "{\"notice\":\"folder-open-busy\"}";
 	state.nextTextureFolderOpen = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -1521,7 +1550,7 @@ namespace WindowSystem
 			state->Dispatch([state, idle, loading, fps] {
 				state->RefreshInputConnection();
 				const auto title = idle ? L"MCWiiU Launcher" : loading ? L"MCWiiU Launcher - Loading" :
-					boost::nowide::widen(fmt::format("MCWiiU Launcher - FPS: {:.2f} [{}] [TitleId: 00050000-101dbe00] [JP v560]", fps, state->activeRenderer));
+					boost::nowide::widen(fmt::format("MCWiiU Launcher - FPS: {:.2f} [{}] [TitleId: {:08X}-{:08X}] [{} v{}]", fps, state->activeRenderer, uint32_t(state->managerTitleId >> 32), uint32_t(state->managerTitleId), MinecraftTitle::RegionName(state->managerTitleId), CafeSystem::GetForegroundTitleVersion()));
 				SetWindowTextW(state->root, title.c_str());
 				state->callbacks.status(state->Json());
 				return true;

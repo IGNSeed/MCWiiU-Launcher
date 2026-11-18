@@ -258,7 +258,7 @@ namespace
 struct WorldService::Impl
 {
 	fs::path config, save, marker, backups, trashRoot;
-	uint64_t revision = 1, accountRevision = 0;
+	uint64_t revision = 1, accountRevision = 0, titleId;
 	uint32_t activeId = 0;
 	std::string notice = "ready", previewToken, previewWorld, previewVersion;
 	Bytes preview;
@@ -291,7 +291,7 @@ struct WorldService::Impl
 		uint32_t source = 0, destination = 0;
 		fs::file_time_type bodyTime, extTime;
 	};
-	Impl(fs::path configRoot, fs::path saveRoot) : config(std::move(configRoot)), save(std::move(saveRoot)), marker(config / ".launcher-world-transaction"), backups(config / ".launcher-world-backups"), trashRoot(config / ".launcher-world-trash")
+	Impl(fs::path configRoot, fs::path saveRoot, uint64_t saveTitleId, uint64_t initialRevision) : config(std::move(configRoot)), save(std::move(saveRoot)), marker(config / ".launcher-world-transaction"), backups(config / ".launcher-world-backups"), trashRoot(config / ".launcher-world-trash"), revision(initialRevision), titleId(saveTitleId)
 	{
 		CheckPath(config); CheckPath(save); CheckPath(marker); healthy = !fs::exists(marker);
 	}
@@ -1056,7 +1056,7 @@ struct WorldService::Impl
 	}
 };
 
-WorldService::WorldService(fs::path configRoot, fs::path saveRoot) : m_impl(std::make_unique<Impl>(std::move(configRoot), std::move(saveRoot))) {}
+WorldService::WorldService(fs::path configRoot, fs::path saveRoot, uint64_t titleId, uint64_t initialRevision) : m_impl(std::make_unique<Impl>(std::move(configRoot), std::move(saveRoot), titleId, initialRevision)) {}
 WorldService::~WorldService() = default;
 bool WorldService::IsHealthy() const
 {
@@ -1117,7 +1117,7 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 			state.Validate(json, context, true); Require(state.healthy, "recovery-required");
 			if (op == "begin-import")
 			{
-				Require(json.MemberCount() == 3, "invalid-request"); state.importSource = std::make_unique<WorldImport>([](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); });
+				Require(json.MemberCount() == 3, "invalid-request"); state.importSource = std::make_unique<WorldImport>([](const fs::path& path, size_t limit) { DirectoryGuard guard(path.parent_path()); return Read(path, limit); }, state.titleId);
 			}
 			else
 			{

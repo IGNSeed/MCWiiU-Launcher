@@ -22,7 +22,7 @@ public:
 		WorldMetadata::Bytes body, ext;
 		std::filesystem::file_time_type bodyTime, extTime;
 	};
-	explicit WorldImport(Reader reader);
+	explicit WorldImport(Reader reader, uint64_t titleId = 0x00050000101dbe00ULL);
 	~WorldImport();
 	void SelectBody(const std::filesystem::path& selected);
 	void SelectMetadata(const std::filesystem::path& selected);

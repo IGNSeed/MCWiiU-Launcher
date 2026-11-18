@@ -1,4 +1,5 @@
 #include "MinecraftNativeResolution.h"
+#include "Cafe/TitleList/MinecraftTitle.h"
 
 #include <atomic>
 
@@ -9,7 +10,7 @@ namespace MinecraftNativeResolution
 	bool Begin(uint64_t titleId, uint16_t version, uint32_t width, uint32_t height)
 	{
 		End();
-		if (titleId != 0x00050000101dbe00ULL || version != 560)
+		if (!MinecraftTitle::IsBase(titleId) || version != 560)
 			return false;
 		if (!width && !height)
 			return true;

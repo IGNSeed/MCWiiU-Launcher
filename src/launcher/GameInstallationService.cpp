@@ -1,5 +1,6 @@
 #include "GameInstallationService.h"
 #include "LauncherPaths.h"
+#include "../Cafe/TitleList/MinecraftTitle.h"
 
 #include <Windows.h>
 #include <bcrypt.h>
@@ -27,7 +28,7 @@ using Path = Service::Path;
 
 namespace
 {
-	constexpr std::array<uint32_t, 3> s_titleLow{0x101dbe00, 0x101d9d00, 0x101d7500};
+	constexpr auto s_titleLow = MinecraftTitle::TitleLow;
 	constexpr std::array<uint32_t, 3> s_titleHigh{0x00050000, 0x0005000e, 0x0005000c};
 	constexpr wchar_t s_owner[] = L".mcwiiu-launcher-title";
 	struct Failure : std::runtime_error
@@ -451,8 +452,11 @@ struct GameInstallationService::Impl
 			result.region = base->region;
 			result.basePath = base->destination;
 			result.ready = update && update->version == 560;
-			// World/Texture の JPN 固定契約は Phase 4 で拡張する。
-			result.launchSupported = result.ready && result.region == Region::JPN;
+			result.baseTitleId = result.saveTitleId = base->id;
+			result.updateTitleId = MinecraftTitle::UpdateId(base->id);
+			result.dlcTitleId = MinecraftTitle::DlcId(base->id);
+			result.updatePath = TitlePath(paths.data, result.updateTitleId);
+			result.launchSupported = result.ready && MinecraftTitle::IsBase(base->id);
 			result.state = result.ready ? State::Ready : update ? State::UpdateMissing : State::BaseOnly;
 		}
 		return result;

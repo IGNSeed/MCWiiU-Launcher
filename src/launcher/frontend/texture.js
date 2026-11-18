@@ -202,5 +202,13 @@ window.addEventListener("launcher-texture-result",event => {
   if (textureDialog.open) document.getElementById("texture-confirmation-notice").textContent = notice;
   updateTextureControls();
 });
-window.addEventListener("launcher-core-state",updateTextureView);
+let textureManagerGeneration;
+window.addEventListener("launcher-core-state", () => {
+  const generation = window.launcherCoreState?.managerGeneration;
+  if (generation !== textureManagerGeneration) {
+    textureManagerGeneration = generation; textureSnapshot = null; texturePending = 0; textureOperation = ""; textureVisible = false;
+    textureDialog.close(); closeTextureMenu(); renderTextures();
+  }
+  updateTextureView();
+});
 document.addEventListener("visibilitychange",updateTextureView);

@@ -111,7 +111,7 @@ window.GameDataUI = (() => {
       } else {
         const p = snapshot.progress, success = p.completion === "Succeeded";
         stage.append(element("h2",success ? (mode === "Setup" ? "Installation Complete" : "Operation Complete") : p.completion === "Cancelled" ? "Cancelled" : "Operation Failed","settings-heading"));
-        stage.append(element("p",success ? (snapshot.ready ? `BASE + Update v560 · ${snapshot.region}\n${snapshot.launchSupported ? "The game is ready." : "この地域のゲーム起動対応は、次の開発フェーズで実装予定です。"}` : "ゲームデータの状態を更新しました。") : errorText(p.error,p.message),"game-data-title"));
+        stage.append(element("p",success ? (snapshot.ready ? `BASE + Update v560 · ${snapshot.region}\n${snapshot.launchSupported ? "The game is ready." : "ゲームデータの状態を確認してください。"}` : "ゲームデータの状態を更新しました。") : errorText(p.error,p.message),"game-data-title"));
         stage.append(element("p",snapshot.state === "RecoveryRequired" ? errors.RecoveryRequired : p.completion === "Cancelled" ? "バックエンドがキャンセル処理を完了しました。現在のインストール状態はGame Dataで確認できます。" : "現在の状態: " + snapshot.state,"footnote"));
       }
     }
@@ -145,7 +145,7 @@ window.GameDataUI = (() => {
     const select = $("game-data-dlc"), previous = select.value;
     const key = snapshot.titles.filter(t=>t.type==="dlc").map(t=>t.id).join();
     if (select.dataset.titles !== key) { select.dataset.titles = key; select.replaceChildren(); for (const title of snapshot.titles.filter(t=>t.type==="dlc")) { const option = element("option",`${title.region} · ${title.id}`); option.value = title.id; select.append(option); } if ([...select.options].some(o=>o.value===previous)) select.value = previous; }
-    $("game-data-region-note").textContent = snapshot.ready && !snapshot.launchSupported ? "この地域のゲーム起動対応は、次の開発フェーズで実装予定です。World・Texture等の地域統合も次フェーズの対象です。" : !snapshot.nativeAvailable ? "StandaloneにはCemu Coreがありません。データ管理は利用できますが、ゲームは起動できません。" : "";
+    $("game-data-region-note").textContent = snapshot.ready && !snapshot.launchSupported ? "ゲームデータを確認できません。状態と復旧案内を確認してください。" : !snapshot.nativeAvailable ? "StandaloneにはCemu Coreがありません。データ管理は利用できますが、ゲームは起動できません。" : "";
     const stateError = errorText(snapshot.stateError,snapshot.stateMessage) || errorText(snapshot.error,snapshot.message);
     $("game-data-notice").textContent = snapshot.state === "RecoveryRequired" ? [errors.RecoveryRequired,stateError].filter(Boolean).join("\n") :
       stateError || (!snapshot.canManage ? "ゲーム・保存・管理操作が停止し、Coreと設定が正常な状態で変更できます。" : "DLCは任意です。地域間でのCoreのDLCマウント互換性は保証しません。");
@@ -172,7 +172,7 @@ window.GameDataUI = (() => {
     if (op === "start" && value.error === "None") { watchedOperation = value.operationId; step = steps.indexOf("progress"); showSetup(); }
     if (watchedOperation && value.operationId === watchedOperation && ["Succeeded","Failed","Cancelled"].includes(value.progress.completion)) step = steps.indexOf("complete");
     renderData(); renderSetup(); updatePlay();
-    $("home-game-data-note").textContent = value.state === "RecoveryRequired" ? errors.RecoveryRequired : value.ready && !value.launchSupported ? "この地域のゲーム起動対応は、次の開発フェーズで実装予定です。" : !value.nativeAvailable ? "Standalone · ゲーム起動機能なし。PLAYからデータのセットアップを行えます。" : !value.ready ? (value.canSetup ? "PLAYからMinecraft BASEとUpdate v560をセットアップできます。" : "Core・設定・実行中の処理を確認してください。操作可能になるとPLAYからセットアップできます。") : "";
+    $("home-game-data-note").textContent = value.state === "RecoveryRequired" ? errors.RecoveryRequired : value.ready && !value.launchSupported ? "ゲームデータの状態と復旧案内を確認してください。" : !value.nativeAvailable ? "Standalone · ゲーム起動機能なし。PLAYからデータのセットアップを行えます。" : !value.ready ? (value.canSetup ? "PLAYからMinecraft BASEとUpdate v560をセットアップできます。" : "Core・設定・実行中の処理を確認してください。操作可能になるとPLAYからセットアップできます。") : "";
     if (closeAfterSaves && !value.busy) drainSaves();
     if (deferredCommand) {
       const command = deferredCommand; deferredCommand = null;

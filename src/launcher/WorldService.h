@@ -25,7 +25,7 @@ public:
 		bool canEdit;
 		std::vector<Account> accounts;
 	};
-	WorldService(std::filesystem::path configRoot, std::filesystem::path saveRoot);
+	WorldService(std::filesystem::path configRoot, std::filesystem::path saveRoot, uint64_t titleId = 0x00050000101dbe00ULL, uint64_t initialRevision = 1);
 	~WorldService();
 	bool IsHealthy() const;
 	std::string OpenFolder(std::string_view payload, const Context& context, const std::function<bool(const std::filesystem::path&)>& open);

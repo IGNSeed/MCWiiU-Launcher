@@ -1,4 +1,5 @@
 #include "WorldImport.h"
+#include "../Cafe/TitleList/MinecraftTitle.h"
 
 #include <Windows.h>
 #include <openssl/sha.h>
@@ -43,13 +44,15 @@ namespace
 	{
 		return name.size() == 8 && name[0] >= L'8' && name[0] <= L'f' && std::all_of(name.begin(), name.end(), [](wchar_t c) { return (c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'); });
 	}
-	void CheckTitlePath(std::wstring path)
+	void CheckTitlePath(std::wstring path, uint64_t titleId)
 	{
+		Require(MinecraftTitle::IsBase(titleId), "unsupported-title");
+		wchar_t low[9]{}; swprintf_s(low, L"%08x", static_cast<uint32_t>(titleId));
 		std::replace(path.begin(), path.end(), L'\\', L'/'); path = L"/" + Lower(path);
 		if (const auto pos = path.find(L"/usr/save/"); pos != std::wstring::npos)
-			Require(path.substr(pos + 10).starts_with(L"00050000/101dbe00/"), "unsupported-title");
+			Require(path.substr(pos + 10).starts_with(L"00050000/" + std::wstring(low) + L"/"), "unsupported-title");
 		if (const auto pos = path.find(L"/00050000/"); pos != std::wstring::npos)
-			Require(path.substr(pos + 10).starts_with(L"101dbe00/"), "unsupported-title");
+			Require(path.substr(pos + 10).starts_with(std::wstring(low) + L"/"), "unsupported-title");
 	}
 
 }
@@ -99,15 +102,16 @@ struct WorldImport::Impl
 		fs::file_time_type time;
 	};
 	Reader read;
+	uint64_t titleId;
 	File body, metadata;
 	Candidate candidate;
 	std::string name, imageName, selectionError;
 	Bytes rgba, generated;
 	fs::file_time_type generatedTime;
-	explicit Impl(Reader reader) : read(std::move(reader)) { Refresh(); }
+	Impl(Reader reader, uint64_t saveTitleId) : read(std::move(reader)), titleId(saveTitleId) { Refresh(); }
 	File Select(const fs::path& path, bool ext)
 	{
-		Require(path.is_absolute() && path.lexically_normal() == path, "unsafe-source-path"); CheckTitlePath(path.native() + L"/");
+		Require(path.is_absolute() && path.lexically_normal() == path, "unsafe-source-path"); CheckTitlePath(path.native() + L"/", titleId);
 		auto id = path.filename().native();
 		if (ext)
 		{
@@ -163,7 +167,7 @@ struct WorldImport::Impl
 	}
 };
 
-WorldImport::WorldImport(Reader reader) : m_impl(std::make_unique<Impl>(std::move(reader))) {}
+WorldImport::WorldImport(Reader reader, uint64_t titleId) : m_impl(std::make_unique<Impl>(std::move(reader), titleId)) {}
 WorldImport::~WorldImport() = default;
 const WorldImport::Candidate& WorldImport::Preview() const { return m_impl->candidate; }
 void WorldImport::SelectBody(const fs::path& selected)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -16,7 +17,7 @@ public:
 	bool IsHealthy() const;
 	std::string Command(std::string_view payload, bool canEdit);
 	std::string OpenFolder(const std::function<bool(const std::filesystem::path&)>& open);
-	void PrepareLaunch(int vsyncFrequency, unsigned width, unsigned height);
+	void PrepareLaunch(int vsyncFrequency, unsigned width, unsigned height, uint64_t titleId = 0x00050000101dbe00ULL);
 	void ValidateReplacements(const std::vector<std::string>& texturePaths) const;
 	void EndTitle();
 

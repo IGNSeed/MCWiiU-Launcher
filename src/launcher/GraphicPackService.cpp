@@ -1,4 +1,5 @@
 #include "GraphicPackService.h"
+#include "Cafe/TitleList/MinecraftTitle.h"
 
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Cafe/CafeSystem.h"
@@ -327,10 +328,11 @@ std::string GraphicPackService::OpenFolder(const std::function<bool(const fs::pa
 	return state.Snapshot(!state.running, result);
 }
 
-void GraphicPackService::PrepareLaunch(int frequency, unsigned width, unsigned height)
+void GraphicPackService::PrepareLaunch(int frequency, unsigned width, unsigned height, uint64_t titleId)
 {
 	auto& state = *m_impl; Require(state.healthy && !state.running, "Graphic Packs are unavailable");
 	Require(GraphicPack2::GetActiveGraphicPacks().empty() && !GraphicPack2::TrackedModuleCount(), "Graphic pack session was not released");
+	Require(MinecraftTitle::IsBase(titleId), "Unsupported Graphic Pack title");
 	GraphicPack2::SetLauncherVSyncFrequency(frequency);
 	state.running = true; state.replacements.clear(); state.sessionPins = std::make_unique<Handles>();
 	state.sessionPins->Parents(state.root);
@@ -379,7 +381,7 @@ void GraphicPackService::PrepareLaunch(int frequency, unsigned width, unsigned h
 		{
 			const auto relative = entry.path().lexically_relative(folder); auto it = relative.begin(); if (it == relative.end()) continue;
 			const auto part = Key(Utf8(*it++)); if (part != "content" && part != "code" && part != "aoc") continue;
-			std::string virtualPath = part == "content" ? "/vol/content" : part == "code" ? CafeSystem::GetInternalVirtualCodeFolder() : "/vol/aoc0005000c101dbe00";
+			std::string virtualPath = part == "content" ? "/vol/content" : part == "code" ? CafeSystem::GetInternalVirtualCodeFolder() : fmt::format("/vol/aoc{:016x}", MinecraftTitle::DlcId(titleId));
 			while (virtualPath.ends_with('/')) virtualPath.pop_back();
 			for (; it != relative.end(); ++it) virtualPath += "/" + Utf8(*it);
 			virtualPath = Key(virtualPath);

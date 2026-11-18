@@ -1,4 +1,5 @@
 #include "TextureService.h"
+#include "../Cafe/TitleList/MinecraftTitle.h"
 #include "TextureCompatibility.h"
 #include "WorldMetadata.h"
 
@@ -333,6 +334,7 @@ struct TextureService::Impl
 
 	Bytes Vanilla(std::string_view path)
 	{
+		if (base.empty() || update.empty()) return {};
 		const auto relative = Path(path.substr(7));
 		CheckPath(update / relative); CheckPath(base / relative);
 		if (fs::exists(update / relative)) return Read(update / relative);
@@ -548,8 +550,10 @@ struct TextureService::Impl
 			else
 			{
 				Require((current.kind == "folder" || current.kind == "zip") && current.id == current.kind + ":" + Hash(current.source) && current.fingerprint == Fingerprint(current), "invalid-manifest");
-				Validate(current); Require(current.problem.empty(), current.problem.c_str());
-				if (sourceCheck)
+				// 未導入時も保存済み世代の整合性は確認する。Common との互換性は参照先確定後に確認する。
+				const bool bound = !base.empty() && !update.empty();
+				if (bound) { Validate(current); Require(current.problem.empty(), current.problem.c_str()); }
+				if (sourceCheck && bound)
 				{
 					const auto source = ReadPack(current);
 					Require(source.problem.empty(), source.problem.c_str());
@@ -682,7 +686,7 @@ std::string TextureService::OpenFolder(const std::function<bool(const fs::path&)
 std::vector<TextureService::OverlayFile> TextureService::BeginTitle(uint64_t titleId, uint16_t version)
 {
 	auto& s = *m_impl; std::lock_guard lock(s.mutex);
-	Require(!s.running && titleId == 0x00050000101dbe00ULL && version == 560, "texture-title-mismatch");
+	Require(!s.running && MinecraftTitle::IsBase(titleId) && version == 560, "texture-title-mismatch");
 	s.LoadCurrent(true); Require(s.healthy, "texture-recovery-required");
 	std::vector<OverlayFile> result;
 	try
@@ -700,6 +704,14 @@ std::vector<TextureService::OverlayFile> TextureService::BeginTitle(uint64_t tit
 		s.running = true; s.loadedId = s.current.id; s.loadedName = s.current.name; s.token.clear(); s.preview = Pack{}; return result;
 	}
 	catch (...) { s.pins.clear(); s.storageGuard.reset(); s.healthy = false; throw; }
+}
+
+void TextureService::Rebind(fs::path baseCommon, fs::path updateCommon)
+{
+	auto& s = *m_impl; std::lock_guard lock(s.mutex);
+	Require(!s.running, "texture-title-running");
+	s.base = std::move(baseCommon); s.update = std::move(updateCommon);
+	s.token.clear(); s.preview = Pack{}; s.packs.clear(); ++s.revision; s.LoadCurrent(false);
 }
 
 void TextureService::EndTitle()

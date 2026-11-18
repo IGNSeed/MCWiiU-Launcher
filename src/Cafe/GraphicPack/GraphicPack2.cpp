@@ -1,4 +1,5 @@
 #include "Cafe/GraphicPack/GraphicPack2.h"
+#include "Cafe/TitleList/MinecraftTitle.h"
 #include "Cafe/Filesystem/fsc.h"
 #include "config/CemuConfig.h"
 #include "config/ActiveSettings.h"
@@ -622,7 +623,7 @@ std::string GraphicPack2::GetNormalizedPathString() const
 
 bool GraphicPack2::IsMinecraftTitle(uint64_t id)
 {
-	return id == 0x00050000101dbe00ULL || id == 0x00050000101d9d00ULL || id == 0x00050000101d7500ULL;
+	return MinecraftTitle::IsBase(id);
 }
 
 bool GraphicPack2::MatchesTitle(uint64_t titleId) const

@@ -49,7 +49,7 @@ function renderFriends() {
       row.append(profile);
       let description = request ? (entry.incoming ? "Incoming request" : "Outgoing request") : entry.online ? "Online" : "Offline";
       if (request && entry.expired) description = "Expired request";
-      if (!request && entry.online && entry.titleId) description = entry.titleId === "00050000101dbe00" ? "Minecraft: Wii U Edition" : `Title ID · ${entry.titleId}`;
+      if (!request && entry.online && entry.titleId) description = ["00050000101dbe00","00050000101d9d00","00050000101d7500"].includes(entry.titleId) ? "Minecraft: Wii U Edition" : `Title ID · ${entry.titleId}`;
       row.append(friendNode("span", description, "friend-activity"));
       const actions = friendNode("div", undefined, "friend-row-actions");
       for (const [operation,label] of request ? (entry.incoming ? [["accept","Accept"],["reject","Reject"]] : [["cancel","Cancel Request"]]) : [["menu","…"]]) {

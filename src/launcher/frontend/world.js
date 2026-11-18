@@ -12,6 +12,7 @@ const worldNotices = {
   "folder-opened":"", "folder-open-busy":"", "world-folder-missing":"ワールド保存フォルダが見つかりません。", "open-folder-failed":"エクスプローラーを開けませんでした。",
   ready:"", saved:"保存しました。", unchanged:"変更はありません。", cancelled:"操作を取り消しました。", "preview-ready":"プレビューを確認して Save を押してください。",
   deleted:"Trashへ移動しました。", restored:"元のAccountへ復元しました。", imported:"ワールドをインポートしました。", "import-preview-ready":"候補とインポート先を確認して Import を押してください。",
+  "installation-region-required":"Game DataでBASEをインストールすると、その地域のセーブを表示できます。",
   "not-ready":"ゲームと終了処理が停止し、準備完了になってから操作してください。", "stale-request":"アカウントまたは一覧が変わりました。Refresh して操作し直してください。",
   "stale-world":"ワールドが更新されました。Refresh して操作し直してください。", "invalid-name":"名前は1〜32 UTF-16単位で入力してください。制御文字や空白だけの名前は使えません。",
   "save-id-conflict":"同じSave IDが移動先に存在します。上書きせず中止しました。", "invalid-image":"画像を読み込めません。16 MB以下のPNG / JPEGを選択してください。",
@@ -355,5 +356,13 @@ window.addEventListener("launcher-account-result", event => {
     if (!worldPending) { if (worldDialog.open) worldDialog.close(); if (worldImportDialog.open) worldImportDialog.close(); } worldSnapshot = null; worldVisible = false; renderWorlds(); updateWorldView();
   }
 });
-window.addEventListener("launcher-core-state", updateWorldView);
+let worldManagerGeneration;
+window.addEventListener("launcher-core-state", () => {
+  const generation = window.launcherCoreState?.managerGeneration;
+  if (generation !== worldManagerGeneration) {
+    worldManagerGeneration = generation; worldPending = 0; worldPendingOp = ""; worldSnapshot = null; worldTarget = null; worldImportTarget = null; worldVisible = false;
+    clearTimeout(worldImportNameTimer); worldDialog.close(); worldImportDialog.close(); renderWorlds();
+  }
+  updateWorldView();
+});
 document.addEventListener("visibilitychange", updateWorldView);
