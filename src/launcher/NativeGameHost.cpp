@@ -10,6 +10,8 @@ namespace
 {
 	constexpr wchar_t s_className[] = L"MCWiiULauncher.NativeGameHost";
 	constexpr wchar_t s_openGLClassName[] = L"MCWiiULauncher.OpenGLSurface";
+	constexpr wchar_t s_vulkanClassName[] = L"MCWiiULauncher.VulkanSurface";
+	constexpr wchar_t s_coverClassName[] = L"MCWiiULauncher.StartupCover";
 	constexpr UINT_PTR s_subclassId = 0x4d435748;
 	// 診断起動時だけ受け付ける固定操作。外部 HWND やポインターは受け取らない。
 	constexpr UINT s_diagnosticMessage = WM_APP + 0x340;
@@ -46,6 +48,16 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 0, 0, parent, nullptr, m_instance, this);
 		if (!m_child)
 			throw std::runtime_error("Unable to create native game host");
+		windowClass.lpfnWndProc = CoverProc;
+		windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+		windowClass.lpszClassName = s_coverClassName;
+		m_coverClass = RegisterClassExW(&windowClass);
+		if (!m_coverClass) throw std::runtime_error("Unable to register startup cover");
+		// NOREDIRECTIONBITMAP の親でも黒を合成する。Vulkan の HWND は layered にしない。
+		m_startupCover = CreateWindowExW(WS_EX_LAYERED | WS_EX_NOACTIVATE, s_coverClassName, L"",
+			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_parent, nullptr, m_instance, this);
+		if (!m_startupCover || !SetLayeredWindowAttributes(m_startupCover, 0, 255, LWA_ALPHA))
+			throw std::runtime_error("Unable to create startup cover");
 		m_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP,
 			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_child, nullptr, m_instance, nullptr);
 		if (!m_tooltip) throw std::runtime_error("Unable to create game control tooltips");
@@ -82,6 +94,84 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 		Release();
 		throw;
 	}
+}
+
+bool NativeGameHost::IsCovered() const
+{
+	return m_presentation == Presentation::BlackPending || m_presentation == Presentation::AwaitingFirstFrame ||
+		m_presentation == Presentation::Stopping;
+}
+
+bool NativeGameHost::BeginPresentation(uint64_t session)
+{
+	if (!OnUiThread() || !IsWindow(m_child) || !IsWindow(m_startupCover) || !session ||
+		m_presentation != Presentation::Hidden || session <= m_presentationSession) return false;
+	m_presentationSession = session;
+	m_presentation = Presentation::BlackPending;
+	SetGameLayout(true);
+	SetVisible(true);
+	Focus();
+	return !m_layoutFailed;
+}
+
+bool NativeGameHost::PreparePresentation(uint64_t session, bool openGL)
+{
+	if (!OnUiThread() || session != m_presentationSession ||
+		(m_presentation != Presentation::BlackPending && m_presentation != Presentation::AwaitingFirstFrame &&
+		 m_presentation != Presentation::Presenting)) return false;
+	if (m_openGLChild || m_vulkanChild)
+		return (openGL ? m_openGLChild != nullptr : m_vulkanChild != nullptr) && !m_layoutFailed;
+	if (!SetOpenGLComposition(openGL)) return false;
+	if (!openGL)
+	{
+		if (!m_vulkanClass)
+		{
+			WNDCLASSEXW windowClass{sizeof(windowClass)};
+			windowClass.lpfnWndProc = OpenGLProc;
+			windowClass.hInstance = m_instance;
+			windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+			windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+			windowClass.lpszClassName = s_vulkanClassName;
+			m_vulkanClass = RegisterClassExW(&windowClass);
+			if (!m_vulkanClass) return false;
+		}
+		// Surface/Swapchain と同じ寿命にし、前タイトルの DWM 表示内容を再利用しない。
+		m_vulkanChild = CreateWindowExW(0, s_vulkanClassName, L"Vulkan game surface",
+			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_parent, nullptr, m_instance, this);
+		if (!m_vulkanChild) return false;
+	}
+	m_presentation = Presentation::AwaitingFirstFrame;
+	UpdateLayout();
+	return !m_layoutFailed;
+}
+
+bool NativeGameHost::PresentFirstFrame(uint64_t session)
+{
+	if (!OnUiThread() || !IsWindow(m_child) || !IsWindow(m_parent) || !IsWindow(m_startupCover) || session != m_presentationSession ||
+		m_presentation != Presentation::AwaitingFirstFrame || m_layoutFailed) return false;
+	m_presentation = Presentation::Presenting;
+	ShowWindow(m_startupCover, SW_HIDE);
+	return true;
+}
+
+void NativeGameHost::StopPresentation(uint64_t session)
+{
+	if (!OnUiThread() || !IsWindow(m_child) || !IsWindow(m_parent) || session != m_presentationSession || m_presentation == Presentation::Hidden) return;
+	m_presentation = Presentation::Stopping;
+	CancelTouch();
+	UpdateLayout();
+}
+
+bool NativeGameHost::EndPresentation(uint64_t session)
+{
+	if (!OnUiThread() || session != m_presentationSession) return false;
+	SetVisible(false);
+	// 呼出し元が GPU thread の join と Renderer 解放を完了してから破棄する。
+	if (!SetOpenGLComposition(false)) return false;
+	if (m_vulkanChild && !DestroyWindow(m_vulkanChild)) return false;
+	m_vulkanChild = nullptr;
+	m_presentation = Presentation::Hidden;
+	return true;
 }
 
 bool NativeGameHost::SetOpenGLComposition(bool enabled)
@@ -124,8 +214,44 @@ LRESULT CALLBACK NativeGameHost::OpenGLProc(HWND hwnd, UINT message, WPARAM wPar
 	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 	if (self && self->MouseMessage(hwnd, message, wParam, lParam)) return 0;
 	if (message == WM_ERASEBKGND) return 1;
-	if (message == WM_PAINT) { PAINTSTRUCT paint; BeginPaint(hwnd, &paint); EndPaint(hwnd, &paint); return 0; }
-	if (message == WM_NCDESTROY) SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+	if (message == WM_PAINT)
+	{
+		PAINTSTRUCT paint;
+		const auto dc = BeginPaint(hwnd, &paint);
+		if (self && self->IsCovered()) FillRect(dc, &paint.rcPaint, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+		EndPaint(hwnd, &paint);
+		return 0;
+	}
+	if (message == WM_NCDESTROY)
+	{
+		if (self && self->m_openGLChild == hwnd) self->m_openGLChild = nullptr;
+		if (self && self->m_vulkanChild == hwnd) self->m_vulkanChild = nullptr;
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+	}
+	return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+LRESULT CALLBACK NativeGameHost::CoverProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	if (message == WM_NCCREATE)
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams));
+	auto* self = reinterpret_cast<NativeGameHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+	if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+	if (self && self->MouseMessage(hwnd, message, wParam, lParam)) return 0;
+	if (message == WM_ERASEBKGND) return 1;
+	if (message == WM_PAINT)
+	{
+		PAINTSTRUCT paint;
+		const auto dc = BeginPaint(hwnd, &paint);
+		FillRect(dc, &paint.rcPaint, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+		EndPaint(hwnd, &paint);
+		return 0;
+	}
+	if (message == WM_NCDESTROY)
+	{
+		if (self) self->m_startupCover = nullptr;
+		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+	}
 	return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
@@ -147,6 +273,10 @@ void NativeGameHost::Release()
 	CancelTouch();
 	m_exitDialog.reset();
 	SetOpenGLComposition(false);
+	if (m_vulkanChild) DestroyWindow(m_vulkanChild);
+	m_vulkanChild = nullptr;
+	if (m_startupCover) DestroyWindow(m_startupCover);
+	m_startupCover = nullptr;
 	if (m_subclassed)
 		RemoveWindowSubclass(m_parent, ParentProc, s_subclassId);
 	m_subclassed = false;
@@ -168,6 +298,10 @@ void NativeGameHost::Release()
 	m_class = 0;
 	if (m_openGLClass) UnregisterClassW(s_openGLClassName, m_instance);
 	m_openGLClass = 0;
+	if (m_vulkanClass) UnregisterClassW(s_vulkanClassName, m_instance);
+	m_vulkanClass = 0;
+	if (m_coverClass) UnregisterClassW(s_coverClassName, m_instance);
+	m_coverClass = 0;
 }
 
 SIZE NativeGameHost::GetClientSize() const
@@ -191,8 +325,16 @@ bool NativeGameHost::SetBounds(const RECT& bounds)
 	if (!OnUiThread() || !m_child || !GetClientRect(m_parent, &client) || bounds.left < 0 || bounds.top < 0 ||
 		bounds.right < bounds.left || bounds.bottom < bounds.top || bounds.right > client.right || bounds.bottom > client.bottom)
 		return false;
-	return SetWindowPos(m_child, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
-		SWP_NOACTIVATE | SWP_NOZORDER) != FALSE;
+	// 遮蔽面と描画領域を同じ配置更新で動かし、縮小・移動時の隙間を防ぐ。
+	auto batch = BeginDeferWindowPos(3);
+	if (!batch) return false;
+	batch = DeferWindowPos(batch, m_child, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+		SWP_NOACTIVATE | SWP_NOZORDER);
+	if (batch && m_vulkanChild) batch = DeferWindowPos(batch, m_vulkanChild, nullptr, bounds.left, bounds.top,
+		bounds.right - bounds.left, bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER);
+	if (batch) batch = DeferWindowPos(batch, m_startupCover, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+		SWP_NOACTIVATE | SWP_NOZORDER);
+	return batch && EndDeferWindowPos(batch);
 }
 
 void NativeGameHost::RestoreWebViewFocus()
@@ -330,7 +472,7 @@ void NativeGameHost::UpdateControls()
 				const auto region = CreateRoundRectRgn(0, 0, size + 1, size + 1, MulDiv(8, dpi, 96), MulDiv(8, dpi, 96));
 				if (region && !SetWindowRgn(m_controls[index], region, TRUE)) DeleteObject(region);
 			}
-			else if (!IsWindowVisible(m_controls[index]))
+			else
 				SetWindowPos(m_controls[index], HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW);
 		}
 		if (bool(GetWindowLongPtrW(m_controls[index], GWL_STYLE) & WS_VISIBLE) != visible)
@@ -391,13 +533,27 @@ void NativeGameHost::UpdateLayout()
 	}
 	if (!active || m_layoutFailed)
 		RestoreWebViewFocus();
-	if (m_openGLChild)
+	// 描画面は遮蔽中も visible に保ち、Acquire/Present の起動待ちを妨げない。
+	if (m_vulkanChild)
 	{
-		RECT bounds{};
-		if (!GetClientRect(m_child, &bounds) || !SetWindowPos(m_openGLChild, HWND_BOTTOM, 0, 0,
-			std::max<LONG>(1, bounds.right), std::max<LONG>(1, bounds.bottom), SWP_NOACTIVATE)) m_layoutFailed = true;
-		ShowWindow(m_openGLChild, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+		SetWindowPos(m_vulkanChild, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		ShowWindow(m_vulkanChild, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 	}
+	for (const auto surface : {m_openGLChild})
+	{
+		if (!surface) continue;
+		RECT bounds{};
+		if (!GetClientRect(m_child, &bounds) || !SetWindowPos(surface, HWND_BOTTOM, 0, 0,
+			std::max<LONG>(1, bounds.right), std::max<LONG>(1, bounds.bottom), SWP_NOACTIVATE)) m_layoutFailed = true;
+		ShowWindow(surface, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+	}
+	const bool covered = active && !m_layoutFailed && IsCovered();
+	if (covered)
+	{
+		SetWindowPos(m_startupCover, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+		RedrawWindow(m_startupCover, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+	}
+	else ShowWindow(m_startupCover, SW_HIDE);
 	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 	UpdateControls();
 	if (m_exitDialog) m_exitDialog->Layout(GameBounds());

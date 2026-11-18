@@ -117,6 +117,9 @@ namespace
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
 		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
+		std::atomic_uint64_t presentationSession{0}, presentationBinding{0}, presentationChain{0};
+		std::atomic_bool firstFrameQueued{false}, firstFrameVisible{false};
+		uint64 vulkanSession = 0; // hook の有効期間は coordinator と GPU join の間に限定する。
 		std::string activeRenderer, rendererDevice;
 		std::string corePhase = "initializing", titlePhase = "idle", stopReason;
 		std::atomic_uint64_t inputReconnectCount{0};
@@ -161,6 +164,39 @@ namespace
 
 		HostState(HWND rootWindow, HWND gameWindow, CemuHost::Callbacks ui)
 			: root(rootWindow), canvas(gameWindow), callbacks(std::move(ui)) {}
+
+		bool CanPresent(uint64 session) const
+		{
+			return session && presentationSession == session && sessionId == session && alive && !stop && !titleStop;
+		}
+		void FirstFrame(uint64 session, uint64 binding)
+		{
+			if (!CanPresent(session) || firstFrameVisible || presentationBinding != binding || firstFrameQueued.exchange(true)) return;
+			cemuLog_log(LogType::Force, "NativeHost First Present: session={} binding={}", session, binding);
+			Dispatch([state = shared_from_this(), session, binding] {
+				if (!state->CanPresent(session) || state->presentationBinding != binding || state->firstFrameVisible ||
+					!IsWindow(state->root) || !IsWindow(state->canvas))
+				{
+					cemuLog_log(LogType::Force, "NativeHost stale First Present rejected: session={} binding={}", session, binding);
+					return false;
+				}
+				if (!state->callbacks.firstFrame)
+				{
+					state->Fail("First frame callback is unavailable");
+					return false;
+				}
+				if (!state->callbacks.firstFrame(session)) return false;
+				state->firstFrameVisible = true;
+				cemuLog_log(LogType::Force, "NativeHost Black Screen Released: session={} binding={}", session, binding);
+				return true;
+			}, false);
+		}
+		void BindPresentationChain(VkSwapchainKHR chain)
+		{
+			presentationChain = reinterpret_cast<uintptr_t>(chain);
+			++presentationBinding;
+			firstFrameQueued = false;
+		}
 
 		bool Dispatch(std::function<bool()> action, bool wait, bool titleScoped = true)
 		{
@@ -370,6 +406,9 @@ namespace
 			writer.Key("failed"); writer.Bool(failed);
 			writer.Key("fps"); writer.Double(fps);
 			writer.Key("presents"); writer.Uint64(presents);
+			writer.Key("presentationSession"); writer.Uint64(presentationSession);
+			writer.Key("firstFrameVisible"); writer.Bool(firstFrameVisible);
+			writer.Key("presentationSwapchain"); writer.Uint64(presentationChain);
 			writer.Key("acquires"); writer.Uint64(acquires);
 			writer.Key("swapchainCreates"); writer.Uint64(swapchainCreates);
 			writer.Key("swapchainDestroys"); writer.Uint64(swapchainDestroys);
@@ -446,8 +485,16 @@ namespace
 				titlePhase = "stopping";
 				phase = "title-stopping";
 				stopReason = std::move(reason);
+				presentationSession = 0;
+				firstFrameVisible = false;
 				CancelTitleUi();
 			}
+			const auto session = sessionId.load();
+			Dispatch([state = shared_from_this(), session] {
+				if (state->sessionId != session || !state->titleStop) return false;
+				if (state->callbacks.titleStopping) state->callbacks.titleStopping(session);
+				return true;
+			}, false, false);
 			Publish();
 			wake.notify_all();
 			return true;
@@ -458,6 +505,8 @@ namespace
 				std::lock_guard workLock(workMutex);
 				std::lock_guard statusLock(statusMutex);
 				stop = true;
+				presentationSession = 0;
+				firstFrameVisible = false;
 				ClearStopConfirmationLocked();
 				corePhase = "stopping";
 				if (launch) titlePhase = "stopping";
@@ -570,9 +619,27 @@ namespace
 	}
 	VKAPI_ATTR VkResult VKAPI_CALL Present(VkQueue queue, const VkPresentInfoKHR* info)
 	{
+		auto& state = *s_vulkanHost;
+		const auto session = state.vulkanSession;
+		const auto binding = state.presentationBinding.load();
 		const auto result = s_present(queue, info);
-		if (result >= 0 && s_vulkanHost->presents.fetch_add(1) == 0)
+		if ((result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) && state.presents.fetch_add(1) == 0)
 			cemuLog_log(LogType::Force, "NativeHost first vkQueuePresentKHR: result={} GPU thread={}", result, GetCurrentThreadId());
+		if (!state.firstFrameVisible && state.CanPresent(session) && (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR))
+		{
+			for (uint32 index = 0; index < info->swapchainCount; ++index)
+			{
+				const auto itemResult = info->pResults ? info->pResults[index] : result;
+				if (reinterpret_cast<uintptr_t>(info->pSwapchains[index]) != state.presentationChain ||
+					(itemResult != VK_SUCCESS && itemResult != VK_SUBOPTIMAL_KHR)) continue;
+				// 初回は LatteThread の DrawEmptyFrame が明示 clear した現在の画像。
+				// 呼出し成功だけで、未定義の画像や別 Surface の Present を公開しない。
+				const auto renderer = VulkanRenderer::GetInstance();
+				const auto& chain = renderer->GetChainInfo(true);
+				if (chain.m_swapchain == info->pSwapchains[index] && chain.hasDefinedSwapchainImage &&
+					chain.swapchainImageIndex == info->pImageIndices[index]) state.FirstFrame(session, binding);
+			}
+		}
 		return result;
 	}
 	VKAPI_ATTR VkResult VKAPI_CALL Acquire(VkDevice device, VkSwapchainKHR chain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* index)
@@ -589,6 +656,9 @@ namespace
 			++s_vulkanHost->swapchainCreates;
 			s_vulkanHost->swapchainWidth = info->imageExtent.width;
 			s_vulkanHost->swapchainHeight = info->imageExtent.height;
+			if (reinterpret_cast<uintptr_t>(device) == s_vulkanHost->vulkanDevice &&
+				reinterpret_cast<uintptr_t>(info->surface) == s_vulkanHost->vulkanSurface)
+				s_vulkanHost->BindPresentationChain(*chain);
 		}
 		cemuLog_log(LogType::Force, "NativeHost swapchain create: {}x{} result={} device=0x{:x} surface=0x{:x}",
 			info->imageExtent.width, info->imageExtent.height, result, reinterpret_cast<uintptr_t>(device), reinterpret_cast<uintptr_t>(info->surface));
@@ -596,6 +666,8 @@ namespace
 	}
 	VKAPI_ATTR void VKAPI_CALL DestroySwapchain(VkDevice device, VkSwapchainKHR chain, const VkAllocationCallbacks* allocator)
 	{
+		if (reinterpret_cast<uintptr_t>(chain) == s_vulkanHost->presentationChain)
+			s_vulkanHost->BindPresentationChain(VK_NULL_HANDLE);
 		s_destroySwapchain(device, chain, allocator);
 		++s_vulkanHost->swapchainDestroys;
 		cemuLog_log(LogType::Force, "NativeHost swapchain released on thread {}", GetCurrentThreadId());
@@ -620,6 +692,7 @@ namespace
 	}
 	void InstallVulkanTrace(HostState& state)
 	{
+		state.vulkanSession = state.sessionId;
 		s_vulkanHost = &state;
 		s_present = std::exchange(vkQueuePresentKHR, Present);
 		s_acquire = std::exchange(vkAcquireNextImageKHR, Acquire);
@@ -660,6 +733,8 @@ struct CemuHost::Impl
 		}
 		if (openGL) { Require(openGL->Close(), "OpenGL resources were not released"); openGL.reset(); ++state->glContextsDestroyed; }
 		RemoveVulkanTrace();
+		state->BindPresentationChain(VK_NULL_HANDLE);
+		state->vulkanSession = 0;
 		state->vulkanInstance = state->vulkanDevice = state->vulkanSurface = 0;
 		g_isGPUInitFinished = false;
 	}
@@ -793,7 +868,14 @@ struct CemuHost::Impl
 				}
 				if (!state->stop)
 				{
-					if (!state->sessionId) ++state->sessionId;
+					if (!state->sessionId)
+					{
+						++state->sessionId;
+						state->presentationSession = state->sessionId.load();
+						Require(state->Dispatch([state = state] {
+							return state->callbacks.beginPresentation && state->callbacks.beginPresentation(state->sessionId);
+						}, true), "Unable to arm black startup screen");
+					}
 					if (!state->titleStop) state->Phase("preparing");
 					try
 					{
@@ -852,7 +934,11 @@ struct CemuHost::Impl
 								}
 								if (useOpenGL)
 								{
-									openGL = std::make_unique<NativeOpenGL>(state->callbacks.openGLCanvas(), settings.width, settings.height, [state = state] { ++state->glPresents; });
+									const auto session = state->sessionId.load(), binding = ++state->presentationBinding;
+									openGL = std::make_unique<NativeOpenGL>(state->callbacks.openGLCanvas(), settings.width, settings.height, [state = state, session, binding] {
+										++state->glPresents;
+										if (!state->firstFrameVisible) state->FirstFrame(session, binding);
+									});
 									++state->glContextsCreated;
 									g_renderer = std::make_unique<OpenGLRenderer>();
 									std::lock_guard lock(state->statusMutex); state->rendererDevice = openGL->DeviceName();
@@ -860,6 +946,9 @@ struct CemuHost::Impl
 								else
 								{
 									Require(InitializeGlobalVulkan(), "Vulkan loader is unavailable");
+									const auto canvas = state->callbacks.vulkanCanvas();
+									Require(IsWindow(canvas), "Vulkan game canvas is unavailable");
+									s_windowInfo.canvas_main = {WindowSystem::WindowHandleInfo::Backend::Windows, nullptr, canvas};
 									g_renderer = std::make_unique<VulkanRenderer>();
 									const auto renderer = VulkanRenderer::GetInstance();
 									const auto limits = renderer->GetPhysicalDevice();
@@ -875,6 +964,7 @@ struct CemuHost::Impl
 									state->vulkanInstance = reinterpret_cast<uintptr_t>(renderer->GetVkInstance());
 									state->vulkanDevice = reinterpret_cast<uintptr_t>(renderer->GetLogicalDevice());
 									state->vulkanSurface = reinterpret_cast<uintptr_t>(chain.m_surface);
+									state->BindPresentationChain(chain.m_swapchain);
 									++state->surfaceCreates;
 									++state->swapchainCreates;
 									state->swapchainWidth = chain.getExtent().width;
@@ -904,7 +994,10 @@ struct CemuHost::Impl
 						cemuLog_log(LogType::Force, "NativeHost title launch failed: {}", error.what());
 						std::lock_guard lock(state->statusMutex); state->error = error.what();
 					}
+					if (!state->stop) state->StopTitle("title-shutdown");
 					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
+					state->presentationSession = 0;
+					state->CancelTitleUi();
 					CafeSystem::ShutdownTitle();
 					fscDeviceRedirect_removeOwned(state->textures.get());
 					Require(fscDeviceRedirect_ownedCount(state->textures.get()) == 0, "Texture overlay was not released");
@@ -1039,7 +1132,15 @@ void CemuHost::LaunchGame()
 		m_impl->state->stopReason.clear();
 		{ std::lock_guard lock(m_impl->state->uiMutex); m_impl->state->acceptingTitle = true; ++m_impl->state->generation; }
 		m_impl->state->phase = "preparing";
+		m_impl->state->presentationSession = m_impl->state->sessionId.load();
+		m_impl->state->firstFrameQueued = false;
+		m_impl->state->firstFrameVisible = false;
 	}
+	const auto session = m_impl->state->sessionId.load();
+	if (!m_impl->state->Dispatch([state = m_impl->state, session] {
+		return state->CanPresent(session) && state->callbacks.beginPresentation && state->callbacks.beginPresentation(session);
+	}, true)) m_impl->state->Fail("Unable to arm black startup screen");
+	if (m_impl->state->logReady) cemuLog_log(LogType::Force, "NativeHost Black Screen Armed: session={}", session);
 	m_impl->state->Publish();
 	m_impl->state->wake.notify_all();
 }
@@ -1138,6 +1239,11 @@ bool CemuHost::IsRunning() const
 	return m_impl->state->phase == "running" && !m_impl->state->stop;
 }
 bool CemuHost::IsTitleStopping() const { return m_impl->state->titleStop && m_impl->state->launch; }
+bool CemuHost::IsTitleActive() const
+{
+	return m_impl->state->launch && m_impl->state->presentationSession == m_impl->state->sessionId &&
+		m_impl->state->sessionId && !m_impl->state->titleStop && !m_impl->state->stop;
+}
 uint64_t CemuHost::SessionId() const { return m_impl->state->sessionId; }
 bool CemuHost::HasFailed() const { return m_impl->state->failed; }
 std::string CemuHost::StatusJson() const { return m_impl->state->Json(); }

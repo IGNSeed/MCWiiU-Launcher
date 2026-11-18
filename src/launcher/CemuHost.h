@@ -21,6 +21,10 @@ public:
 		std::function<void(std::string)> status;
 		std::function<bool()> titleStopped;
 		std::function<void()> stopped;
+		std::function<bool(uint64_t)> beginPresentation;
+		std::function<bool(uint64_t)> firstFrame;
+		std::function<void(uint64_t)> titleStopping;
+		std::function<HWND()> vulkanCanvas;
 	};
 
 	CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation);
@@ -43,6 +47,7 @@ public:
 	void ReportDisplayFailure();
 	bool IsStopped() const;
 	bool IsRunning() const;
+	bool IsTitleActive() const;
 	uint64_t SessionId() const;
 	uint64_t StopConfirmationId() const;
 	bool IsTitleStopping() const;

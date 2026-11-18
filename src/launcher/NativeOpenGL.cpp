@@ -51,6 +51,11 @@ NativeOpenGL::NativeOpenGL(HWND window, unsigned width, unsigned height, std::fu
 		const auto name = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
 		RequireGl(name != nullptr, "OpenGL: renderer name is unavailable");
 		m_deviceName = name;
+		// 新しい Context の両面を初期化する。初回 SwapBuffers の通知はまだ送らない。
+		glDrawBuffer(GL_FRONT_AND_BACK);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glDrawBuffer(GL_BACK);
 		SetOpenGLCanvasCallbacks(this); m_registered = true;
 		cemuLog_log(LogType::Force, "NativeHost OpenGL context created: device={} coordinator={} canvas={}", m_deviceName, GetCurrentThreadId(), reinterpret_cast<uintptr_t>(window));
 		Detach();

@@ -202,7 +202,7 @@ namespace
 
 		bool SetFullscreen(bool enabled, bool launcherFocus = false)
 		{
-			if (m_transitioning || m_stopping || m_stopConfirmation || !m_core.IsRunning()) return false;
+			if (m_transitioning || m_stopping || m_stopConfirmation || !m_core.IsTitleActive()) return false;
 			if (enabled == IsFullscreen()) return true;
 			m_transitioning = true;
 			auto* controller = m_webview.native().controller;
@@ -355,6 +355,7 @@ namespace
 		bool ReturnHome()
 		{
 			if (m_stopping) return true;
+			if (!m_host.EndPresentation(m_core.SessionId())) return false;
 			m_host.CancelTouch();
 			m_host.SetExitConfirmation(false);
 			m_core.InputMessage(WM_CANCELMODE, 0, 0);
@@ -387,7 +388,7 @@ namespace
 
 		void Shortcut(UINT key, uint64_t expectedSession)
 		{
-			if (m_stopping || m_transitioning || !m_core.IsRunning() || m_core.SessionId() != expectedSession) return;
+			if (m_stopping || m_transitioning || !m_core.IsTitleActive() || m_core.SessionId() != expectedSession) return;
 			if (m_stopConfirmation)
 			{
 				if (key == VK_ESCAPE) m_core.CancelStopGameConfirmation(m_confirmationSession, m_confirmationId);
@@ -498,20 +499,16 @@ namespace
 				core = std::make_unique<CemuHost>(window->native().hwnd, gameHost.GetHandle(), CemuHost::Callbacks{
 					.post = [app](std::function<void()> callback) { app->post(std::move(callback)); },
 					.prepareCanvas = [&](bool openGL) {
-						if (!gameHost.SetOpenGLComposition(openGL)) return false;
-						if (display) { display->m_launcherVisible = false; display->m_settingsSelected = false; }
-						gameHost.SetGameLayout(true);
-						gameHost.SetVisible(true);
-						gameHost.Focus();
-						return gameHost.IsRenderable();
+						return gameHost.PreparePresentation(core->SessionId(), openGL) && !gameHost.HasLayoutFailed();
 					},
 					.openGLCanvas = [&] { return gameHost.GetOpenGLHandle(); },
 					.status = [&](std::string json) {
+						if (core->IsTitleStopping() || core->HasFailed()) gameHost.StopPresentation(core->SessionId());
 						if (display) display->SetStopConfirmation(core->HasStopGameConfirmation());
 						publishCore(json);
 						if (gameHost.stateChanged) gameHost.stateChanged();
 					},
-					.titleStopped = [&] { return gameHost.SetOpenGLComposition(false) && display->ReturnHome(); },
+					.titleStopped = [&] { return display->ReturnHome(); },
 					.stopped = [&] {
 						s_startupExitCode = core->HasFailed() ? 1 : 0;
 						if (core->HasFailed())
@@ -521,8 +518,22 @@ namespace
 							notifications.m_closeApproved = true;
 						}
 						window->close();
-						}
-					}, s_installation);
+					},
+					.beginPresentation = [&](uint64_t session) {
+						if (!core || !display || notifications.m_closeRequested || display->m_stopping) return false;
+						display->m_launcherVisible = display->m_settingsSelected = false;
+						return gameHost.BeginPresentation(session);
+					},
+					.firstFrame = [&](uint64_t session) {
+						if (!core || !display || notifications.m_closing || notifications.m_closeRequested ||
+							display->m_stopping || core->IsTitleStopping() || core->SessionId() != session) return false;
+						if (gameHost.PresentFirstFrame(session)) return true;
+						core->ReportDisplayFailure();
+						return false;
+					},
+					.titleStopping = [&](uint64_t session) { gameHost.StopPresentation(session); },
+					.vulkanCanvas = [&] { return gameHost.GetVulkanHandle(); }
+				}, s_installation);
 				gameHost.stateChanged = [&] {
 					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
 						!display->m_stopConfirmation && !display->m_settingsSelected && !display->m_launcherVisible && core->IsRunning());
@@ -607,6 +618,7 @@ namespace
 				if (display)
 				{
 					display->m_stopping = true;
+					gameHost.StopPresentation(core->SessionId());
 					gameHost.SetControlsVisible(false);
 					if (!core->IsStopped())
 					{

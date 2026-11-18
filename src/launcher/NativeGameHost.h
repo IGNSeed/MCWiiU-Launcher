@@ -4,6 +4,7 @@
 #include <CommCtrl.h>
 #include <functional>
 #include <memory>
+#include <cstdint>
 #include "NativeExitDialog.h"
 
 struct ICoreWebView2Controller;
@@ -19,6 +20,12 @@ public:
 
 	HWND GetHandle() const { return m_child; }
 	HWND GetOpenGLHandle() const { return m_openGLChild; }
+	HWND GetVulkanHandle() const { return m_vulkanChild; }
+	bool BeginPresentation(uint64_t session);
+	bool PreparePresentation(uint64_t session, bool openGL);
+	bool PresentFirstFrame(uint64_t session);
+	void StopPresentation(uint64_t session);
+	bool EndPresentation(uint64_t session);
 	SIZE GetClientSize() const;
 	bool IsRenderable() const;
 	bool HasLayoutFailed() const { return m_layoutFailed; }
@@ -38,6 +45,7 @@ public:
 
 private:
 	static LRESULT CALLBACK OpenGLProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+	static LRESULT CALLBACK CoverProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ChildProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static LRESULT CALLBACK ParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
 	static LRESULT CALLBACK ControlProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data);
@@ -45,6 +53,7 @@ private:
 	RECT GameBounds() const;
 	void UpdateLayout();
 	void UpdateControls();
+	bool IsCovered() const;
 	LRESULT ControlMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	void Release();
 	bool OnUiThread() const;
@@ -71,4 +80,10 @@ private:
 	bool m_fullscreenLayout = false;
 	HWND m_openGLChild = nullptr;
 	ATOM m_openGLClass = 0;
+	HWND m_vulkanChild = nullptr;
+	HWND m_startupCover = nullptr;
+	ATOM m_coverClass = 0, m_vulkanClass = 0;
+	enum class Presentation { Hidden, BlackPending, AwaitingFirstFrame, Presenting, Stopping };
+	Presentation m_presentation = Presentation::Hidden;
+	uint64_t m_presentationSession = 0;
 };
