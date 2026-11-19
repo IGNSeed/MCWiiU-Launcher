@@ -4,6 +4,21 @@
 
 namespace GameLaunch
 {
+	const char* ErrorName(Error error)
+	{
+		switch (error)
+		{
+		case Error::None: return "None";
+		case Error::MissingBaseTitle: return "MissingBaseTitle";
+		case Error::InvalidExecutable: return "InvalidExecutable";
+		case Error::UnableToMount: return "UnableToMount";
+		case Error::PrepareFailed: return "PrepareFailed";
+		case Error::StandalonePrepareFailed: return "StandalonePrepareFailed";
+		case Error::InvalidPath: return "InvalidPath";
+		}
+		return "Unknown";
+	}
+
 	Preparation Prepare(const std::filesystem::path& path)
 	{
 		Preparation result;

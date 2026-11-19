@@ -21,6 +21,7 @@
 #include "Cafe/CafeSystem.h"
 #include "Cafe/Filesystem/fsc.h"
 #include "Cafe/IOSU/legacy/iosu_act.h"
+#include "Cafe/OS/libs/sysapp/sysapp.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
@@ -40,6 +41,7 @@
 #include <rapidjson/writer.h>
 #include <condition_variable>
 #include <chrono>
+#include <fstream>
 #include <openssl/sha.h>
 
 std::atomic_bool g_isGPUInitFinished{false};
@@ -68,6 +70,32 @@ namespace
 	{
 		if (!condition)
 			throw std::runtime_error(message);
+	}
+
+	void ValidateMinecraftMiiData(const fs::path& mlc, uint64_t miiTitleId)
+	{
+		// v560 は FFL 初期化失敗後も Mii 一覧を参照する。欠落時は PPC 実行前に止め、原本は修復しない。
+		const auto check = [&](const fs::path& relative, std::string_view magic, uintmax_t minimumSize) {
+			const auto path = mlc / relative;
+			std::error_code error;
+			const bool regular = fs::is_regular_file(path, error);
+			const auto size = regular && !error ? fs::file_size(path, error) : 0;
+			std::array<char, 4> header{};
+			std::ifstream file(path, std::ios::binary);
+			const bool readable = bool(file.read(header.data(), header.size()));
+			if (error || !regular || size < minimumSize || !readable || std::string_view(header.data(), header.size()) != magic)
+			{
+				cemuLog_log(LogType::Force, "NativeHost Mii prerequisite unavailable: {}", _pathToUtf8(relative));
+				throw std::runtime_error(fmt::format("Minecraft の起動に必要な Mii システムデータが不足しているか読み取れません: {}。使用する MLC に、所有する Wii U の FFL リソースと初期化済み Mii データベースを用意してください。既存データは変更していません。", _pathToUtf8(relative)));
+			}
+		};
+		const fs::path resources = "sys/title/0005001b/10056000/content";
+		// 埋込み FFL が最初に読むヘッダー領域だけを確認し、全ファイルのハッシュ走査は行わない。
+		check(resources / "FFLResMiddle.dat", "FFRA", 18944);
+		check(resources / "FFLResHigh.dat", "FFRA", 18944);
+		const fs::path database = fmt::format("usr/save/{:08x}/{:08x}/user/common/db", uint32_t(miiTitleId >> 32), uint32_t(miiTitleId));
+		check(database / "FFL_HDB.dat", "FFHA", 44032);
+		check(database / "FFL_ODB.dat", "FFOC", 276544);
 	}
 
 	struct UiRequest
@@ -893,11 +921,20 @@ struct CemuHost::Impl
 							NativeSettings settings;
 							{ std::lock_guard lock(state->statusMutex); settings = state->nativeSettings; }
 							const auto installed = state->installation->GetSnapshot();
+							cemuLog_log(LogType::Force, "NativeHost launch snapshot: session={} region={} base={:016x} update={:016x} path={}", state->sessionId.load(), MinecraftTitle::RegionName(installed.baseTitleId), installed.baseTitleId, installed.updateTitleId, _pathToUtf8(installed.basePath));
 							Require(installed.launchSupported && MinecraftTitle::IsBase(installed.baseTitleId) && state->managerTitleId == installed.baseTitleId, "Installed Minecraft title is unavailable");
 							{ std::lock_guard workLock(state->workMutex); state->graphicPacks->PrepareLaunch(settings.vsyncFrequency, settings.width, settings.height, installed.baseTitleId); }
 							auto prepared = GameLaunch::Prepare(installed.basePath);
-							Require(prepared.error == GameLaunch::Error::None && CafeSystem::GetForegroundTitleId() == installed.baseTitleId && CafeSystem::GetForegroundTitleVersion() == 560 &&
-								CafeTitleList::HasTitleAndVersion(installed.updateTitleId, 560), "Minecraft v560 preparation failed");
+							cemuLog_log(LogType::Force, "NativeHost GameLaunch::Prepare: result={}", GameLaunch::ErrorName(prepared.error));
+							if (prepared.error != GameLaunch::Error::None)
+								throw std::runtime_error(fmt::format("Minecraft title preparation failed: {}", GameLaunch::ErrorName(prepared.error)));
+							cemuLog_log(LogType::Force, "NativeHost prepared title: id={:016x} version={}", CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
+							Require(CafeSystem::GetForegroundTitleId() == installed.baseTitleId, "Prepared Minecraft BASE title does not match the installed title");
+							Require(CafeSystem::GetForegroundTitleVersion() == 560, "Prepared Minecraft title is not update v560");
+							Require(CafeTitleList::HasTitleAndVersion(installed.updateTitleId, 560), "Installed Minecraft update v560 is not in the Core title list");
+							// sysapp と同じ実効 platform region から Mii Maker の保存先を得る。
+							ValidateMinecraftMiiData(ActiveSettings::GetMlcPath(), _SYSGetSystemApplicationTitleId(4));
+							cemuLog_log(LogType::Force, "NativeHost Mii prerequisites verified; foreground title prepared");
 							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
 							std::vector<std::string> texturePaths;
 							for (const auto& file : textureFiles) texturePaths.push_back(file.virtualPath);

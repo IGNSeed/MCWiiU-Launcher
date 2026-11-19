@@ -32,4 +32,5 @@ namespace GameLaunch
 
 	// タイトルを準備するだけで、Canvas 生成や LaunchForegroundTitle は行わない。
 	Preparation Prepare(const std::filesystem::path& path);
+	const char* ErrorName(Error error);
 } // namespace GameLaunch
