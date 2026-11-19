@@ -81,6 +81,7 @@ private:
 	HWND m_openGLChild = nullptr;
 	ATOM m_openGLClass = 0;
 	HWND m_vulkanChild = nullptr;
+	HWND m_vulkanContainer = nullptr;
 	HWND m_startupCover = nullptr;
 	ATOM m_coverClass = 0, m_vulkanClass = 0;
 	enum class Presentation { Hidden, BlackPending, AwaitingFirstFrame, Presenting, Stopping };

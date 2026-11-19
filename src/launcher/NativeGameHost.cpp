@@ -135,10 +135,24 @@ bool NativeGameHost::PreparePresentation(uint64_t session, bool openGL)
 			m_vulkanClass = RegisterClassExW(&windowClass);
 			if (!m_vulkanClass) return false;
 		}
-		// Surface/Swapchain と同じ寿命にし、前タイトルの DWM 表示内容を再利用しない。
-		m_vulkanChild = CreateWindowExW(0, s_vulkanClassName, L"Vulkan game surface",
+		// Intel WSI は NOREDIRECTIONBITMAP の直下で Present が成功しても表示されない。
+		// 専用の合成面を親にし、Vulkan 自体の HWND は非 layered のまま保持する。
+		m_vulkanContainer = CreateWindowExW(WS_EX_LAYERED | WS_EX_NOACTIVATE, s_vulkanClassName, L"Vulkan composition host",
 			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_parent, nullptr, m_instance, this);
-		if (!m_vulkanChild) return false;
+		if (!m_vulkanContainer) return false;
+		if (!SetLayeredWindowAttributes(m_vulkanContainer, 0, 255, LWA_ALPHA))
+		{
+			DestroyWindow(m_vulkanContainer);
+			return false;
+		}
+		// 合成面も Surface/Swapchain と同じ寿命にし、前タイトルの内容を再利用しない。
+		m_vulkanChild = CreateWindowExW(0, s_vulkanClassName, L"Vulkan game surface",
+			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_vulkanContainer, nullptr, m_instance, this);
+		if (!m_vulkanChild)
+		{
+			DestroyWindow(m_vulkanContainer);
+			return false;
+		}
 	}
 	m_presentation = Presentation::AwaitingFirstFrame;
 	UpdateLayout();
@@ -168,8 +182,8 @@ bool NativeGameHost::EndPresentation(uint64_t session)
 	SetVisible(false);
 	// 呼出し元が GPU thread の join と Renderer 解放を完了してから破棄する。
 	if (!SetOpenGLComposition(false)) return false;
-	if (m_vulkanChild && !DestroyWindow(m_vulkanChild)) return false;
-	m_vulkanChild = nullptr;
+	if (m_vulkanContainer && !DestroyWindow(m_vulkanContainer)) return false;
+	m_vulkanContainer = m_vulkanChild = nullptr;
 	m_presentation = Presentation::Hidden;
 	return true;
 }
@@ -226,6 +240,7 @@ LRESULT CALLBACK NativeGameHost::OpenGLProc(HWND hwnd, UINT message, WPARAM wPar
 	{
 		if (self && self->m_openGLChild == hwnd) self->m_openGLChild = nullptr;
 		if (self && self->m_vulkanChild == hwnd) self->m_vulkanChild = nullptr;
+		if (self && self->m_vulkanContainer == hwnd) self->m_vulkanContainer = nullptr;
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
 	}
 	return DefWindowProcW(hwnd, message, wParam, lParam);
@@ -273,8 +288,8 @@ void NativeGameHost::Release()
 	CancelTouch();
 	m_exitDialog.reset();
 	SetOpenGLComposition(false);
-	if (m_vulkanChild) DestroyWindow(m_vulkanChild);
-	m_vulkanChild = nullptr;
+	if (m_vulkanContainer) DestroyWindow(m_vulkanContainer);
+	m_vulkanContainer = m_vulkanChild = nullptr;
 	if (m_startupCover) DestroyWindow(m_startupCover);
 	m_startupCover = nullptr;
 	if (m_subclassed)
@@ -325,12 +340,14 @@ bool NativeGameHost::SetBounds(const RECT& bounds)
 	if (!OnUiThread() || !m_child || !GetClientRect(m_parent, &client) || bounds.left < 0 || bounds.top < 0 ||
 		bounds.right < bounds.left || bounds.bottom < bounds.top || bounds.right > client.right || bounds.bottom > client.bottom)
 		return false;
+	if (m_vulkanChild && !SetWindowPos(m_vulkanChild, nullptr, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top,
+		SWP_NOACTIVATE | SWP_NOZORDER)) return false;
 	// 遮蔽面と描画領域を同じ配置更新で動かし、縮小・移動時の隙間を防ぐ。
 	auto batch = BeginDeferWindowPos(3);
 	if (!batch) return false;
 	batch = DeferWindowPos(batch, m_child, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
 		SWP_NOACTIVATE | SWP_NOZORDER);
-	if (batch && m_vulkanChild) batch = DeferWindowPos(batch, m_vulkanChild, nullptr, bounds.left, bounds.top,
+	if (batch && m_vulkanContainer) batch = DeferWindowPos(batch, m_vulkanContainer, nullptr, bounds.left, bounds.top,
 		bounds.right - bounds.left, bounds.bottom - bounds.top, SWP_NOACTIVATE | SWP_NOZORDER);
 	if (batch) batch = DeferWindowPos(batch, m_startupCover, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
 		SWP_NOACTIVATE | SWP_NOZORDER);
@@ -536,7 +553,8 @@ void NativeGameHost::UpdateLayout()
 	// 描画面は遮蔽中も visible に保ち、Acquire/Present の起動待ちを妨げない。
 	if (m_vulkanChild)
 	{
-		SetWindowPos(m_vulkanChild, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		SetWindowPos(m_vulkanContainer, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+		ShowWindow(m_vulkanContainer, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 		ShowWindow(m_vulkanChild, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
 	}
 	for (const auto surface : {m_openGLChild})
