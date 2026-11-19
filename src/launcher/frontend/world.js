@@ -2,27 +2,28 @@
 
 const worldList = document.getElementById("world-list"), worldDialog = document.getElementById("world-dialog");
 const worldName = document.getElementById("world-name"), worldConfirm = document.getElementById("world-confirm"), worldDestination = document.getElementById("world-destination");
-let worldSnapshot = null, worldSerial = Date.now(), worldPending = 0, worldPendingOp = "", worldTarget = null, worldFocus = null, worldVisible = false, worldView = "worlds";
+let worldSnapshot = null, worldSerial = Date.now(), worldPending = 0, worldPendingOp = "", worldTarget = null, worldFocus = null, worldDirty = false, worldVisible = false, worldView = "worlds";
 const worldImportDialog = document.getElementById("world-import-dialog"), worldImportConfirm = document.getElementById("world-import-confirm");
 let worldImportTarget = null, worldImportDesiredName = "", worldImportNameDirty = false, worldImportNameTimer = 0;
 let worldFolderCooldown = 0;
 let worldImportNameTouched = false;
+let worldRendered = "";
 const worldImportName = document.getElementById("world-import-name");
 const worldNotices = {
   "folder-opened":"", "folder-open-busy":"", "world-folder-missing":"ワールド保存フォルダが見つかりません。", "open-folder-failed":"エクスプローラーを開けませんでした。",
   ready:"", saved:"保存しました。", unchanged:"変更はありません。", cancelled:"操作を取り消しました。", "preview-ready":"プレビューを確認して Save を押してください。",
   deleted:"Trashへ移動しました。", restored:"元のAccountへ復元しました。", imported:"ワールドをインポートしました。", "import-preview-ready":"候補とインポート先を確認して Import を押してください。",
   "installation-region-required":"Game DataでBASEをインストールすると、その地域のセーブを表示できます。",
-  "not-ready":"ゲームと終了処理が停止し、準備完了になってから操作してください。", "stale-request":"アカウントまたは一覧が変わりました。Refresh して操作し直してください。",
-  "stale-world":"ワールドが更新されました。Refresh して操作し直してください。", "invalid-name":"名前は1〜32 UTF-16単位で入力してください。制御文字や空白だけの名前は使えません。",
+  "not-ready":"ゲームと終了処理が停止し、準備完了になってから操作してください。", "stale-request":"アカウントまたは一覧が変わりました。自動更新後に操作し直してください。",
+  "stale-world":"ワールドが更新されました。自動更新後に操作し直してください。", "invalid-name":"名前は1〜32 UTF-16単位で入力してください。制御文字や空白だけの名前は使えません。",
   "save-id-conflict":"同じSave IDが移動先に存在します。上書きせず中止しました。", "invalid-image":"画像を読み込めません。16 MB以下のPNG / JPEGを選択してください。",
   "unsupported-metadata":"この保存形式は安全に編集できません。", "invalid-world":"このワールドを安全に読み込めません。", "invalid-account":"アカウントを確認できません。",
   "unsafe-path":"安全な保存先を確認できません。", "stale-preview":"画像プレビューが古くなりました。画像を選び直してください。",
   "recovery-required":"中断した操作があります。復旧が完了するまでゲーム起動と編集を停止しています。",
   recovered:"変更前のワールドを復旧しました。", "rolled-back":"操作に失敗したため、変更前に復旧しました。", "read-failed":"ファイルを読み込めません。ほかのアプリで使用中の場合は閉じてください。",
   "write-failed":"書き込みに失敗しました。保存先の空き容量や使用状況を確認してください。", "verification-failed":"書き込み後の整合性を確認できませんでした。",
-  "invalid-file":"ファイルの形式やサイズを確認できません。", "world-limit":"ワールド数が上限を超えています。", "invalid-request":"操作を検証できません。Refresh してください。",
-  "insufficient-space":"保存先の空き容量が不足しています。", "invalid-trash":"保管データの整合性を確認できません。ファイルは保持しています。", "stale-trash":"Trashの状態が変わりました。Refresh してください。",
+  "invalid-file":"ファイルの形式やサイズを確認できません。", "world-limit":"ワールド数が上限を超えています。", "invalid-request":"操作を検証できません。一覧の自動更新を待ってください。",
+  "insufficient-space":"保存先の空き容量が不足しています。", "invalid-trash":"保管データの整合性を確認できません。ファイルは保持しています。", "stale-trash":"Trashの状態が変わりました。一覧の自動更新を待ってください。",
   "trash-unavailable":"この保管データは復元済み、または操作未完了です。", "trash-count-limit":"Trashの一覧上限を超えています。データは削除しません。",
   "stale-import-preview":"プレビューが古くなりました。インポート元を選び直してください。", "stale-import-source":"元のファイルが変更されました。インポート元を選び直してください。",
   "invalid-body":"本体の圧縮データやファイル索引が不正です。", "unsupported-body-format":"この本体形式は未検証です。形式変換は行いません。",
@@ -36,7 +37,7 @@ const worldNotices = {
   "purge-preview-ready":"対象と容量を確認してください。完全削除は取り消せません。", "purge-blocked":"安全に削除できない項目があるため、削除を開始していません。",
   "purge-incomplete":"取引未完了の保管項目です。", "purge-owner-mismatch":"元の取引との対応を確認できません。", "purge-unknown-file":"所有を確認できないファイルがあります。",
   "unsafe-purge-file":"リンク・読み取り専用など、安全に削除できないファイルがあります。", "purge-file-busy":"ファイルが使用中のため削除できません。",
-  "purge-changed":"確認後に対象ファイルやTrashの構成が変わりました。Refreshして操作し直してください。", "purge-write-failed":"完全削除が中断しました。残りの処理には明示的な復旧操作が必要です。",
+  "purge-changed":"確認後に対象ファイルやTrashの構成が変わりました。自動更新後に操作し直してください。", "purge-write-failed":"完全削除が中断しました。残りの処理には明示的な復旧操作が必要です。",
   "purge-backup-referenced":"他の取引の参照、または参照不明のバックアップがあるため、関連バックアップは保持します。",
   "purge-backup-protected":"関連バックアップを安全に整理できないため保持します。", "purge-backup-limit":"バックアップ数が上限を超えています。",
   "purge-protected":"保管データを安全に削除できません。ファイルは保持しています。", "invalid-purge":"完全削除の取引情報を検証できません。",
@@ -69,7 +70,6 @@ function sendWorld(op, payload, picker = false, importPart = null) {
 }
 function updateWorldControls() {
   const enabled = worldCanEdit();
-  document.getElementById("world-refresh").disabled = !!worldPending || window.launcherCoreState?.corePhase !== "ready";
   document.getElementById("world-import").disabled = !enabled;
   document.getElementById("world-open-folder").disabled = !enabled || performance.now() < worldFolderCooldown;
   document.getElementById("world-trash").disabled = !!worldPending || window.launcherCoreState?.corePhase !== "ready";
@@ -102,6 +102,9 @@ function updateWorldControls() {
 }
 function renderWorlds() {
   const state = worldSnapshot;
+  const key = JSON.stringify([state?.activeId,state?.worlds,state?.trash,state?.trashBytes,worldView,state?.recoveryRequired,state?.recoveryMode,state?.purgeProgress,state?.purgeIssues]);
+  if (key === worldRendered) { updateWorldControls(); return; }
+  worldRendered = key;
   const active = accountSnapshot?.accounts?.find(account => account.id === state?.activeId);
   document.getElementById("world-account").textContent = state ? `${active?.name || "Active Account"} · ${state.activeId.toString(16).padStart(8,"0")}` : "";
   document.getElementById("world-recover").hidden = !state?.recoveryRequired;
@@ -267,7 +270,7 @@ function updateWorldView() {
   if (!visible) { worldVisible = false; if (!worldPending) { if (worldDialog.open) worldDialog.close(); if (worldImportDialog.open) worldImportDialog.close(); } return; }
   updateWorldControls();
   if (window.launcherCoreState?.phase === "unavailable") { document.getElementById("world-notice").textContent = "Coreに接続するとワールドを表示できます。"; return; }
-  if (!worldVisible && !worldPending && window.launcherCoreState?.corePhase === "ready") { worldVisible = true; sendWorld(worldView === "trash" ? "trash-list" : "list",{op:worldView === "trash" ? "trash-list" : "list"}); }
+  if ((!worldVisible || worldDirty) && !worldPending && !worldDialog.open && !worldImportDialog.open && window.launcherCoreState?.canRecoverWorlds === true) { worldVisible = true; worldDirty = false; sendWorld(worldView === "trash" ? "trash-list" : "list",{op:worldView === "trash" ? "trash-list" : "list"}); }
 }
 window.updateWorldView = updateWorldView;
 worldList.addEventListener("click", event => {
@@ -280,7 +283,6 @@ document.getElementById("world-open-folder").addEventListener("click", () => {
   sendWorld("open-folder",{op:"open-folder",activeId:worldSnapshot.activeId,revision:worldSnapshot.revision});
   setTimeout(updateWorldControls,1000);
 });
-document.getElementById("world-refresh").addEventListener("click", () => { const op = worldView === "trash" ? "trash-list" : "list"; sendWorld(op,{op}); });
 document.getElementById("world-trash").addEventListener("click", () => { worldView = "trash"; renderWorlds(); sendWorld("trash-list",{op:"trash-list"}); document.getElementById("world-back").focus(); });
 document.getElementById("world-back").addEventListener("click", () => { worldView = "worlds"; renderWorlds(); sendWorld("list",{op:"list"}); document.getElementById("world-trash").focus(); });
 document.getElementById("world-empty-trash").addEventListener("click", () => openWorldDialog("empty-trash"));
@@ -290,7 +292,7 @@ document.getElementById("world-cancel").addEventListener("click", () => { if (!w
 worldDialog.addEventListener("cancel", event => { if (worldPending) event.preventDefault(); });
 worldDialog.addEventListener("close", () => {
   const target = worldTarget; worldTarget = null;
-  if (selectedPage === "world") (worldFocus?.isConnected && !worldFocus.disabled ? worldFocus : document.getElementById("world-refresh")).focus({preventScroll:true});
+  if (selectedPage === "world") (worldFocus?.isConnected && !worldFocus.disabled ? worldFocus : document.getElementById("world-open-folder")).focus({preventScroll:true});
   if (["purge","empty-trash"].includes(target?.op) && !worldPending && worldSnapshot?.purgePreview) sendWorld("clear-purge",{op:"clear-purge",activeId:worldSnapshot.activeId,revision:worldSnapshot.revision});
   if (target?.op === "icon" && worldSnapshot?.preview && !worldPending) sendWorld("clear-preview",worldPayload("clear-preview",target));
 });
@@ -366,3 +368,9 @@ window.addEventListener("launcher-core-state", () => {
   updateWorldView();
 });
 document.addEventListener("visibilitychange", updateWorldView);
+
+window.addEventListener("launcher-library-change", event => {
+  if (event.detail?.name !== "world") return;
+  worldDirty = true; updateWorldView();
+});
+window.addEventListener("launcher-live-state", () => { if (selectedPage === "world" && !document.hidden) updateWorldView(); });

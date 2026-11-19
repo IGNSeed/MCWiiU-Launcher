@@ -114,9 +114,15 @@ struct GraphicPackService::Impl
 {
 	struct Pack
 	{
-		std::string id, digest;
+		std::string id, digest, identity;
 		std::shared_ptr<GraphicPack2> core;
 	};
+	struct Selection
+	{
+		bool enabled;
+		std::vector<std::pair<std::string, std::string>> presets;
+	};
+	std::map<std::string, Selection> previousSelections;
 	fs::path root = ActiveSettings::GetUserDataPath("graphicPacks"), settings = GetConfigHandle().GetFilename();
 	std::vector<Pack> packs;
 	std::unique_ptr<Handles> sessionPins;
@@ -211,8 +217,20 @@ struct GraphicPackService::Impl
 							if (boost::iequals(category, "_disabled")) enabled = false; else core->SetActivePreset(category, name, false);
 						core->SetEnabled(enabled); core->UpdatePresetVisibility(); core->ValidatePresetSelections(); break;
 					}
-				if (!known) core->SetEnabled(false);
-				packs.push_back({Hash(Key(core->GetNormalizedPathString())), Hash(rules), core});
+				Handles folder; folder.Pin(directory, true); BY_HANDLE_FILE_INFORMATION info{};
+				Require(GetFileInformationByHandle(folder.files.back(), &info), "folder-identity-unavailable");
+				const auto identity = fmt::format("{}:{}:{}", info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow);
+				if (!known)
+				{
+					const auto previous = previousSelections.find(identity);
+					core->SetEnabled(previous != previousSelections.end() && previous->second.enabled);
+					if (previous != previousSelections.end())
+					{
+						for (const auto& [category, name] : previous->second.presets) core->SetActivePreset(category, name, false);
+						core->UpdatePresetVisibility(); core->ValidatePresetSelections();
+					}
+				}
+				packs.push_back({Hash(Key(core->GetNormalizedPathString())), Hash(rules), identity, core});
 				Require(packs.size() <= 512, "pack-limit");
 			}
 			catch (const std::exception&)
@@ -272,6 +290,42 @@ GraphicPackService::GraphicPackService() : m_impl(std::make_unique<Impl>())
 GraphicPackService::~GraphicPackService() = default;
 bool GraphicPackService::IsHealthy() const { return m_impl->healthy; }
 
+bool GraphicPackService::Reload()
+{
+	auto& state = *m_impl;
+	if (state.running || !GraphicPack2::GetActiveGraphicPacks().empty() || GraphicPack2::TrackedModuleCount() || RPLLoader_GetCodeCaveAllocationCount()) return false;
+	for (const auto& core : GraphicPack2::GetGraphicPacks())
+		if (core->IsActivated() || !core->GetPatchGroups().empty() || !core->GetCallbacks().empty() || fscDeviceRedirect_ownedCount(core.get())) return false;
+	// ShutdownTitle と EndTitle の検証を通った後だけ、Core の所有コレクションを再構築する。
+	++state.revision;
+	state.notice.clear(); state.problem.clear(); state.healthy = true;
+	state.previousSelections.clear();
+	for (const auto& pack : state.packs)
+	{
+		Impl::Selection selection{pack.core->IsEnabled(), {}};
+		for (const auto& preset : pack.core->GetActivePresets()) selection.presets.emplace_back(preset->category, preset->name);
+		state.previousSelections.emplace(pack.identity, std::move(selection));
+	}
+	state.packs.clear(); GraphicPack2::ClearGraphicPacks();
+	try
+	{
+		pugi::xml_document document; std::string original; state.ValidateSettings(document, original);
+		CheckPath(state.root); Handles directories; directories.Parents(state.root.parent_path());
+		if (fs::exists(state.root))
+		{
+			directories.Pin(state.root, true);
+			size_t count = 0; state.Scan(state.root, 0, count);
+			std::sort(state.packs.begin(), state.packs.end(), [](const auto& a, const auto& b) { return a.id < b.id; });
+		}
+	}
+	catch (const std::exception& error)
+	{
+		state.healthy = false; state.problem = error.what();
+		for (auto& pack : GraphicPack2::GetGraphicPacks()) pack->SetEnabled(false);
+	}
+	return true;
+}
+
 std::string GraphicPackService::Command(std::string_view payload, bool canEdit)
 {
 	auto& state = *m_impl; std::string result = state.notice;
@@ -296,7 +350,7 @@ std::string GraphicPackService::Command(std::string_view payload, bool canEdit)
 			for (const auto& preset : pack.core->GetPresets()) previous.emplace_back(preset->active, preset->visible);
 			try
 			{
-				Require(Hash(Read(pack.core->GetRulesPath(), 1024 * 1024)) == pack.digest, "pack-changed-restart-required");
+				Require(Hash(Read(pack.core->GetRulesPath(), 1024 * 1024)) == pack.digest, "pack-changed");
 				if (op == "enable") { Require(json["enabled"].IsBool(), "invalid-request"); pack.core->SetEnabled(json["enabled"].GetBool()); }
 				else
 				{
@@ -350,7 +404,7 @@ void GraphicPackService::PrepareLaunch(int frequency, unsigned width, unsigned h
 		}
 		pack.core->SetLauncherFiles(std::move(files));
 		auto rules = Read(pack.core->GetRulesPath(), 1024 * 1024);
-		Require(Hash(rules) == pack.digest, "Graphic pack changed; restart Launcher: " + pack.core->GetName());
+		Require(Hash(rules) == pack.digest, "Graphic pack changed; wait for automatic synchronization: " + pack.core->GetName());
 		IniParser parser(std::span<char>(rules.data(), rules.size()), Utf8(pack.core->GetRulesPath())); ExpressionParser expression; pack.core->AddConstantsForCurrentPreset(expression);
 		while (parser.NextSection())
 		{

@@ -568,6 +568,9 @@ dialog[open]::backdrop { opacity:1; }
 nav { position:relative; isolation:isolate; }
 nav button { position:relative; z-index:1; }
 nav button[aria-current="page"] { border-color:transparent; background:transparent; }
+/* 操作ロック中もカテゴリの選択表示を保ち、一般ボタンの無効背景を付けない。 */
+nav button:disabled,.settings-tabs button:disabled { border-color:transparent; background:transparent; color:#98989f; cursor:default; }
+nav button[aria-current="page"]:disabled,.settings-tabs button[aria-selected="true"]:disabled { color:#fff; }
 #navigation-indicator { position:absolute; top:0; left:0; z-index:0; pointer-events:none; opacity:0; border:1px solid #ffffff38; border-radius:5px; background:#ffffff0b; }
 .settings-tabs { position:relative; isolation:isolate; }
 .settings-tabs button { position:relative; z-index:1; transition:color var(--motion-fast) ease-out,background-color var(--motion-fast) ease-out; }

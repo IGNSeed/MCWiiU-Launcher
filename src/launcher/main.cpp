@@ -765,6 +765,7 @@ namespace
 				else if (core && message == "game:start")
 				{
 					if (!notifications.m_closeRequested && !gameData.IsWorking()) core->LaunchGame();
+					publishCore(core->StatusJson());
 				}
 				else if (core && message.starts_with("settings:save:"))
 				{
@@ -943,6 +944,14 @@ namespace
 					{
 						const auto result = core->ManageFriends(request->first, request->second);
 						webview.execute("window.dispatchEvent(new CustomEvent('launcher-friends-command', {detail:" + result + "}));");
+					}
+				}
+				else if (core && message.starts_with("ui:synchronize:"))
+				{
+					if (const auto id = ParseStopId(message.substr(std::string_view("ui:synchronize:").size())); id && *id <= 9007199254740991ULL)
+					{
+						const auto snapshot = core->SynchronizeUi(*id == 1);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-live-state', {detail:{requestId:" + std::to_string(*id) + ",state:" + snapshot + "}}));");
 					}
 				}
 				else if (core && (message == "friends:get" || message == "friends:refresh"))

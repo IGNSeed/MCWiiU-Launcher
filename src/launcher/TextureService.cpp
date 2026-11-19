@@ -254,6 +254,7 @@ struct TextureService::Impl
 	std::mutex mutex;
 	std::atomic_bool healthy{false};
 	std::vector<Pack> packs;
+	std::map<std::string, std::pair<uint64_t, uint64_t>> sourceStamps;
 	Pack current, preview;
 	std::string state = "error", notice, token, loadedId, loadedName;
 	std::chrono::steady_clock::time_point expires{};
@@ -482,21 +483,77 @@ struct TextureService::Impl
 		}
 		std::sort(result.files.begin(), result.files.end(), [](const auto& a, const auto& b) { return a.path < b.path; }); Validate(result); return result;
 	}
+	uint64_t SourceStamp(const fs::path& path) const
+	{
+		uint64_t hash = 1469598103934665603ULL;
+		size_t count = 0;
+		const auto add = [&](const fs::path& file) {
+			Require(++count <= 32768, "pack-size-limit");
+			WIN32_FILE_ATTRIBUTE_DATA info{};
+			Require(GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &info), "file-busy-or-missing");
+			Require(!(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT), "unsafe-file");
+			for (auto c : file.native()) hash = (hash ^ c) * 1099511628211ULL;
+			for (auto value : {info.dwFileAttributes, info.ftLastWriteTime.dwHighDateTime, info.ftLastWriteTime.dwLowDateTime, info.nFileSizeHigh, info.nFileSizeLow}) hash = (hash ^ value) * 1099511628211ULL;
+		};
+		add(path);
+		if (fs::is_directory(path))
+			for (const auto& entry : fs::recursive_directory_iterator(path)) add(entry.path());
+		return hash;
+	}
+	uint64_t ValidationStamp(const Pack& pack) const
+	{
+		uint64_t hash = 1469598103934665603ULL;
+		for (const auto& file : pack.files)
+		{
+			if (Metadata(file.path)) continue;
+			std::vector<fs::path> relatives{Path(file.path.substr(7))};
+			if (relatives.front().extension() == ".txt" || relatives.front().extension() == ".png")
+			{
+				auto paired = relatives.front(); paired.replace_extension(paired.extension() == ".txt" ? ".png" : ".txt"); relatives.push_back(std::move(paired));
+			}
+			for (const auto& root : {base, update})
+			{
+				if (root.empty()) continue;
+				for (const auto& relative : relatives)
+				{
+					const auto path = root / relative; CheckPath(path);
+					WIN32_FILE_ATTRIBUTE_DATA info{};
+					if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info))
+						Require(GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND, "file-busy-or-missing");
+					for (auto c : path.native()) hash = (hash ^ c) * 1099511628211ULL;
+					for (auto value : {info.dwFileAttributes, info.ftLastWriteTime.dwHighDateTime, info.ftLastWriteTime.dwLowDateTime, info.nFileSizeHigh, info.nFileSizeLow}) hash = (hash ^ value) * 1099511628211ULL;
+				}
+			}
+		}
+		return hash;
+	}
 	void Scan()
 	{
-		Guard guard(root); packs.clear(); packs.emplace_back();
+		Guard guard(root); std::vector<Pack> next; next.emplace_back();
+		std::map<std::string, std::pair<uint64_t, uint64_t>> nextStamps;
 		for (const auto& entry : fs::directory_iterator(root))
 		{
-			Require(packs.size() <= s_packLimit, "pack-count-limit"); Pack pack; pack.source = Utf8(entry.path().filename()); pack.description.clear();
+			Require(next.size() <= s_packLimit, "pack-count-limit"); Pack pack; pack.source = Utf8(entry.path().filename()); pack.description.clear();
 			pack.kind = entry.is_directory() ? "folder" : "zip";
 			if (pack.kind == "zip" && Lower(Utf8(entry.path().extension())) != ".zip") continue;
 			pack.name = Utf8(pack.kind == "folder" ? entry.path().filename() : entry.path().stem());
 			pack.id = pack.kind + ":" + Hash(pack.source);
-			try { pack = ReadPack(pack); for (auto& file : pack.files) { file.bytes.clear(); file.bytes.shrink_to_fit(); } }
+			try
+			{
+				const auto stamp = SourceStamp(entry.path());
+				const auto previous = std::find_if(packs.begin(), packs.end(), [&](const auto& candidate) { return candidate.id == pack.id; });
+				const auto cached = sourceStamps.find(pack.id);
+				if (previous != packs.end() && cached != sourceStamps.end() && cached->second == std::pair{stamp, ValidationStamp(*previous)}) pack = *previous;
+				else pack = ReadPack(pack);
+				Require(SourceStamp(entry.path()) == stamp, "source-changed");
+				nextStamps[pack.id] = {stamp, ValidationStamp(pack)};
+				for (auto& file : pack.files) { file.bytes.clear(); file.bytes.shrink_to_fit(); }
+			}
 			catch (const std::exception& error) { pack.problem = error.what(); pack.files.clear(); }
-			packs.push_back(std::move(pack));
+			next.push_back(std::move(pack));
 		}
-		std::sort(packs.begin() + 1, packs.end(), [](const auto& a, const auto& b) { return std::pair{Lower(a.name), a.id} < std::pair{Lower(b.name), b.id}; });
+		std::sort(next.begin() + 1, next.end(), [](const auto& a, const auto& b) { return std::pair{Lower(a.name), a.id} < std::pair{Lower(b.name), b.id}; });
+		packs.swap(next); sourceStamps.swap(nextStamps);
 	}
 	std::string Manifest(const Pack& pack)
 	{

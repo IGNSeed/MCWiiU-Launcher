@@ -3,12 +3,13 @@
 const textureDialog = document.getElementById("texture-confirmation");
 const textureFallbackIcon = "assets/pack_icon.png";
 let textureSnapshot = null, texturePending = 0, textureSerial = Date.now(), textureOperation = "";
-let textureVisible = false, textureRecovery = false, textureFocus = null, textureFolderCooldown = 0;
+let textureRendered = "";
+let textureDirty = false, textureVisible = false, textureRecovery = false, textureFocus = null, textureFolderCooldown = 0;
 const textureMessages = {
   applied:"適用しました。次回の起動に反映されます。", recovered:"Default に復旧しました。", "preview-ready":"", "folder-opened":"", "folder-open-busy":"",
   "warning-acknowledged":"この内容の動作確認を記録しました。", "warning-unacknowledged":"確認済みを解除しました。",
   "acknowledgements-unavailable":"確認情報を読み込めません。互換性の警告を表示しています。", "acknowledgements-save-failed":"確認情報を保存できませんでした。互換性の警告を表示しています。", "acknowledgements-limit":"確認情報の保存件数が上限に達しました。不要な確認を解除してください。",
-  "not-ready":"処理の完了後に操作してください。", "game-running":"ゲーム停止後に適用してください。", "source-changed":"パックが変更されました。Refresh して確認してください。",
+  "not-ready":"処理の完了後に操作してください。", "game-running":"ゲーム停止後に適用してください。", "source-changed":"パックが変更されました。自動更新後に選び直してください。",
   "recovery-required":"適用状態の復旧が必要です。", "selection-missing":"適用状態を確認できません。", "stale-preview":"確認の有効期限が切れました。もう一度選択してください。",
   "common-root-required":"直下に Common フォルダが必要です。", "invalid-zip":"ZIPを読み込めません。", "zip-crc":"ZIPの整合性を確認できません。", "duplicate-entry":"同じパスのファイルが重複しています。",
   "unsafe-pack-path":"パックに安全でないパスがあります。", "unsafe-path":"安全な保存先を確認できません。", "unsafe-file":"リンクされたファイルは使用できません。", "zip-link-rejected":"ZIP内のリンクは使用できません。",
@@ -23,7 +24,7 @@ const textureMessages = {
   "folder-open-failed":"エクスプローラーを開けませんでした。", "write-failed":"書き込めません。空き容量と使用状況を確認してください。", "snapshot-storage-limit":"適用履歴の容量が上限に達しました。",
   "pack-size-limit":"パックの容量またはファイル数が上限を超えています。", "file-size-limit":"ファイルの容量が上限を超えています。", "zip-size-limit":"ZIPの容量または圧縮率が上限を超えています。", "pack-count-limit":"パック数が上限を超えています。", "empty-pack":"Common にファイルがありません。"
 };
-function textureMessage(value) { return value ? textureMessages[value] ?? "適用データを検証できません。Refresh または Default への復旧を行ってください。" : ""; }
+function textureMessage(value) { return value ? textureMessages[value] ?? "適用データを検証できません。自動更新を待つか Default への復旧を行ってください。" : ""; }
 function textureNode(tag, text, className) {
   const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node;
 }
@@ -75,7 +76,7 @@ function focusTexturePack(target) {
   if (!target || selectedPage !== "texture") return;
   const container = document.getElementById(target.current ? "texture-current" : "texture-list");
   const card = [...container.querySelectorAll("[data-texture-pack]")].find(node => node.dataset.texturePack === target.id);
-  (card || document.getElementById("texture-refresh")).focus({preventScroll:true});
+  (card || document.getElementById("texture-open-folder")).focus({preventScroll:true});
 }
 function closeTextureMenu(restore = false) {
   const target = textureMenuTarget; textureMenuTarget = null; textureMenu.hidePopover();
@@ -115,7 +116,6 @@ textureMenu.addEventListener("keydown",event => { if (["ArrowDown","ArrowUp","Ho
 window.addEventListener("resize",() => closeTextureMenu(true));
 function updateTextureControls() {
   const ready = textureReady(), busy = !!texturePending || window.launcherCoreState?.textureBusy === true;
-  document.getElementById("texture-refresh").disabled = !ready || busy || textureDialog.open;
   document.getElementById("texture-open-folder").disabled = !ready || busy || performance.now() < textureFolderCooldown;
   document.getElementById("texture-recover").disabled = busy || window.launcherCoreState?.canEditTextures !== true;
   document.getElementById("texture-apply").disabled = busy || window.launcherCoreState?.canEditTextures !== true || (!textureRecovery && !textureSnapshot?.token);
@@ -124,6 +124,9 @@ function updateTextureControls() {
   document.getElementById("texture-list").setAttribute("aria-busy",String(busy));
 }
 function renderTextures() {
+  const key = JSON.stringify([textureSnapshot?.state,textureSnapshot?.current,textureSnapshot?.packs,textureSnapshot?.running,textureSnapshot?.loadedName]);
+  if (key === textureRendered) { updateTextureControls(); return; }
+  textureRendered = key;
   closeTextureMenu();
   const state = textureSnapshot;
   const badges = {"default":"Default", "known-pack":"Active", "external-unknown":"External / Unknown", error:"Error", "recovery-required":"Recovery Required"};
@@ -134,7 +137,7 @@ function renderTextures() {
     const card = textureCard(pack,active ? "Active" : ""); card.title = pack.kind === "zip" ? `ZIP · ${pack.source}` : pack.kind === "folder" ? `Folder · ${pack.source}` : "";
     if (!active) {
       const button = textureNode("button","Apply"); button.type = "button"; button.dataset.textureId = pack.id; button.dataset.invalid = String(!!pack.problem);
-      button.setAttribute("aria-label",`Apply ${pack.name}`); button.addEventListener("click",() => { if (textureEditable() && !pack.problem) { textureFocus = button; textureRecovery = false; sendTexture("preview",{id:pack.id,revision:state.revision}); } }); card.append(button);
+      button.setAttribute("aria-label",`Apply ${pack.name}`); button.addEventListener("click",() => { if (textureEditable() && !pack.problem) { textureFocus = button; textureRecovery = false; sendTexture("preview",{id:pack.id,revision:textureSnapshot.revision}); } }); card.append(button);
     }
     rows.append(card);
   }
@@ -154,13 +157,12 @@ function sendTexture(op, extra = {}) {
 }
 function updateTextureView() {
   const visible = selectedPage === "texture" && !document.hidden;
-  if (visible && !textureVisible && textureReady() && !texturePending) { textureVisible = true; sendTexture("list"); }
+  if (visible && (!textureVisible || textureDirty) && textureReady() && !texturePending && !textureDialog.open && !textureMenu.matches(":popover-open")) { textureVisible = true; textureDirty = false; sendTexture("list"); }
   else if (!visible) { textureVisible = false; closeTextureMenu(); textureMenuFocus = null; }
   if (!textureAcknowledgementEditable()) closeTextureMenu();
   if (visible && !textureReady()) document.getElementById("texture-notice").textContent = window.launcherCoreState?.phase === "unavailable" ? "Core がないため Texture の管理は利用できません。" : "準備完了後にテクスチャを表示します。";
   updateTextureControls();
 }
-document.getElementById("texture-refresh").addEventListener("click",() => sendTexture("list"));
 document.getElementById("texture-open-folder").addEventListener("click",() => { textureFolderCooldown = performance.now() + 1100; sendTexture("open-folder"); setTimeout(updateTextureControls,1150); });
 document.getElementById("texture-recover").addEventListener("click",() => {
   textureRecovery = true; textureFocus = document.getElementById("texture-recover");
@@ -212,3 +214,9 @@ window.addEventListener("launcher-core-state", () => {
   updateTextureView();
 });
 document.addEventListener("visibilitychange",updateTextureView);
+
+window.addEventListener("launcher-library-change", event => {
+  if (event.detail?.name !== "texture") return;
+  textureDirty = true; updateTextureView();
+});
+window.addEventListener("launcher-live-state", () => { if (selectedPage === "texture" && !document.hidden) updateTextureView(); });

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -86,6 +87,7 @@ class FriendsSession
 	std::string Submit(Command command);
 	static bool ValidatePnid(std::string& pnid);
 	View Snapshot() const;
+	std::array<uint64_t, 3> Version() const;
 	Lease Acquire();
 	void SetNotificationHandler(void (*handler)(int, uint32_t));
 	void Shutdown();

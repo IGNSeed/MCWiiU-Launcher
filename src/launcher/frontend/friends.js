@@ -1,7 +1,7 @@
 "use strict";
 
 const friendTabs = [...document.querySelectorAll("[data-friend-tab]")];
-let selectedFriendTab = "all", friendsSnapshot = null, friendsPoll = 0, friendsPending = false, friendsRendered = "", friendsCooldown = 0, friendsWasVisible = false;
+let selectedFriendTab = "all", friendsSnapshot = null, friendsRendered = "", friendsWasVisible = false;
 const friendsMotion = new LauncherMotion.PanelTransition(document.querySelector(".friends-content"), friendTabs.map(tab => [tab.dataset.friendTab,document.getElementById(tab.getAttribute("aria-controls"))]), "all", () => {
   document.querySelector(".friends-content").scrollTop = 0;
 }, () => {});
@@ -22,13 +22,12 @@ function renderFriends() {
   const connected = state?.status === "connected";
   const status = friendStatus[state?.status] || "Account Not Ready";
   document.getElementById("friends-status").textContent = state?.service && state.service !== "Offline" ? `${state.service} · ${status}` : status;
-  document.getElementById("friends-refresh").disabled = !state || ["offline","account-not-ready","unavailable","connecting"].includes(state.status) || state.refreshing || Date.now() < friendsCooldown;
   document.getElementById("friends-note").textContent = state?.preferencesUnset ? "サーバーのPreferenceは未設定です。自動変更せず、取得した情報を表示します。" : "";
   updateFriendManagement();
   const incoming = connected ? state.requests.filter(request => request.incoming).length : 0;
   const badge = document.getElementById("friends-badge");
   badge.hidden = incoming === 0; badge.textContent = incoming ? String(incoming) : "";
-  const key = state ? `${state.generation}:${state.revision}:${state.status}` : "empty";
+  const key = state ? JSON.stringify([state.generation,state.connectionId,state.status,state.friends,state.requests]) : "empty";
   if (friendsRendered === key) return;
   friendsRendered = key;
   for (const [id, entries, request] of [
@@ -37,9 +36,16 @@ function renderFriends() {
     ["friends-incoming", connected ? state.requests.filter(item => item.incoming) : [], true],
     ["friends-outgoing", connected ? state.requests.filter(item => !item.incoming) : [], true]
   ]) {
-    const list = document.getElementById(id), rows = document.createDocumentFragment();
+    const list = document.getElementById(id), rows = [];
+    const active = document.activeElement;
+    const focus = list.contains(active) ? {pid:active.dataset.pid,messageId:active.dataset.messageId,operation:active.dataset.friendOperation} : null;
+    const old = new Map([...list.children].map(row => [row.dataset.key,row]));
     for (const entry of entries) {
+      const key = `${entry.pid}:${entry.messageId || "0"}`, signature = JSON.stringify(entry);
+      const existing = old.get(key);
+      if (existing?.dataset.signature === signature) { rows.push(existing); continue; }
       const row = friendNode("li", undefined, "friend-row");
+      row.dataset.key = key; row.dataset.signature = signature;
       const dot = friendNode("span", undefined, "friend-presence");
       if (!request && entry.online) dot.dataset.online = "true";
       dot.setAttribute("aria-hidden", "true"); row.append(dot);
@@ -60,10 +66,15 @@ function renderFriends() {
         if (request && entry.manageable !== true) button.title = "This request type cannot be managed safely.";
         actions.append(button);
       }
-      row.append(actions); rows.append(row);
+      row.append(actions); rows.push(row);
     }
-    if (!entries.length) rows.append(friendNode("li", connected ? (request ? "No requests" : "No friends") : "接続後に最新の情報を表示します。", "friends-empty"));
-    list.replaceChildren(rows);
+    if (!entries.length) rows.push(friendNode("li", connected ? (request ? "No requests" : "No friends") : "接続後に最新の情報を表示します。", "friends-empty"));
+    for (const [index,row] of rows.entries()) if (list.children[index] !== row) list.insertBefore(row,list.children[index] || null);
+    for (const row of [...list.children]) if (!rows.includes(row)) row.remove();
+    if (focus && !active.isConnected) {
+      const button = [...list.querySelectorAll("button")].find(node => node.dataset.pid === focus.pid && node.dataset.messageId === focus.messageId && node.dataset.friendOperation === focus.operation);
+      if (button && !button.disabled) button.focus({preventScroll:true});
+    }
   }
 }
 function validFriendsState(state) {
@@ -77,30 +88,25 @@ function validFriendsState(state) {
       (request.messageId === undefined || (typeof request.messageId === "string" && /^(0|[1-9][0-9]{0,19})$/.test(request.messageId) && BigInt(request.messageId) <= 18446744073709551615n)) && (request.manageable === undefined || typeof request.manageable === "boolean") && (request.expired === undefined || typeof request.expired === "boolean")) &&
     (state.operation === undefined || (Number.isSafeInteger(state.operation.id) && state.operation.id >= 0 && text(state.operation.state,32) && text(state.operation.notice,64) && typeof state.operation.busy === "boolean")) && Number.isSafeInteger(state.connectionId) && state.connectionId >= 0;
 }
-function pollFriends(refresh = false) {
-  if (friendsPending || document.hidden || selectedPage !== "friends" || window.launcherCoreState?.corePhase !== "ready") return;
-  friendsPending = true;
-  windowCommand(refresh ? "friends:refresh" : "friends:get");
-}
 function updateFriendsView() {
-  clearTimeout(friendsPoll); friendsPoll = 0;
-  if (selectedPage !== "friends" || document.hidden) { friendsPending = false; friendsWasVisible = false; if (friendDialog.open) friendDialog.close(); friendMenu.hidePopover(); return; }
+  if (selectedPage !== "friends" || document.hidden) { friendsWasVisible = false; if (friendDialog.open) friendDialog.close(); friendMenu.hidePopover(); return; }
   if (window.launcherCoreState?.phase === "unavailable") {
     friendsSnapshot = {generation:0,revision:0,activeId:0,service:"Offline",status:"unavailable",friends:[],requests:[]}; renderFriends(); return;
   }
   if (!friendsWasVisible) { friendsMotion.finish(); friendsIndicator.schedule(false); friendsWasVisible = true; }
-  renderFriends(); pollFriends();
-  friendsPoll = setTimeout(() => { friendsPending = false; updateFriendsView(); }, friendCommandPending || friendsSnapshot?.operation?.busy ? 500 : 2000);
+  renderFriends();
 }
 window.updateFriendsView = updateFriendsView;
 window.addEventListener("launcher-friends-state", event => {
-  friendsPending = false;
   const state = event.detail;
   if (!validFriendsState(state)) return;
   if (accountSnapshot && (state.activeId !== accountSnapshot.activeId || state.service !== accountSnapshot.network)) return;
   if (friendsSnapshot && (state.generation < friendsSnapshot.generation || (state.generation === friendsSnapshot.generation && state.revision < friendsSnapshot.revision))) return;
   if (friendsSnapshot && (state.generation !== friendsSnapshot.generation || state.connectionId !== friendsSnapshot.connectionId)) resetFriendManagement();
   friendsSnapshot = state;
+  const incoming = state.status === "connected" ? state.requests.filter(request => request.incoming).length : 0;
+  const badge = document.getElementById("friends-badge");
+  badge.hidden = incoming === 0; badge.textContent = incoming ? String(incoming) : "";
   if (selectedPage === "friends" && !document.hidden) renderFriends();
 });
 window.addEventListener("launcher-account-result", event => {
@@ -110,13 +116,8 @@ window.addEventListener("launcher-account-result", event => {
     friendsSnapshot = null; friendsRendered = ""; document.getElementById("friends-badge").hidden = true; renderFriends();
   }
 });
-window.addEventListener("launcher-core-state", () => { if (!friendsPoll && selectedPage === "friends") updateFriendsView(); });
+window.addEventListener("launcher-core-state", () => { if (selectedPage === "friends") updateFriendsView(); });
 document.addEventListener("visibilitychange", updateFriendsView);
-window.addEventListener("pagehide", () => { clearTimeout(friendsPoll); friendsPoll = 0; });
-document.getElementById("friends-refresh").addEventListener("click", () => {
-  if (document.getElementById("friends-refresh").disabled) return;
-  friendsCooldown = Date.now() + 5000; friendsPending = false; pollFriends(true); renderFriends();
-});
 function selectFriendTab(name) {
   if (!friendTabs.some(tab => tab.dataset.friendTab === name)) return;
   selectedFriendTab = name;
@@ -145,17 +146,17 @@ const friendOperations = {
 const friendNotices = {
   "invalid-pnid":"Use 6–16 letters, numbers, dots, hyphens or underscores. Start and end with a letter or number; use single punctuation characters.",
   "self-request":"You cannot send a request to yourself.", "already-friends":"You are already friends.", "already-requested":"A friend request already exists. Check Requests.",
-  "friend-not-found":"This friend is no longer in the current list.", "request-not-found":"This request is no longer available. Refresh the list.",
+  "friend-not-found":"This friend is no longer in the current list.", "request-not-found":"This request is no longer available. The list updates automatically.",
   "request-expired":"This request has expired.", "unsupported-request":"This request type cannot be managed safely.",
-  "stale-session":"The account or connection changed. Refresh and try again.", "offline":"Connect to Pretendo to manage friends.",
+  "stale-session":"The account or connection changed. Wait for synchronization and try again.", "offline":"Connect to Pretendo to manage friends.",
   "not-connected":"Wait until Friends is connected.", "operation-busy":"Another operation is still in progress.", "duplicate-request":"This command has already been handled.",
   "user-not-found":"No user was found with this PNID.", "lookup-failed":"The PNID lookup failed. Check the connection and try again.",
   "server-error":"The server could not complete this operation.", "refresh-failed":"The latest server state could not be retrieved. No new change was sent.",
-  "connection-lost":"Connection lost. The result may be unknown. Refresh before trying again.",
+  "connection-lost":"Connection lost. The result may be unknown. Wait for synchronization before trying again.",
   "outcome-unknown":"The result is unknown. Checking server state; the request will not be resent automatically.",
-  "sync-pending":"The server accepted the request, but the updated list is still pending. Refresh to check.",
+  "sync-pending":"The server accepted the request, but the updated list is still pending. The list will update automatically.",
   "state-confirmed":"The updated server state has been confirmed.", saved:"Done. The server list is up to date.",
-  "invalid-command":"The operation could not be validated. Refresh and try again."
+  "invalid-command":"The operation could not be validated. Wait for synchronization and try again."
 };
 const friendProgress = {queued:"Preparing…",resolving:"Looking up PNID…",checking:"Checking current server state…",sent:"Request sent. Waiting for the server…",syncing:"Syncing server state…"};
 function canManageFriends() {
@@ -274,5 +275,5 @@ window.addEventListener("launcher-friends-command", event => {
     document.getElementById("friends-management-notice").textContent = message;
     if (friendDialog.open) document.getElementById("friend-dialog-notice").textContent = message;
   }
-  updateFriendManagement(); friendsPending = false; pollFriends();
+  updateFriendManagement();
 });

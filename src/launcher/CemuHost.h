@@ -61,6 +61,7 @@ public:
 	std::string InputCommand(uint64_t requestId, std::string_view payload);
 	std::string PollInput();
 	std::string FriendsCommand(bool refresh);
+	std::string SynchronizeUi(bool full = false);
 	std::string ManageFriends(uint64_t requestId, std::string_view payload);
 	std::string AvCommand(uint64_t requestId, std::string_view payload);
 	void CancelInputCapture();

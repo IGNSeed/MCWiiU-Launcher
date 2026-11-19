@@ -123,7 +123,7 @@ window.addEventListener("launcher-core-state", (event) => {
   const coreError = document.getElementById("core-error");
   coreError.textContent = typeof state.error === "string" && state.error ? "ゲーム起動エラー: " + state.error : "";
   coreError.hidden = !coreError.textContent;
-  if (state.phase !== "ready" || state.sessionId !== launchRequestSession) launchPending = false;
+  if (state.phase !== "ready" || state.sessionId !== launchRequestSession || !state.canLaunch) launchPending = false;
   if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status] = coreLabels[phase] || coreLabels.idle;
@@ -966,3 +966,41 @@ document.getElementById("account-custom-select").addEventListener("click", () =>
 tabMotion.snap("general");
 navigationIndicator.schedule(false);
 pageMotion.switchTo("home");
+
+
+// 全画面共通の同期窓口。ファイル内容の走査は Native の変更通知後だけ行う。
+let liveTimer = 0, liveRequest = 0, liveSerial = 0, liveSentAt = 0, liveFriendsKey = "";
+const liveRevisions = new Map();
+function synchronizeLauncherUi() {
+  if (window.launcherCoreState?.corePhase !== "ready" || window.launcherCoreState?.stopRequested) return;
+  if (liveRequest && performance.now() - liveSentAt < 3000) return;
+  liveRequest = ++liveSerial; liveSentAt = performance.now();
+  windowCommand(`ui:synchronize:${liveRequest}`);
+}
+window.addEventListener("launcher-live-state", event => {
+  if (event.detail?.requestId !== liveRequest) return;
+  liveRequest = 0;
+  const state = event.detail.state;
+  if (!state) return;
+  for (const name of ["graphicPacks","texture","world"]) {
+    const revision = state[name];
+    if (!Number.isSafeInteger(revision) || revision < 0 || liveRevisions.get(name) === revision) continue;
+    liveRevisions.set(name,revision);
+    window.dispatchEvent(new CustomEvent("launcher-library-change",{detail:{name,revision}}));
+  }
+  const friends = state.friends;
+  if (friends) {
+    const key = `${friends.generation}:${friends.connectionId}:${friends.revision}`;
+    if (key !== liveFriendsKey) {
+      liveFriendsKey = key;
+      window.dispatchEvent(new CustomEvent("launcher-friends-state",{detail:friends}));
+    }
+  }
+});
+window.addEventListener("launcher-core-state", () => {
+  if (!liveTimer && window.launcherCoreState?.corePhase === "ready") {
+    liveTimer = setInterval(synchronizeLauncherUi,250); synchronizeLauncherUi();
+  }
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) synchronizeLauncherUi(); });
+window.addEventListener("pagehide", () => { clearInterval(liveTimer); liveTimer = liveRequest = 0; });

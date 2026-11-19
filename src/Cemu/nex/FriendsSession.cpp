@@ -98,6 +98,7 @@ struct FriendsSession::Impl
 	bool keepAlive = false, refresh = false, inFlight = false, reconnect = false;
 	Clock::time_point nextRefresh{};
 	void (*notification)(int, uint32_t) = nullptr;
+	bool notificationPending = false;
 	View view;
 
 	std::optional<Command> command;
@@ -337,6 +338,9 @@ struct FriendsSession::Impl
 	static void Notify(NexFriends::NOTIFICATION_TYPE type, uint32_t pid)
 	{
 		auto& state = *FriendsSession::Instance().m_impl;
+		// NexFriends のリストロック中なので、ここでは Snapshot を読み戻さない。
+		if (state.session && state.sessionGeneration == state.generation)
+			state.notificationPending = true;
 		if (state.notification)
 			state.notification(static_cast<int>(type), pid);
 	}
@@ -558,8 +562,9 @@ struct FriendsSession::Impl
 							autoRefresh = Clock::now() + std::chrono::minutes(5);
 							session->requestGetAllInformation([this, expected](uint32 result) { if (expected != generation) return; inFlight = false; if (result != NexFriends::ERR_NONE) { Publish("network-error"); reconnect = true; } });
 						}
-						if (!reconnect && session->isOnline() && Clock::now() >= captureAt)
+						if (!reconnect && session->isOnline() && (notificationPending || Clock::now() >= captureAt))
 						{
+							notificationPending = false;
 							Capture();
 							captureAt = Clock::now() + std::chrono::seconds(1);
 						}
@@ -749,6 +754,12 @@ FriendsSession::View FriendsSession::Snapshot() const
 {
 	std::lock_guard lock(m_impl->viewMutex);
 	return m_impl->view;
+}
+std::array<uint64_t, 3> FriendsSession::Version() const
+{
+	std::lock_guard lock(m_impl->viewMutex);
+	const auto& view = m_impl->view;
+	return {view.generation, view.connectionId, view.revision};
 }
 FriendsSession::Lease FriendsSession::Acquire()
 {

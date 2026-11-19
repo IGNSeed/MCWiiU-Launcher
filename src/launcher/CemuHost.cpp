@@ -8,6 +8,7 @@
 #include "WorldService.h"
 #include "TextureService.h"
 #include "GraphicPackService.h"
+#include "DirectoryChangeMonitor.h"
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Cafe/Account/Account.h"
 #include "Cafe/TitleList/SaveInfo.h"
@@ -182,6 +183,11 @@ namespace
 		std::chrono::steady_clock::time_point nextWorldFolderOpen{};
 		uint64_t lastAccountRequest = 0;
 		bool friendsStarted = false;
+		DirectoryChangeMonitor graphicPackMonitor, textureMonitor, worldMonitor;
+		uint64_t graphicPackRevision = 0, textureRevision = 0, worldRevision = 0;
+		bool graphicPackReloadPending = false;
+		bool graphicPackSynchronizing = false;
+		std::array<uint64_t, 3> friendsVersion{};
 		uint64_t lastAvRequest = 0;
 		uint64_t lastInputRequest = 0;
 		std::string settingsNotice = "loading", settingsInfo = "{}";
@@ -381,7 +387,7 @@ namespace
 				writer.Key("managerGeneration"); writer.Uint64(managerGeneration);
 				writer.Key("canManageGameData"); writer.Bool(nativeSettingsHealthy && CanEditSettingsLocked() && installed.state != GameInstallationService::State::RecoveryRequired && installed.state != GameInstallationService::State::Error);
 				writer.Key("launchUnavailableReason"); writer.String(installationBusy ? "game-data-busy" : !nativeSettingsHealthy ? "native-settings-invalid" : !gameInstalled ? "game-not-installed" : !launchRegionSupported ? "game-data-unavailable" : "");
-				writer.Key("canLaunch"); writer.Bool(installed.launchSupported && gameInstalled && launchRegionSupported && nativeSettingsHealthy && CanEditSettingsLocked());
+				writer.Key("canLaunch"); writer.Bool(installed.launchSupported && gameInstalled && launchRegionSupported && nativeSettingsHealthy && !graphicPackSynchronizing && CanEditSettingsLocked());
 				writer.Key("canStopGame"); writer.Bool(CanStopGameLocked());
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
@@ -823,6 +829,8 @@ struct CemuHost::Impl
 				state->textures = std::move(textures);
 				state->RebindManagersLocked(installed);
 				state->graphicPacks = std::move(graphicPacks);
+				state->graphicPackMonitor.SetPaths({data / "graphicPacks"});
+				state->graphicPackSynchronizing = true;
 				state->corePhase = "ready";
 			}
 			if (state->launch && (!state->nativeSettingsHealthy || !state->installation->TryBeginPlay())) state->launch = false;
@@ -1158,6 +1166,12 @@ void CemuHost::LaunchGame()
 	{
 		std::lock_guard workLock(m_impl->state->workMutex);
 		std::lock_guard statusLock(m_impl->state->statusMutex);
+		m_impl->state->graphicPackMonitor.Poll(false);
+		if (m_impl->state->graphicPackMonitor.HasPending() || m_impl->state->graphicPackReloadPending)
+		{
+			m_impl->state->graphicPackSynchronizing = true;
+			return;
+		}
 		if (!m_impl->state->gameInstalled || !m_impl->state->launchRegionSupported || !m_impl->state->nativeSettingsHealthy || !m_impl->state->CanEditSettingsLocked()) return;
 		if (!m_impl->state->installation->TryBeginPlay()) return;
 		if (m_impl->state->input) m_impl->state->input->CancelCapture();
@@ -1369,6 +1383,51 @@ std::string CemuHost::FriendsCommand(bool refresh)
 	}
 	if (refresh) FriendsSession::Instance().Refresh();
 	return FriendsSnapshotJson();
+}
+
+std::string CemuHost::SynchronizeUi(bool full)
+{
+	auto& state = *m_impl->state;
+	std::lock_guard workLock(state.workMutex);
+	std::lock_guard statusLock(state.statusMutex);
+	if (state.corePhase != "ready" || state.stop || state.failed || !state.accounts) return "{}";
+	if (!state.friendsStarted && !state.installationBusy && (state.phase == "ready" || state.phase == "running"))
+	{
+		if (state.phase != "running") state.accounts->PrepareLaunch();
+		FriendsSession::Instance().ConfigureCurrent(true, state.accounts->NetworkName());
+		state.friendsStarted = true;
+	}
+	state.graphicPackMonitor.SetPaths({state.dataRoot / "graphicPacks"});
+	state.textureMonitor.SetPaths({state.dataRoot / "Textures"});
+	state.worldMonitor.SetPaths(state.worlds ? state.worlds->WatchPaths(ActiveSettings::GetPersistentId()) : std::vector<fs::path>{});
+	const bool idle = state.phase == "ready" && !state.launch && !state.titleStop && !state.confirmationId && !state.installationBusy && !state.textureBusy && !state.graphicPackBusy && !state.openingWorldFolder;
+	if (state.graphicPackMonitor.Poll(idle)) state.graphicPackReloadPending = true;
+	if (state.graphicPackReloadPending && idle && state.graphicPacks && state.graphicPacks->Reload())
+	{
+		state.graphicPackReloadPending = false; ++state.graphicPackRevision;
+	}
+	if (state.textureMonitor.Poll(!state.installationBusy && !state.textureBusy)) ++state.textureRevision;
+	if (state.worldMonitor.Poll(idle)) ++state.worldRevision;
+	const bool synchronizing = state.graphicPackMonitor.HasPending() || state.graphicPackReloadPending;
+	if (synchronizing != state.graphicPackSynchronizing)
+	{
+		state.graphicPackSynchronizing = synchronizing;
+		state.callbacks.post([shared = m_impl->state] { if (shared->alive && !shared->stop) shared->Publish(); });
+	}
+	rapidjson::StringBuffer buffer; rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+	writer.StartObject();
+	writer.Key("graphicPacks"); writer.Uint64(state.graphicPackRevision);
+	writer.Key("texture"); writer.Uint64(state.textureRevision);
+	writer.Key("world"); writer.Uint64(state.worldRevision);
+	writer.Key("graphicPacksDeferred"); writer.Bool(synchronizing);
+	writer.Key("monitorAvailable"); writer.Bool(state.graphicPackMonitor.IsAvailable() && state.textureMonitor.IsAvailable() && state.worldMonitor.IsAvailable());
+	const auto friendsVersion = FriendsSession::Instance().Version();
+	if (full || friendsVersion != state.friendsVersion)
+	{
+		state.friendsVersion = friendsVersion;
+		writer.Key("friends"); const auto friends = FriendsSnapshotJson(); writer.RawValue(friends.data(), friends.size(), rapidjson::kObjectType);
+	}
+	writer.EndObject(); return {buffer.GetString(), buffer.GetSize()};
 }
 
 std::string CemuHost::ManageFriends(uint64_t requestId, std::string_view payload)

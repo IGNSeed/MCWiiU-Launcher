@@ -1058,6 +1058,11 @@ struct WorldService::Impl
 
 WorldService::WorldService(fs::path configRoot, fs::path saveRoot, uint64_t titleId, uint64_t initialRevision) : m_impl(std::make_unique<Impl>(std::move(configRoot), std::move(saveRoot), titleId, initialRevision)) {}
 WorldService::~WorldService() = default;
+
+std::vector<fs::path> WorldService::WatchPaths(uint32_t activeId) const
+{
+	return {m_impl->Folder(activeId), m_impl->trashRoot};
+}
 bool WorldService::IsHealthy() const
 {
 	try { CheckPath(m_impl->marker); return m_impl->healthy && !fs::exists(m_impl->marker); }

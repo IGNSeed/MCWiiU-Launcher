@@ -1,7 +1,8 @@
 "use strict";
 
 let graphicPacksSnapshot = null, graphicPacksPending = 0, graphicPacksSerial = 0;
-let graphicPacksVisible = false, graphicPacksCooldown = 0, graphicPacksContext = "";
+let graphicPacksRendered = "";
+let graphicPacksDirty = false, graphicPacksVisible = false, graphicPacksCooldown = 0, graphicPacksContext = "";
 const graphicPacksList = document.getElementById("graphic-packs-list");
 const graphicPacksNotice = document.getElementById("graphic-packs-notice");
 const graphicPacksFolder = document.getElementById("graphic-packs-open-folder");
@@ -15,11 +16,11 @@ function graphicPacksMessage(value) {
     "game-running-or-busy":"ゲーム停止中に変更できます。",
     "stale-revision":"設定が変更されています。一覧を開き直してください。",
     "stale-request":"要求が古いため変更しませんでした。",
-    "folder-opened":"フォルダを開きました。追加したパックは次回Launcher起動時に認識します。",
+    "folder-opened":"フォルダを開きました。一覧を自動更新します。ゲームへの反映は次回PLAY時です。",
     "folder-open-busy":"フォルダを開いています。",
-    "invalid-pack-skipped":"読み取れないパックがあります。rules.txtを確認してLauncherを再起動してください。",
+    "invalid-pack-skipped":"読み取れないパックがあります。rules.txtを確認してください。修正後は自動更新します。",
     "settings-corrupt":"設定ファイルを読み取れません。既存の設定は上書きしていません。",
-    "pack-changed-restart-required":"パックが変更されています。Launcherを再起動してください。",
+    "pack-changed":"パックが変更されています。自動更新後に選び直してください。",
     "save-failed":"設定を保存できませんでした。変更前の選択を保持しています。",
     "invalid-preset":"選択できないPresetです。",
     "invalid-request":"要求を受け付けられませんでした。",
@@ -33,6 +34,9 @@ function updateGraphicPacksControls() {
   graphicPacksList.setAttribute("aria-busy", String(!!graphicPacksPending));
 }
 function renderGraphicPacks() {
+  const key = JSON.stringify(graphicPacksSnapshot.packs);
+  if (key === graphicPacksRendered) { updateGraphicPacksControls(); return; }
+  graphicPacksRendered = key;
   const focus = document.activeElement;
   const focusId = focus?.dataset.graphicPackId, focusCategory = focus?.dataset.graphicPackCategory;
   graphicPacksList.replaceChildren();
@@ -83,8 +87,8 @@ function sendGraphicPacks(op, extra = {}) {
 function updateGraphicPacksView() {
   const visible = selectedPage === "graphic-packs" && !document.hidden;
   const context = `${window.launcherCoreState?.phase}|${window.launcherCoreState?.canEditGraphicPacks}`;
-  if (visible && (!graphicPacksVisible || context !== graphicPacksContext) && graphicPacksReady() && !graphicPacksPending) {
-    graphicPacksVisible = true; graphicPacksContext = context; sendGraphicPacks("list");
+  if (visible && (!graphicPacksVisible || graphicPacksDirty || context !== graphicPacksContext) && graphicPacksReady() && !graphicPacksPending) {
+    graphicPacksVisible = true; graphicPacksDirty = false; graphicPacksContext = context; sendGraphicPacks("list");
   } else if (!visible) graphicPacksVisible = false;
   if (visible && !graphicPacksReady()) graphicPacksNotice.textContent = window.launcherCoreState?.phase === "unavailable" ? "CoreがないためGraphic Packの管理は利用できません。" : "準備完了後にGraphic Packを表示します。";
   updateGraphicPacksControls();
@@ -107,3 +111,13 @@ window.addEventListener("launcher-graphic-packs-result", event => {
 });
 window.addEventListener("launcher-core-state", updateGraphicPacksView);
 document.addEventListener("visibilitychange", updateGraphicPacksView);
+
+window.addEventListener("launcher-library-change", event => {
+  if (event.detail?.name !== "graphicPacks") return;
+  graphicPacksDirty = true; updateGraphicPacksView();
+});
+window.addEventListener("launcher-live-state", event => {
+  if (selectedPage !== "graphic-packs" || document.hidden) return;
+  updateGraphicPacksView();
+  if (event.detail?.state?.graphicPacksDeferred && window.launcherCoreState?.phase === "running") graphicPacksNotice.textContent = "フォルダの変更はゲーム終了後に再検査します。実行中の適用状態は保持しています。";
+});
