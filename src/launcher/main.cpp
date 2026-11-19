@@ -6,6 +6,7 @@
 #include "LauncherPreferences.h"
 #include "LauncherIcon.h"
 #include "LauncherPaths.h"
+#include "SessionHistory.h"
 #include "GameInstallationService.h"
 #include "GameDataBridge.h"
 #include "SingleInstance.h"
@@ -68,12 +69,20 @@ namespace
 		return std::pair{id, message.substr(separator + 1)};
 	}
 
+	LRESULT CALLBACK HistoryClockProc(HWND hwnd, UINT message, WPARAM key, LPARAM value, UINT_PTR, DWORD_PTR data)
+	{
+		if (message == WM_TIMECHANGE || message == WM_POWERBROADCAST || message == WM_SETTINGCHANGE)
+			reinterpret_cast<SessionHistory*>(data)->ClockChanged();
+		return DefSubclassProc(hwnd, message, key, value);
+	}
+
 	// 例外経路でも WebView2 の破棄より先に通知の参照を解除する。
 	struct WindowNotifications
 	{
 		saucer::window& m_window;
 		saucer::webview& m_webview;
 		bool m_closing = false;
+		bool m_historySubclass = false;
 		bool m_frontendReady = false, m_closeRequested = false, m_closeApproved = false;
 		std::optional<size_t> m_maximizeListener;
 		std::optional<size_t> m_closedListener;
@@ -86,6 +95,7 @@ namespace
 		~WindowNotifications()
 		{
 			m_closing = true;
+			if (m_historySubclass) RemoveWindowSubclass(m_window.native().hwnd, HistoryClockProc, 9);
 			if (m_dropListener) m_nativeWebView->remove_WebMessageReceived(*m_dropListener);
 			if (m_acceleratorListener)
 				m_controller->remove_AcceleratorKeyPressed(*m_acceleratorListener);
@@ -476,11 +486,15 @@ namespace
 				webview.execute("window.dispatchEvent(new CustomEvent('launcher-preferences', {detail:{values:" + preferences.Json() +
 					",notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
 			};
+			auto history = std::make_shared<SessionHistory>(LauncherPaths::Get());
+			std::string lastHistoryNotice;
 #ifdef CEMU_NATIVE_HOST
 			std::unique_ptr<CemuHost> core;
 			std::unique_ptr<GameDisplayState> display;
 #endif
 			WindowNotifications notifications{*window, webview};
+			notifications.m_historySubclass = SetWindowSubclass(window->native().hwnd, HistoryClockProc, 9, reinterpret_cast<DWORD_PTR>(history.get())) != FALSE;
+			if (!notifications.m_historySubclass) throw std::runtime_error("Cannot observe system clock changes");
 			const auto updateWindowState = [&] {
 				if (!notifications.m_closing)
 					webview.execute(window->maximized()
@@ -533,7 +547,7 @@ namespace
 					},
 					.titleStopping = [&](uint64_t session) { gameHost.StopPresentation(session); },
 					.vulkanCanvas = [&] { return gameHost.GetVulkanHandle(); }
-				}, s_installation);
+				}, s_installation, history);
 				gameHost.stateChanged = [&] {
 					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
 						!display->m_stopConfirmation && !display->m_settingsSelected && !display->m_launcherVisible && core->IsRunning());
@@ -663,6 +677,7 @@ namespace
 				notifications.m_frontendReady = true;
 				updateWindowState();
 				publishPreferences();
+				webview.execute("window.dispatchEvent(new CustomEvent('launcher-history-notice', {detail:" + history->NoticeJson() + "}));");
 #ifdef CEMU_NATIVE_HOST
 				if (core) publishCore(core->StatusJson());
 				else
@@ -735,6 +750,14 @@ namespace
 				}
 				else if (message == "window:close-cancelled" && !notifications.m_closeApproved)
 					notifications.m_closeRequested = false;
+				else if (message.starts_with("history:query:"))
+				{
+					if (const auto request = ParseSaveRequest(message.substr(std::string_view("history:query:").size())); request && request->second.size() <= 256)
+					{
+						const auto snapshot = history->Query(request->second);
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-history-state', {detail:{requestId:" + std::to_string(request->first) + ",state:" + snapshot + "}}));");
+					}
+				}
 				else if (message.starts_with("game-data:command:"))
 				{
 					if (const auto request = ParseSaveRequest(message.substr(std::string_view("game-data:command:").size())))
@@ -951,6 +974,12 @@ namespace
 					if (const auto id = ParseStopId(message.substr(std::string_view("ui:synchronize:").size())); id && *id <= 9007199254740991ULL)
 					{
 						const auto snapshot = core->SynchronizeUi(*id == 1);
+						const auto historyNotice = history->NoticeJson();
+						if (lastHistoryNotice != historyNotice)
+						{
+							lastHistoryNotice = historyNotice;
+							webview.execute("window.dispatchEvent(new CustomEvent('launcher-history-notice', {detail:" + historyNotice + "}));");
+						}
 						webview.execute("window.dispatchEvent(new CustomEvent('launcher-live-state', {detail:{requestId:" + std::to_string(*id) + ",state:" + snapshot + "}}));");
 					}
 				}
@@ -981,7 +1010,7 @@ namespace
 						else core->CancelStopGameConfirmation(ids->first, ids->second);
 					}
 				}
-				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world" || message == "page:texture" || message == "page:graphic-packs"))
+				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world" || message == "page:texture" || message == "page:graphic-packs" || message == "page:session-history"))
 				{
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();

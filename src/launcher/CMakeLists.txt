@@ -40,6 +40,12 @@ target_compile_options(LauncherStorage PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherStorage PRIVATE NOMINMAX)
 target_link_libraries(LauncherStorage PUBLIC Shell32 Ole32 Advapi32 Comctl32)
 
+add_library(LauncherHistory STATIC SessionHistory.cpp SessionHistory.h)
+target_compile_features(LauncherHistory PRIVATE cxx_std_23)
+target_compile_options(LauncherHistory PRIVATE /utf-8 /W4)
+target_compile_definitions(LauncherHistory PRIVATE NOMINMAX)
+target_link_libraries(LauncherHistory PUBLIC LauncherStorage PRIVATE glaze::glaze mincore)
+
 add_library(LauncherInstallation STATIC GameInstallationService.cpp GameInstallationService.h)
 target_compile_features(LauncherInstallation PRIVATE cxx_std_20)
 target_compile_options(LauncherInstallation PRIVATE /utf-8 /W4)
@@ -57,7 +63,7 @@ target_compile_options(LauncherShell PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherShell PRIVATE NOMINMAX LAUNCHER_VERSION="${PROJECT_VERSION}")
 # stable native API が参照する既存 WebView2 SDK も引き継ぐ。
 saucer_add_module(LauncherShell)
-target_link_libraries(LauncherShell PRIVATE LauncherStorage LauncherInstallation Comctl32 glaze::glaze)
+target_link_libraries(LauncherShell PRIVATE LauncherStorage LauncherInstallation LauncherHistory Comctl32 glaze::glaze)
 set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
@@ -69,6 +75,7 @@ set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/texture.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/graphic-packs.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/session-history.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/assets/minecraft-wiiu-home.png"
@@ -84,7 +91,7 @@ if(TARGET CemuCafe)
     target_sources(CemuNativeHost PRIVATE GraphicPackService.cpp GraphicPackService.h TextureService.cpp TextureService.h TextureCompatibility.cpp TextureCompatibility.h DirectoryChangeMonitor.cpp DirectoryChangeMonitor.h)
     cemu_use_precompiled_header(CemuNativeHost)
     target_include_directories(CemuNativeHost PRIVATE ${RAPIDJSON_INCLUDE_DIRS})
-    target_link_libraries(CemuNativeHost PRIVATE LauncherStorage LauncherInstallation CemuAudio CemuCafe CemuCommon CemuComponents CemuConfig CemuInput CemuUtil CemuGui CemuResource pugixml::pugixml libzip::zip OpenGL::GL Dbghelp)
+    target_link_libraries(CemuNativeHost PRIVATE LauncherStorage LauncherInstallation LauncherHistory CemuAudio CemuCafe CemuCommon CemuComponents CemuConfig CemuInput CemuUtil CemuGui CemuResource pugixml::pugixml libzip::zip OpenGL::GL Dbghelp)
     set_target_properties(LauncherShell PROPERTIES CEMU_NATIVE_HOST TRUE)
     target_compile_definitions(LauncherShell PRIVATE CEMU_NATIVE_HOST)
     target_link_libraries(LauncherShell PRIVATE CemuNativeHost windowscodecs ZLIB::ZLIB)

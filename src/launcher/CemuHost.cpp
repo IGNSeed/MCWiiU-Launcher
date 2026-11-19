@@ -1,6 +1,7 @@
 #include "CemuHost.h"
 #include "NativeSettings.h"
 #include "LauncherPaths.h"
+#include "SessionHistory.h"
 #include "InputService.h"
 #include "AvSettings.h"
 #include "AccountService.h"
@@ -159,6 +160,7 @@ namespace
 		fs::path dataRoot;
 		bool gameInstalled = false, launchRegionSupported = false, nativeSettingsHealthy = true;
 		std::shared_ptr<GameInstallationService> installation;
+		std::shared_ptr<SessionHistory> history;
 		std::atomic_bool installationRequested{false};
 		std::atomic_bool installationCancelled{false};
 		bool installationBusy = false;
@@ -483,7 +485,11 @@ namespace
 				phase = std::move(value);
 				if (phase == "preparing") titlePhase = "preparing";
 				if (phase == "vulkan") titlePhase = "starting";
-				if (phase == "running") titlePhase = "running";
+				if (phase == "running")
+				{
+					titlePhase = "running";
+					if (history && !stop && CafeSystem::IsTitleRunning()) history->Begin(sessionId);
+				}
 				if (logReady) cemuLog_log(LogType::Force, "NativeHost phase: {}", phase);
 			}
 			Publish();
@@ -515,6 +521,7 @@ namespace
 						return false;
 				}
 				ClearStopConfirmationLocked();
+				if (history) history->End(sessionId);
 				titleStop = true;
 				titlePhase = "stopping";
 				phase = "title-stopping";
@@ -538,6 +545,7 @@ namespace
 			{
 				std::lock_guard workLock(workMutex);
 				std::lock_guard statusLock(statusMutex);
+				if (history) history->End(sessionId);
 				stop = true;
 				presentationSession = 0;
 				firstFrameVisible = false;
@@ -1133,12 +1141,13 @@ struct CemuHost::Impl
 	}
 };
 
-CemuHost::CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation) : m_impl(std::make_unique<Impl>())
+CemuHost::CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation, std::shared_ptr<SessionHistory> history) : m_impl(std::make_unique<Impl>())
 {
 	Require(s_currentHost.expired(), "Only one Core host may exist");
 	m_impl->state = std::make_shared<HostState>(root, canvas, std::move(callbacks));
 	Require(installation != nullptr, "Game installation service is required");
 	m_impl->state->installation = std::move(installation);
+	m_impl->state->history = std::move(history);
 	s_currentHost = m_impl->state;
 	s_windowInfo.window_main = {WindowSystem::WindowHandleInfo::Backend::Windows, nullptr, canvas};
 	s_windowInfo.canvas_main = s_windowInfo.window_main;

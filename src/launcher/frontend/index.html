@@ -13,6 +13,7 @@
   <script src="texture.js" defer></script>
   <script src="graphic-packs.js" defer></script>
   <script src="game-data.js" defer></script>
+  <script src="session-history.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -33,12 +34,14 @@
         <button type="button" data-page="world">World</button>
         <button type="button" data-page="texture">Texture</button>
         <button type="button" data-page="graphic-packs">Graphic Packs</button>
+        <button type="button" data-page="session-history">Session History <span id="history-badge" class="friends-badge" aria-label="プレイ履歴の保存状態に問題があります" hidden>!</span></button>
         <button type="button" data-page="settings">Settings</button>
       </nav>
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main data-view="home">
       <header class="topbar"><span id="page-label">Settings</span></header>
+      <p id="history-global-notice" class="footnote core-error" role="alert" hidden></p>
       <p id="core-error" class="footnote core-error" role="alert" hidden></p>
       <div id="game-data-banner" class="game-data-banner" role="status" hidden><span id="game-data-banner-text"></span><button id="game-data-view-progress" type="button">進捗を表示</button></div>
       <section id="setup" aria-labelledby="setup-title" hidden>
@@ -54,6 +57,26 @@
           <div class="home-play"><button id="play" type="button" disabled>PLAY</button></div>
           <p id="home-game-data-note" class="footnote game-data-home-note" role="status"></p>
         </div>
+      </section>
+      <section id="session-history" aria-labelledby="history-title" hidden>
+        <div class="settings-title-row"><h1 id="history-title">Session History</h1><button type="button" data-return-game hidden>ゲームに戻る</button></div>
+        <p id="history-status" class="footnote" role="status">プレイ時間を読み込んでいます…</p>
+        <div id="history-cards" class="history-cards" aria-label="プレイ時間の統計"></div>
+        <div class="history-chart-header">
+          <div id="history-modes" class="history-modes" role="tablist" aria-label="集計期間">
+            <button type="button" role="tab" aria-selected="true" data-history-mode="daily">Daily</button>
+            <button type="button" role="tab" aria-selected="false" data-history-mode="weekly" tabindex="-1">Weekly</button>
+            <button type="button" role="tab" aria-selected="false" data-history-mode="monthly" tabindex="-1">Monthly</button>
+            <button type="button" role="tab" aria-selected="false" data-history-mode="yearly" tabindex="-1">Yearly</button>
+          </div>
+          <div class="history-period"><button id="history-prev" type="button" aria-label="前の期間">←</button><span id="history-range"></span><button id="history-next" type="button" aria-label="次の期間">→</button><button id="history-current" type="button">現在</button></div>
+        </div>
+        <div class="history-chart-layout"><div id="history-axis" class="history-axis" aria-label="プレイ時間軸"></div><div id="history-chart" class="history-chart" role="group" aria-label="プレイ時間の棒グラフ"></div></div>
+        <p id="history-chart-detail" class="footnote" aria-live="polite"></p>
+        <p id="history-empty" class="footnote" hidden>まだプレイ記録がありません。Minecraft の実行開始後に記録されます。</p>
+        <div class="history-detail-header"><h2 class="settings-heading">日付別の履歴</h2><div class="history-date-select"><label>年 <input id="history-year" type="number" min="1601" max="9998" step="1" inputmode="numeric"></label><label>月 <select id="history-month" aria-label="月"></select></label><button id="history-detail-current" type="button">今月</button></div></div>
+        <p id="history-detail-range" class="footnote"></p>
+        <div class="history-dates-wrap"><table class="history-dates"><thead><tr><th scope="col">日付</th><th scope="col">プレイ時間</th></tr></thead><tbody id="history-dates"></tbody></table></div>
       </section>
       <section id="friends" aria-labelledby="friends-title" hidden>
         <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="friends-add" class="friends-primary" type="button" disabled>Add Friend</button></div></div>

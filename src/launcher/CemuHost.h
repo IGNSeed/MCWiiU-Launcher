@@ -10,6 +10,8 @@
 #include <string_view>
 
 // UI への依存を callback に限定した、Core とタイトルセッションの所有者。
+class SessionHistory;
+
 class CemuHost final
 {
 public:
@@ -27,7 +29,7 @@ public:
 		std::function<HWND()> vulkanCanvas;
 	};
 
-	CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation);
+	CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation, std::shared_ptr<SessionHistory> history = {});
 	~CemuHost();
 	CemuHost(const CemuHost&) = delete;
 	CemuHost& operator=(const CemuHost&) = delete;
