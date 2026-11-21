@@ -41,7 +41,7 @@ window.GameDataUI = (() => {
   confirmation.addEventListener("cancel", event => { event.preventDefault(); cancelConfirmation(); });
   $("game-data-confirm-accept").addEventListener("click", () => { const action = confirmationAction; confirmationAction = null; delete confirmation.dataset.closing; confirmation.close(); action?.(); });
   function showSetup() {
-    showPage("setup"); windowCommand("page:settings");
+    showPage("setup");
     renderingKey = ""; renderSetup();
   }
   function begin(operation, extra = {}) {
@@ -67,7 +67,7 @@ window.GameDataUI = (() => {
   function leave() {
     if (steps[step] === "progress" || snapshot?.selectionPending || pending) return;
     if (snapshot?.scope) send("discard", {scope:snapshot.scope});
-    showPage(mode === "Setup" ? "home" : "settings"); windowCommand(mode === "Setup" ? "page:home" : "page:settings");
+    showPage(mode === "Setup" ? "home" : "settings");
     if (mode !== "Setup") showTab("game-data");
   }
   function renderSetup() {

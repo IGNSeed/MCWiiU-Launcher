@@ -17,6 +17,8 @@ if(TARGET CemuCafe)
 endif()
 set(LAUNCHER_DEPENDENCY_CACHE "${CMAKE_BINARY_DIR}/_dependencies" CACHE PATH "Launcher dependency cache")
 
+include("${CMAKE_CURRENT_LIST_DIR}/DiscordSocialSdk.cmake")
+
 include(FetchContent)
 set(saucer_backend WebView2 CACHE STRING "" FORCE)
 set(saucer_serializer Glaze CACHE STRING "" FORCE)
@@ -83,6 +85,7 @@ target_link_libraries(MCWiiU-SetupGuard PRIVATE LauncherUpdate Msi)
 set_target_properties(MCWiiU-Updater MCWiiU-Launcher MCWiiU-SetupGuard PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_executable(LauncherShell WIN32 GameDataBridge.cpp GameDataBridge.h main.cpp NativeExitDialog.cpp NativeExitDialog.h NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
+mcwiiu_configure_discord_presence()
 configure_file(LauncherVersion.rc.in "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.rc" @ONLY)
 configure_file(FoundationVersion.rc.in "${CMAKE_CURRENT_BINARY_DIR}/FoundationVersion.rc" @ONLY)
 target_sources(LauncherShell PRIVATE LauncherIcon.rc LauncherIcon.h "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.rc")

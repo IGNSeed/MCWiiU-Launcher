@@ -186,7 +186,8 @@ Manifest VerifyManifest(std::string_view bytes, std::string_view signature, std:
   Require(file.size <= 512ULL * 1024 * 1024 && total <= 2ULL * 1024 * 1024 * 1024 - file.size, "unpacked-size-limit"); total += file.size;
   if (file.path == "LauncherShell.exe") ++launchers;
   if (manifest.package_format == "zip") {
-   Require(file.path == "LauncherShell.exe" || file.path == "WebView2Loader.dll" || file.path.starts_with("licenses/"), "unexpected-package-file");
+   Require(file.path == "LauncherShell.exe" || file.path == "WebView2Loader.dll" || file.path == "discord_partner_sdk.dll" || file.path.starts_with("licenses/"), "unexpected-package-file");
+   if (file.path == "discord_partner_sdk.dll") Require(Version::Parse(manifest.required_bootstrapper_version) >= Version::Parse("1.0.1"), "discord-sdk-requires-foundation-update");
    if (file.path.starts_with("licenses/")) for (const auto extension : {".exe",".dll",".com",".bat",".cmd",".ps1",".vbs",".js",".msi",".scr",".lnk"}) Require(!name.ends_with(extension),"executable-in-license-directory");
   }
  }

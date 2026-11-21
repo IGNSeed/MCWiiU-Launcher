@@ -143,7 +143,7 @@ namespace
 		uint64 generation = 1;
 		uint64 confirmationCounter = 0, confirmationId = 0, confirmationSession = 0, confirmationGeneration = 0;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
-		std::atomic_bool titleStop{false};
+		std::atomic_bool titleStop{false}, titleRunning{false};
 		std::atomic_bool inputReady{false}, networkTest{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
@@ -490,6 +490,7 @@ namespace
 				if (phase == "running")
 				{
 					titlePhase = "running";
+					titleRunning = CafeSystem::IsTitleRunning();
 					if (history && !stop && CafeSystem::IsTitleRunning()) history->Begin(sessionId);
 				}
 				if (logReady) cemuLog_log(LogType::Force, "NativeHost phase: {}", phase);
@@ -1065,6 +1066,8 @@ struct CemuHost::Impl
 					LatteTiming_disableCustomVsyncFrequency();
 					state->appliedVsync = 0;
 					Require(state->swapchainCreates == state->swapchainDestroys && state->surfaceCreates == state->surfaceDestroys, "Title Vulkan resources were not released");
+					// 停止要求や確認表示では解除せず、title/GPU 解放完了を正本にする。
+					state->titleRunning = false;
 					++state->titleShutdownCount;
 					state->fps = 0;
 					state->swapchainWidth = state->swapchainHeight = 0;
@@ -1121,6 +1124,7 @@ struct CemuHost::Impl
 			cemuLog_waitForFlush();
 		}
 		if (SUCCEEDED(apartment)) CoUninitialize();
+		state->titleRunning = false;
 		state->stopped = true;
 		{
 			std::lock_guard lock(state->statusMutex);
@@ -1317,6 +1321,7 @@ void CemuHost::CancelGameDataOperation()
 void CemuHost::RequestStop() { m_impl->state->installation->Cancel(); m_impl->state->Stop(); }
 void CemuHost::ReportDisplayFailure() { m_impl->state->Fail("Unable to switch launcher display mode"); }
 bool CemuHost::IsStopped() const { return m_impl->state->stopped; }
+bool CemuHost::HasRunningTitle() const { return m_impl->state->titleRunning; }
 bool CemuHost::IsRunning() const
 {
 	std::lock_guard lock(m_impl->state->statusMutex);

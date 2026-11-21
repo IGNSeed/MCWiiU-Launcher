@@ -4,6 +4,7 @@ const pages = ["home", "friends", "world", "texture", "graphic-packs", "session-
 const navigation = document.querySelectorAll("[data-page]");
 const mainContent = document.querySelector("main");
 let selectedPage = "home";
+let lastLauncherPage = "home";
 const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(name => [name,document.getElementById(name)]), null, page => {
   mainContent.dataset.view = page;
   mainContent.scrollTop = 0;
@@ -18,11 +19,17 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
 function showPage(selected, options = {}) {
   if (!pages.includes(selected)) return Promise.resolve();
+  const pageChanged = selected !== selectedPage;
+  if (!options.gameOnly) lastLauncherPage = selected;
   const game = selected === "home" && window.launcherCoreState?.phase === "running";
   const target = game ? null : selected;
-  if (selected === selectedPage && pageMotion.target === target && pageMotion.state === "idle") return pageMotion.finished;
+  if (!pageChanged && pageMotion.target === target && pageMotion.state === "idle") {
+    if (options.navigate && !options.gameOnly) windowCommand("page:" + selected);
+    return pageMotion.finished;
+  }
   stopInputView(); hideAccountDetails(); resetPlayGlow();
   selectedPage = selected;
+  if (!options.gameOnly && (pageChanged || options.navigate)) windowCommand("page:" + selected);
   window.updateFriendsView?.();
   window.updateWorldView?.(); window.updateSessionHistoryView?.();
   window.updateTextureView?.();
@@ -39,8 +46,7 @@ function showPage(selected, options = {}) {
   return pageMotion.switchTo(target, game || options.immediate);
 }
 navigation.forEach((button) => button.addEventListener("click", () => {
-  showPage(button.dataset.page);
-  windowCommand("page:" + button.dataset.page);
+  showPage(button.dataset.page, {navigate:true});
 }));
 
 function windowCommand(command) {
@@ -384,9 +390,9 @@ function updateNativeSettings(state) {
   }
 }
 
-window.addEventListener("launcher-session-ended", () => showPage("home"));
+window.addEventListener("launcher-session-ended", () => showPage(lastLauncherPage));
 window.addEventListener("launcher-show-home", () => showPage("home"));
-window.addEventListener("launcher-return-game", () => showPage("home", {immediate:true}));
+window.addEventListener("launcher-return-game", () => showPage("home", {immediate:true,gameOnly:true}));
 window.addEventListener("launcher-display-state", (event) => {
   window.launcherDisplayState = event.detail;
   if (!event.detail.webViewVisible) LauncherMotion.finish();

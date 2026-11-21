@@ -52,6 +52,7 @@ public:
 	bool IsStopped() const;
 	bool IsRunning() const;
 	bool IsTitleActive() const;
+	bool HasRunningTitle() const;
 	uint64_t SessionId() const;
 	uint64_t StopConfirmationId() const;
 	bool IsTitleStopping() const;

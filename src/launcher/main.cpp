@@ -12,6 +12,7 @@
 #include "GameInstallationService.h"
 #include "GameDataBridge.h"
 #include "SingleInstance.h"
+#include "DiscordPresence.h"
 #ifdef CEMU_NATIVE_HOST
 #include "CemuHost.h"
 #endif
@@ -41,6 +42,7 @@ namespace
 	bool s_launchImmediately = false;
 	bool s_sessionDiagnostics = false;
 	SingleInstance* s_instance = nullptr;
+	Launcher::DiscordPresence* s_presence = nullptr;
 	std::shared_ptr<GameInstallationService> s_installation;
 
 	struct IconDeleter
@@ -381,7 +383,6 @@ namespace
 				if (m_maximizedPlacement) success = SetWindowPlacement(m_window.native().hwnd, &*m_maximizedPlacement) && success;
 				m_mode = Mode::LauncherWindowed;
 			}
-			m_settingsSelected = false;
 			m_launcherVisible = true;
 			m_host.SetVisible(false);
 			m_host.SetGameLayout(false);
@@ -441,6 +442,7 @@ namespace
 		{
 			// window より先に宣言し、例外経路でも HWND 破棄後にアイコンを解放する。
 			OwnedIcon smallIcon, bigIcon;
+			auto& presence = *s_presence;
 			auto window = saucer::window::create(app).value();
 			const auto hwnd = window->native().hwnd;
 			s_instance->Attach(hwnd);
@@ -524,6 +526,7 @@ namespace
 					},
 					.openGLCanvas = [&] { return gameHost.GetOpenGLHandle(); },
 					.status = [&](std::string json) {
+						presence.SetPlaying(core->HasRunningTitle());
 						if (core->IsTitleStopping() || core->HasFailed()) gameHost.StopPresentation(core->SessionId());
 						if (display) display->SetStopConfirmation(core->HasStopGameConfirmation());
 						publishCore(json);
@@ -650,6 +653,7 @@ namespace
 					}
 				}
 #endif
+				presence.Stop();
 				return saucer::policy::allow;
 			});
 			// WebView2 側だけで捕捉し、JS と二重配送しない。COM event 内では遷移しない。
@@ -1048,12 +1052,16 @@ namespace
 						else core->CancelStopGameConfirmation(ids->first, ids->second);
 					}
 				}
-				else if (core && (message == "page:home" || message == "page:settings" || message == "page:friends" || message == "page:world" || message == "page:texture" || message == "page:graphic-packs" || message == "page:session-history"))
+#endif
+				else if (message.starts_with("page:"))
 				{
+					if (!presence.SetPage(message.substr(5))) return saucer::status::unhandled;
+#ifdef CEMU_NATIVE_HOST
+					if (!core) return saucer::status::handled;
+					display->m_settingsSelected = message != "page:home";
 					if (display->m_stopping || display->m_stopConfirmation || core->IsTitleStopping()) return saucer::status::handled;
 					core->CancelInputCapture();
 					if (message == "page:home" && core->IsRunning()) { display->ReturnToGame(); return saucer::status::handled; }
-					display->m_settingsSelected = message != "page:home";
 					if (display->m_settingsSelected) core->RefreshSettingsInfo();
 					display->m_launcherVisible = true;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
@@ -1063,8 +1071,8 @@ namespace
 					core->InputMessage(WM_CANCELMODE, 0, 0);
 					gameHost.SetVisible(false);
 					if (running) webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-				}
 #endif
+				}
 				else if (message == "window:start-drag")
 				{
 					if (GetAsyncKeyState(VK_LBUTTON) & 0x8000)
@@ -1083,6 +1091,7 @@ namespace
 			if (core) core->Start(s_launchImmediately);
 #endif
 			co_await app->finish();
+			presence.Stop();
 #ifdef CEMU_NATIVE_HOST
 			gameHost.input = {};
 			gameHost.stateChanged = {};
@@ -1091,6 +1100,7 @@ namespace
 #endif
 		} catch (const std::exception& error)
 		{
+			s_presence->Stop();
 			OutputDebugStringA(error.what());
 			ReportStartupFailure(error.what());
 			app->quit();
@@ -1100,6 +1110,7 @@ namespace
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 {
+	const auto processStart = Launcher::DiscordPresence::ProcessStartTime();
 	const std::wstring_view arguments(commandLine);
 	if (arguments == L"--native-host-diagnostics" || arguments == L"--native-host-diagnostics-fail-after-create")
 	{
@@ -1125,6 +1136,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		// Native Core の静的 thread は共通初期化前にも存在するため、通常終了契約に合わせる。
 		if (!instance.IsPrimary()) ExitProcess(0);
 		s_instance = &instance;
+		Launcher::DiscordPresence presence(processStart);
+		s_presence = &presence;
+		presence.Start();
 		auto& paths = LauncherPaths::Get();
 		paths.Initialize();
 		s_installation = std::make_shared<GameInstallationService>(paths);
@@ -1136,6 +1150,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 			auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
 			result = application.run(Start);
 		}
+		presence.Stop();
+		s_presence = nullptr;
 		s_installation.reset();
 		const auto exitCode = s_startupExitCode ? s_startupExitCode : result;
 #ifdef CEMU_NATIVE_HOST
