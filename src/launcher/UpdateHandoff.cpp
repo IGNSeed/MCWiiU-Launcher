@@ -176,7 +176,7 @@ namespace LauncherUpdate
 			if (Process32FirstW(snapshot.handle, &entry))
 				do
 				{
-					if (_wcsicmp(entry.szExeFile, L"LauncherShell.exe"))
+					if (_wcsicmp(entry.szExeFile, executable.filename().c_str()))
 						continue;
 					File process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, entry.th32ProcessID));
 					Require(process.handle, "cannot-identify-launcher");
@@ -215,7 +215,7 @@ namespace LauncherUpdate
 			SaveStage(root, pending, "RollingBack");
 			Log(evidence, "RecoveryAttempt:1");
 			CommitVersion(root, CurrentVersion{1, std::string(ProductId), pending.previous, pending.prior_previous});
-			Require(LaunchReady(previous.directory / L"LauncherShell.exe", previous.reference.version), "previous-version-startup-failed-manual-recovery-required");
+			Require(LaunchReady(previous.executable, previous.reference.version), "previous-version-startup-failed-manual-recovery-required");
 			Log(evidence, "VerifiedPreviousReady");
 			ClearPending(root);
 		}
@@ -265,7 +265,7 @@ namespace LauncherUpdate
 			Require(!fs::exists(root / L"pending.json"), "recover-existing-transaction-first");
 			const auto current = ReadCurrent(root);
 			auto previous = VerifyVersion(root, current.current);
-			Require(previous.directory / L"LauncherShell.exe" == launcher && RollbackCompatible(previous.manifest, candidate.manifest), "stale-or-data-incompatible-update");
+			Require(previous.executable == launcher && RollbackCompatible(previous.manifest, candidate.manifest), "stale-or-data-incompatible-update");
 			const auto package = transaction / Wide(candidate.manifest.package_filename);
 			auto packageLock = OpenLocked(package);
 			VerifyPackage(package, candidate.manifest);
@@ -345,7 +345,7 @@ namespace LauncherUpdate
 				if (status)
 					status(State::VerifyingStartup);
 				Log(transaction, "VerifyingStartup");
-				Require(LaunchReady(verified.directory / L"LauncherShell.exe", next.version, &newProcess, &newPid), "new-version-startup-failed");
+				Require(LaunchReady(verified.executable, next.version, &newProcess, &newPid), "new-version-startup-failed");
 				SaveStage(root, pending, "Committing");
 				if (status)
 					status(State::Committing);
@@ -414,7 +414,7 @@ namespace LauncherUpdate
 					EnsureProgramsStopped(root);
 					pending.recovery_attempts = 1;
 					WritePending(root, pending);
-					Require(LaunchReady(next.directory / L"LauncherShell.exe", next.reference.version), "initial-launcher-startup-failed-use-verified-setup");
+					Require(LaunchReady(next.executable, next.reference.version), "initial-launcher-startup-failed-use-verified-setup");
 					CommitVersion(root, CurrentVersion{1, std::string(ProductId), pending.candidate, {}});
 					ClearPending(root);
 					return finish();
@@ -426,10 +426,10 @@ namespace LauncherUpdate
 			}
 			const auto current = ReadCurrent(root);
 			auto verified = VerifyVersion(root, current.current);
-			if (ActivateExistingLauncher(verified.directory / L"LauncherShell.exe"))
+			if (ActivateExistingLauncher(verified.executable))
 				return finish();
 			EnsureProgramsStopped(root);
-			if (LaunchReady(verified.directory / L"LauncherShell.exe", current.current.version))
+			if (LaunchReady(verified.executable, current.current.version))
 				return finish();
 			EnsureProgramsStopped(root);
 			Require(!current.previous.version.empty(), "no-verified-previous-version");
@@ -453,7 +453,7 @@ namespace LauncherUpdate
 		if (!arguments.starts_with(L"--update-ready "))
 			return false;
 		int count = 0;
-		const auto command = L"LauncherShell.exe " + std::wstring(arguments);
+		const auto command = L"\"MCWiiU Launcher.exe\" " + std::wstring(arguments);
 		auto** argv = CommandLineToArgvW(command.c_str(), &count);
 		Require(argv && count == 5, "invalid-ready-channel");
 		const auto pipe = reinterpret_cast<HANDLE>(_wcstoui64(argv[2], nullptr, 10)), parent = reinterpret_cast<HANDLE>(_wcstoui64(argv[3], nullptr, 10));

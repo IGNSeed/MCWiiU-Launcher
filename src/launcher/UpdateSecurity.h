@@ -68,6 +68,7 @@ std::string RandomId();
 void VerifySignature(std::string_view bytes, std::string_view signature, std::string_view key);
 Manifest VerifyManifest(std::string_view bytes, std::string_view signature, std::string_view key,
 	std::string_view product);
+std::string_view LauncherExecutableName(const Manifest& manifest);
 void ValidatePackageName(std::string_view name);
 void VerifyPackage(const fs::path& path, const Manifest& manifest);
 void BindRelease(Candidate& candidate, std::string_view releaseJson);

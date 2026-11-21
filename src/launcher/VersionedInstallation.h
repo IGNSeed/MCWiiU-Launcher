@@ -25,7 +25,7 @@ namespace LauncherUpdate
 	{
 		VersionRef reference;
 		Manifest manifest;
-		fs::path directory;
+		fs::path directory, executable;
 		std::vector<File> locks;
 	};
 	fs::path ProcessImage(HANDLE process = GetCurrentProcess());

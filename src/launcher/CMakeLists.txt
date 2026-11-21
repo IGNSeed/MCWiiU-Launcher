@@ -103,7 +103,7 @@ target_compile_definitions(LauncherShell PRIVATE NOMINMAX LAUNCHER_VERSION="${PR
 saucer_add_module(LauncherShell)
 add_dependencies(LauncherShell MCWiiU-Updater MCWiiU-Launcher MCWiiU-SetupGuard)
 target_link_libraries(LauncherShell PRIVATE LauncherUpdate LauncherStorage LauncherInstallation LauncherHistory Comctl32 glaze::glaze)
-set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set_target_properties(LauncherShell PROPERTIES OUTPUT_NAME "MCWiiU Launcher" RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
 set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS

@@ -161,6 +161,19 @@ void VerifySignature(std::string_view bytes, std::string_view signature, std::st
 	std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
 	Require(verifier && context && EVP_DigestVerifyInit(context.get(), nullptr, nullptr, nullptr, verifier.get()) == 1 && EVP_DigestVerify(context.get(), sig.data(), sig.size(), reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size()) == 1, "invalid-manifest-signature");
 }
+std::string_view LauncherExecutableName(const Manifest& manifest)
+{
+	std::string_view executable;
+	for (const auto& file : manifest.files)
+	{
+		if (file.path != "MCWiiU Launcher.exe" && file.path != "LauncherShell.exe")
+			continue;
+		Require(executable.empty(), "multiple-package-launchers");
+		executable = file.path;
+	}
+	Require(!executable.empty(), "missing-package-launcher");
+	return executable;
+}
 Manifest VerifyManifest(std::string_view bytes, std::string_view signature, std::string_view key, std::string_view product)
 {
 	VerifySignature(bytes,signature,key);
@@ -178,20 +191,22 @@ Manifest VerifyManifest(std::string_view bytes, std::string_view signature, std:
  Require(manifest.package_filename == std::string(product) + "-" + manifest.version + extension && manifest.release_asset_id > 0 && manifest.release_asset_id <= 9007199254740991ULL && manifest.package_size > 0 && manifest.package_size <= 512ULL * 1024 * 1024, "invalid-package-asset");
  Unhex(manifest.package_sha256, 32);
  Require(!manifest.files.empty() && manifest.files.size() <= 1024, "invalid-file-inventory");
- std::vector<std::string> names; uint64_t total = 0; unsigned launchers = 0;
+ std::vector<std::string> names; uint64_t total = 0;
  for (const auto& file : manifest.files) {
   ValidatePackageName(file.path); Unhex(file.sha256, 32);
   auto name = file.path; std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(tolower(c)); });
   Require(std::find(names.begin(), names.end(), name) == names.end(), "duplicate-package-file"); names.push_back(name);
   Require(file.size <= 512ULL * 1024 * 1024 && total <= 2ULL * 1024 * 1024 * 1024 - file.size, "unpacked-size-limit"); total += file.size;
-  if (file.path == "LauncherShell.exe") ++launchers;
   if (manifest.package_format == "zip") {
-   Require(file.path == "LauncherShell.exe" || file.path == "WebView2Loader.dll" || file.path == "discord_partner_sdk.dll" || file.path.starts_with("licenses/"), "unexpected-package-file");
+   Require(file.path == "MCWiiU Launcher.exe" || file.path == "LauncherShell.exe" || file.path == "WebView2Loader.dll" || file.path == "discord_partner_sdk.dll" || file.path.starts_with("licenses/"), "unexpected-package-file");
    if (file.path == "discord_partner_sdk.dll") Require(Version::Parse(manifest.required_bootstrapper_version) >= Version::Parse("1.0.1"), "discord-sdk-requires-foundation-update");
    if (file.path.starts_with("licenses/")) for (const auto extension : {".exe",".dll",".com",".bat",".cmd",".ps1",".vbs",".js",".msi",".scr",".lnk"}) Require(!name.ends_with(extension),"executable-in-license-directory");
   }
  }
- Require(manifest.package_format != "zip" || launchers == 1, "missing-package-launcher");
+ if (manifest.package_format == "zip") {
+  const auto executable = LauncherExecutableName(manifest);
+  if (executable == "MCWiiU Launcher.exe") Require(Version::Parse(manifest.required_bootstrapper_version) >= Version::Parse("1.0.2"), "launcher-name-requires-foundation-update");
+ }
 	if (manifest.package_format == "inno-setup") {
 		Require(manifest.files.size() == 2, "invalid-foundation-inventory");
 		for (const auto& file : manifest.files) Require(file.path == "MCWiiU-Launcher.exe" || file.path == "MCWiiU-Updater.exe", "unexpected-foundation-file");
@@ -382,7 +397,7 @@ HttpResponse Fetch(std::string url, size_t limit, std::atomic_bool& cancel, HAND
 void ValidatePackageName(std::string_view name)
 {
  Require(!name.empty() && name.size() <= 160 && name.front() != '/' && name.back() != '/', "invalid-package-path");
- Require(name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") == name.npos, "invalid-package-path");
+ Require(name == "MCWiiU Launcher.exe" || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") == name.npos, "invalid-package-path");
  size_t offset = 0;
  while (offset < name.size()) {
   const auto end = name.find('/', offset); auto part = name.substr(offset, end == name.npos ? name.size() - offset : end - offset);

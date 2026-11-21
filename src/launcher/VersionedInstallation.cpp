@@ -218,12 +218,12 @@ namespace LauncherUpdate
 	}
 	fs::path InstalledRoot(const fs::path& launcher)
 	{
-		Require(launcher.filename() == L"LauncherShell.exe" && launcher.parent_path().parent_path().filename() == L"versions", "updates-require-versioned-installation");
+		Require((launcher.filename() == L"MCWiiU Launcher.exe" || launcher.filename() == L"LauncherShell.exe") && launcher.parent_path().parent_path().filename() == L"versions", "updates-require-versioned-installation");
 		const auto root = launcher.parent_path().parent_path().parent_path();
 		ValidateRegisteredRoot(root);
 		const auto current = ReadCurrent(root);
 		auto verified = VerifyVersion(root, current.current);
-		Require(verified.directory / L"LauncherShell.exe" == launcher, "launcher-is-not-current-version");
+		Require(verified.executable == launcher, "launcher-is-not-current-version");
 		return root;
 	}
 	void ValidateSetupDestination(const fs::path& root)
@@ -264,7 +264,7 @@ namespace LauncherUpdate
 			{
 				if (entry.th32ProcessID == GetCurrentProcessId())
 					continue;
-				if (_wcsicmp(entry.szExeFile, L"LauncherShell.exe") && _wcsicmp(entry.szExeFile, L"MCWiiU-Launcher.exe") && _wcsicmp(entry.szExeFile, L"MCWiiU-Updater.exe") && _wcsicmp(entry.szExeFile, L"CemuBin.exe") && _wcsicmp(entry.szExeFile, L"Cemu_release.exe"))
+				if (_wcsicmp(entry.szExeFile, L"MCWiiU Launcher.exe") && _wcsicmp(entry.szExeFile, L"LauncherShell.exe") && _wcsicmp(entry.szExeFile, L"MCWiiU-Launcher.exe") && _wcsicmp(entry.szExeFile, L"MCWiiU-Updater.exe") && _wcsicmp(entry.szExeFile, L"CemuBin.exe") && _wcsicmp(entry.szExeFile, L"Cemu_release.exe"))
 					continue;
 				File process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, entry.th32ProcessID));
 				Require(process.handle, "cannot-identify-related-program");
@@ -364,7 +364,8 @@ namespace LauncherUpdate
 			Require(GetFileSizeEx(file.handle, &size) && size.QuadPart >= 0 && static_cast<uint64_t>(size.QuadPart) == entry.size && FileSha256(file.handle) == entry.sha256, "installed-version-integrity-failed");
 			result.locks.push_back(std::move(file));
 		}
-		Require(ExecutableVersion(result.directory / L"LauncherShell.exe") == reference.version, "version-executable-mismatch");
+		result.executable = result.directory / Wide(LauncherExecutableName(result.manifest));
+		Require(ExecutableVersion(result.executable) == reference.version, "version-executable-mismatch");
 		return result;
 	}
 	VersionRef StageVersion(const fs::path& root, const fs::path& package, std::string_view bytes, std::string_view signature)
@@ -466,7 +467,7 @@ namespace LauncherUpdate
 		WriteNew(staging / L"manifest.json", bytes);
 		WriteNew(staging / L"manifest.sig", signature);
 		CheckTree(staging, manifest);
-		Require(ExecutableVersion(staging / L"LauncherShell.exe") == manifest.version, "staged-executable-version-mismatch");
+		Require(ExecutableVersion(staging / Wide(LauncherExecutableName(manifest))) == manifest.version, "staged-executable-version-mismatch");
 		Require(MoveFileExW(staging.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH), "cannot-publish-version-directory");
 		auto verified = VerifyVersion(root, reference);
 		return reference;
