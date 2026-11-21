@@ -25,6 +25,7 @@ public:
 	void Begin(uint64_t sessionId);
 	void End(uint64_t sessionId);
 	void ClockChanged();
+	bool IsDurable() const;
 	std::string Query(std::string_view request);
 	std::string NoticeJson() const;
 

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
-project(MCWiiULauncher VERSION 0.3.0 LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/LauncherVersion.cmake")
+project(MCWiiULauncher VERSION ${MCWIIU_LAUNCHER_VERSION} LANGUAGES CXX)
 
 if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "LauncherShell requires Windows x64 with MSVC")
@@ -52,8 +53,42 @@ target_compile_options(LauncherInstallation PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherInstallation PRIVATE NOMINMAX)
 target_link_libraries(LauncherInstallation PUBLIC LauncherStorage PRIVATE XmlLite Shlwapi Bcrypt)
 
+if(NOT TARGET OpenSSL::Crypto)
+    set(OPENSSL_USE_STATIC_LIBS TRUE)
+    set(OPENSSL_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../out/build/Release/vcpkg_installed/x64-windows-static" CACHE PATH "Existing OpenSSL dependency")
+    find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+endif()
+if(NOT TARGET libzip::zip)
+    list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_LIST_DIR}/../../out/build/Release/vcpkg_installed/x64-windows-static")
+    find_package(libzip CONFIG REQUIRED)
+endif()
+add_library(LauncherUpdate STATIC UpdateSecurity.cpp UpdateSecurity.h UpdateService.cpp UpdateService.h UpdateHandoff.cpp UpdateHandoff.h UpdateIdentity.h VersionedInstallation.cpp VersionedInstallation.h)
+target_compile_features(LauncherUpdate PRIVATE cxx_std_23)
+target_compile_options(LauncherUpdate PRIVATE /utf-8 /W4)
+target_compile_definitions(LauncherUpdate PRIVATE NOMINMAX LAUNCHER_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(LauncherUpdate PUBLIC MCWIIU_FOUNDATION_VERSION="${MCWIIU_FOUNDATION_VERSION}")
+target_link_libraries(LauncherUpdate PUBLIC LauncherStorage PRIVATE OpenSSL::Crypto libzip::zip glaze::glaze Winhttp User32 Ws2_32 Crypt32 Version Wintrust)
+add_executable(MCWiiU-Updater WIN32 updater/main.cpp LauncherShell.manifest)
+target_link_libraries(MCWiiU-Updater PRIVATE LauncherUpdate)
+target_compile_options(MCWiiU-Updater PRIVATE /utf-8 /W4)
+target_compile_definitions(MCWiiU-Updater PRIVATE NOMINMAX)
+add_executable(MCWiiU-Launcher WIN32 bootstrapper/main.cpp LauncherShell.manifest)
+target_link_libraries(MCWiiU-Launcher PRIVATE LauncherUpdate)
+target_compile_options(MCWiiU-Launcher PRIVATE /utf-8 /W4)
+target_compile_definitions(MCWiiU-Launcher PRIVATE NOMINMAX)
+add_library(MCWiiU-SetupGuard SHARED installer/SetupGuard.cpp)
+target_compile_options(MCWiiU-SetupGuard PRIVATE /utf-8 /W4)
+target_compile_definitions(MCWiiU-SetupGuard PRIVATE NOMINMAX)
+target_link_libraries(MCWiiU-SetupGuard PRIVATE LauncherUpdate Msi)
+set_target_properties(MCWiiU-Updater MCWiiU-Launcher MCWiiU-SetupGuard PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 add_executable(LauncherShell WIN32 GameDataBridge.cpp GameDataBridge.h main.cpp NativeExitDialog.cpp NativeExitDialog.h NativeGameHost.cpp NativeGameHost.h LauncherPreferences.cpp LauncherPreferences.h LauncherShell.manifest)
-target_sources(LauncherShell PRIVATE LauncherIcon.rc LauncherIcon.h)
+configure_file(LauncherVersion.rc.in "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.rc" @ONLY)
+configure_file(FoundationVersion.rc.in "${CMAKE_CURRENT_BINARY_DIR}/FoundationVersion.rc" @ONLY)
+target_sources(LauncherShell PRIVATE LauncherIcon.rc LauncherIcon.h "${CMAKE_CURRENT_BINARY_DIR}/LauncherVersion.rc")
+target_sources(MCWiiU-Updater PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/FoundationVersion.rc")
+target_sources(MCWiiU-Launcher PRIVATE LauncherIcon.rc "${CMAKE_CURRENT_BINARY_DIR}/FoundationVersion.rc")
+target_sources(MCWiiU-SetupGuard PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/FoundationVersion.rc")
 target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}>")
 set_property(SOURCE LauncherIcon.rc APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/LauncherIcon.h"
@@ -63,7 +98,8 @@ target_compile_options(LauncherShell PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherShell PRIVATE NOMINMAX LAUNCHER_VERSION="${PROJECT_VERSION}")
 # stable native API が参照する既存 WebView2 SDK も引き継ぐ。
 saucer_add_module(LauncherShell)
-target_link_libraries(LauncherShell PRIVATE LauncherStorage LauncherInstallation LauncherHistory Comctl32 glaze::glaze)
+add_dependencies(LauncherShell MCWiiU-Updater MCWiiU-Launcher MCWiiU-SetupGuard)
+target_link_libraries(LauncherShell PRIVATE LauncherUpdate LauncherStorage LauncherInstallation LauncherHistory Comctl32 glaze::glaze)
 set_target_properties(LauncherShell PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/embedded")
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
@@ -76,6 +112,7 @@ set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/graphic-packs.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/motion.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/session-history.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/updates.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/index.html"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/style.css"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/assets/minecraft-wiiu-home.png"
@@ -83,6 +120,7 @@ set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
 target_link_libraries(LauncherShell PRIVATE saucer::embedded)
 
 if(TARGET CemuCafe)
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/bin/launcher-package.json" CONTENT "{\"native_core\":true,\"version\":\"${PROJECT_VERSION}\"}\n")
     target_compile_options(LauncherShell PRIVATE /UWIN32_LEAN_AND_MEAN)
     target_sources(LauncherShell PRIVATE LauncherResources.rc)
     target_include_directories(LauncherShell PRIVATE "$<$<COMPILE_LANGUAGE:RC>:${CMAKE_CURRENT_SOURCE_DIR}/..>")

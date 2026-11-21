@@ -2,6 +2,7 @@
 #include "NativeSettings.h"
 #include "LauncherPaths.h"
 #include "SessionHistory.h"
+#include "UpdateSecurity.h"
 #include "InputService.h"
 #include "AvSettings.h"
 #include "AccountService.h"
@@ -299,6 +300,7 @@ namespace
 			}
 		}
 
+		bool launcherUpdate = false;
 		bool CanStopGameLocked() const
 		{
 			return corePhase == "ready" && phase == "running" && titlePhase == "running" && launch && !stop && !titleStop && !stopped && !failed;
@@ -309,7 +311,7 @@ namespace
 		}
 		bool CanEditWorldsLocked() const
 		{
-			return !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return !launcherUpdate && !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
 		}
 		bool RegionManagersAvailable() const
 		{
@@ -358,7 +360,7 @@ namespace
 		}
 		bool CanEditLiveSettingsLocked() const
 		{
-			return corePhase == "ready" && (phase == "ready" || phase == "running") && !stop && !titleStop && !stopped && !failed && !confirmationId;
+			return !launcherUpdate && corePhase == "ready" && (phase == "ready" || phase == "running") && !stop && !titleStop && !stopped && !failed && !confirmationId;
 		}
 		bool CanEditInputLocked() const { return CanEditLiveSettingsLocked() && input && input->IsHealthy(); }
 		bool CanEditAudioLocked() const { return CanEditLiveSettingsLocked() && av && av->IsHealthy(); }
@@ -1169,6 +1171,28 @@ void CemuHost::Start(bool launchImmediately)
 	m_impl->state->stopped = false;
 	try { m_impl->worker = std::thread([impl = m_impl.get()] { impl->Run(); }); }
 	catch (...) { m_impl->state->stopped = true; throw; }
+}
+bool CemuHost::TryBeginLauncherUpdate()
+{
+	std::lock_guard workLock(m_impl->state->workMutex);
+	std::lock_guard statusLock(m_impl->state->statusMutex);
+	const auto& state = *m_impl->state;
+	const LauncherUpdate::Readiness readiness{
+		.titleStopped = !state.launch && !state.titleStop && !state.confirmationId && (state.titlePhase == "idle" || state.titlePhase == "stopped"),
+		.coreSafe = state.corePhase == "ready" && state.phase == "ready",
+		.rendererStopped = !state.presentationSession && state.swapchainCreates == state.swapchainDestroys && state.surfaceCreates == state.surfaceDestroys && state.glContextsCreated == state.glContextsDestroyed,
+		.historySaved = !state.history || state.history->IsDurable(),
+		.settingsSaved = state.CanEditSettingsLocked(),
+		.canClose = !state.stop && !state.stopped && !state.failed
+	};
+	if (!readiness.CanBegin()) return false;
+	m_impl->state->launcherUpdate = true;
+	return true;
+}
+void CemuHost::CancelLauncherUpdate()
+{
+	std::lock_guard lock(m_impl->state->statusMutex);
+	m_impl->state->launcherUpdate = false;
 }
 void CemuHost::LaunchGame()
 {

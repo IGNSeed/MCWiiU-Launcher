@@ -6,10 +6,8 @@
 
 struct LauncherPreferences
 {
-	unsigned config_version = 1;
-	bool automatic_updates = false;
-	bool check_on_startup = false;
-	bool preview_updates = false;
+	unsigned config_version = 2;
+	bool check_on_startup = true;
 	bool operator==(const LauncherPreferences&) const = default;
 	static bool Parse(std::string_view json, LauncherPreferences& preferences);
 	static LauncherPreferences Load(const std::filesystem::path& path, std::string& notice);

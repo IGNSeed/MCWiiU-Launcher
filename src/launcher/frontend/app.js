@@ -148,7 +148,7 @@ window.addEventListener("launcher-core-state", (event) => {
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
   const titleStopping = phase === "title-stopping" || phase === "title-stopped";
   navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
-  document.getElementById("update-preferences").disabled = !confirmed.preferences || closing || titleStopping || hasConfirmation || closeAfterSaves;
+  document.getElementById("update-preferences").disabled = !confirmed.preferences || !preferencesReadable || closing || titleStopping || hasConfirmation || closeAfterSaves;
   document.querySelectorAll("[data-tab]").forEach((tab) => { tab.disabled = closing || titleStopping || hasConfirmation || closeAfterSaves; });
   document.getElementById("core-information").textContent = status;
   updateNativeSettings(state);
@@ -199,8 +199,9 @@ const fpsSlider = document.getElementById("native-fps-slider");
 const fpsOriginal = document.getElementById("native-fps-original");
 const fpsError = document.getElementById("fps-error");
 const nativeResolution = document.getElementById("native-resolution");
-const preferenceInputs = ["automatic-updates", "check-on-startup", "preview-updates"].map((id) => document.getElementById(id));
+const preferenceInputs = ["check-on-startup"].map((id) => document.getElementById(id));
 const confirmed = { native: null, preferences: null };
+let preferencesReadable = false;
 const desired = { native: null, preferences: null };
 const saveQueue = [];
 let pendingSave = null;
@@ -213,7 +214,7 @@ function settingsBusy() { return pendingSave !== null || saveQueue.length > 0 ||
 function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function draft(scope) { return desired[scope] || confirmed[scope]; }
 function updatePlay() {
-  play.disabled = (window.launcherCoreState?.canLaunch !== true && !window.GameDataUI?.canSetup()) || window.GameDataUI?.busy() || launchPending || settingsBusy() || closeAfterSaves;
+  play.disabled = (window.launcherCoreState?.canLaunch !== true && !window.GameDataUI?.canSetup()) || window.GameDataUI?.busy() || launchPending || settingsBusy() || closeAfterSaves || window.launcherUpdateState?.blocksPlay === true;
 }
 function note(scope, text) {
   document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note").textContent = text;
@@ -256,7 +257,7 @@ function renderNative(force = false) {
 function renderPreferences() {
   const values = draft("preferences");
   if (!values) return;
-  preferenceInputs.forEach((input, index) => { input.checked = values[["automatic_updates", "check_on_startup", "preview_updates"][index]]; });
+  preferenceInputs.forEach((input, index) => { input.checked = values[["check_on_startup"][index]]; });
 }
 function saveFps(value) {
   if (nativeGraphics.disabled || !confirmed.native) return;
@@ -301,14 +302,16 @@ nativeResolution.addEventListener("change", () => {
   enqueueSave("native", { ...draft("native"), native_internal_width: width, native_internal_height: height });
 });
 preferenceInputs.forEach((input) => input.addEventListener("change", () => {
-  enqueueSave("preferences", { config_version: 1, automatic_updates: preferenceInputs[0].checked, check_on_startup: preferenceInputs[1].checked, preview_updates: preferenceInputs[2].checked });
+  enqueueSave("preferences", { config_version: 2, check_on_startup: preferenceInputs[0].checked });
 }));
 window.addEventListener("launcher-preferences", (event) => {
   confirmed.preferences = event.detail.values;
   document.getElementById("launcher-version").textContent = event.detail.version;
   document.getElementById("update-preferences").disabled = false;
   renderPreferences();
-  note("preferences", event.detail.notice === "load-failed" ? "設定を読み込めなかったため、更新設定はすべて OFF を使用します。" : "設定は変更時に自動保存されます。更新処理はまだ行いません。");
+  const healthy = preferencesReadable = ["loaded", "default"].includes(event.detail.notice);
+  document.getElementById("update-preferences").disabled = !healthy;
+  note("preferences", healthy ? "更新の確認だけを自動で行います。ダウンロードと適用には承認が必要です。" : "設定を読み込めません (" + event.detail.notice + ")。既存ファイルを保持し、自動確認を停止しています。");
 });
 window.addEventListener("launcher-settings-result", (event) => {
   const result = event.detail;
@@ -321,7 +324,7 @@ window.addEventListener("launcher-settings-result", (event) => {
   const newer = saveQueue.includes(scope);
   if (!newer) desired[scope] = null;
   pendingSave = null;
-  note(scope, notice === "saved" ? (scope === "native" ? "設定を保存しました。次回Playで適用されます。" : "更新設定を保存しました。更新処理はまだ行いません。") : "設定を保存できませんでした。保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  note(scope, notice === "saved" ? (scope === "native" ? "設定を保存しました。次回Playで適用されます。" : "更新設定を保存しました。") : "設定を保存できませんでした。保存済みの値へ戻しました。もう一度操作すると再試行できます。");
   if (scope === "native") renderNative(); else renderPreferences();
   drainSaves();
 });

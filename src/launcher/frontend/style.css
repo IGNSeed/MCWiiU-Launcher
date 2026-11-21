@@ -822,3 +822,12 @@ main:not([data-view="home"]) .game-data-home-note { display:none; }
 .history-modes button { padding:8px 12px; border:1px solid #414149; border-radius:6px; background:#151519; color:#b5b5bf; font:inherit; font-size:.8125rem; }
 .history-date-select button { padding:8px 12px; font-size:.8125rem; }
 .history-detail-header .settings-heading { margin:0; }
+
+.update-banner { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 24px; border-bottom:1px solid #62626c; flex-shrink:0; background:#17171b; }
+.update-banner > span { flex:1; min-width:180px; overflow-wrap:anywhere; }
+.update-banner button { padding:6px 12px; }
+.update-banner[hidden], main[data-view=game] .update-banner { display:none; }
+#update-dialog { color:inherit; background:#131316; border:1px solid #777780; border-radius:5px; width:min(640px, calc(100vw - 48px)); max-height:calc(100vh - 64px); padding:24px; }
+#update-dialog::backdrop { background:#0009; }
+#update-notes { font:inherit; white-space:pre-wrap; overflow-wrap:anywhere; max-height:35vh; overflow:auto; }
+#update-progress { width:100%; }

@@ -4,6 +4,8 @@
 
 #include "NativeGameHost.h"
 #include "LauncherPreferences.h"
+#include "UpdateService.h"
+#include "UpdateHandoff.h"
 #include "LauncherIcon.h"
 #include "LauncherPaths.h"
 #include "SessionHistory.h"
@@ -31,6 +33,7 @@
 
 namespace
 {
+	std::wstring s_updateArguments;
 	int s_startupExitCode = 0;
 	bool s_nativeHostDiagnostics = false;
 	bool s_failHostInitialization = false;
@@ -481,7 +484,11 @@ namespace
 			const auto preferencesPath = LauncherPaths::Get().data / "launcher-preferences.json";
 			std::string preferencesNotice;
 			auto preferences = LauncherPreferences::Load(preferencesPath, preferencesNotice);
-			const bool preferencesHealthy = preferencesNotice != "load-failed";
+			if (preferencesNotice == "legacy-loaded")
+				preferencesNotice = preferences.Save(preferencesPath) ? "loaded" : "migration-failed";
+			const bool preferencesHealthy = preferencesNotice == "loaded" || preferencesNotice == "default";
+			UpdateService updates(LauncherPaths::Get().cache);
+			bool updateGate = false, updateClose = false;
 			const auto publishPreferences = [&] {
 				webview.execute("window.dispatchEvent(new CustomEvent('launcher-preferences', {detail:{values:" + preferences.Json() +
 					",notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
@@ -586,7 +593,7 @@ namespace
 					return s_installation->GetSnapshot();
 				},
 				.canManage = [&] {
-					if (!preferencesHealthy || notifications.m_closeRequested || notifications.m_closing) return false;
+					if (!preferencesHealthy || updates.BlocksPlay() || notifications.m_closeRequested || notifications.m_closing) return false;
 #ifdef CEMU_NATIVE_HOST
 					return core && core->CanManageGameData();
 #else
@@ -675,6 +682,7 @@ namespace
 			notifications.m_acceleratorListener = acceleratorToken;
 			webview.on<saucer::webview::event::dom_ready>([&] {
 				notifications.m_frontendReady = true;
+				if (preferencesHealthy && preferences.check_on_startup) updates.Check();
 				updateWindowState();
 				publishPreferences();
 				webview.execute("window.dispatchEvent(new CustomEvent('launcher-history-notice', {detail:" + history->NoticeJson() + "}));");
@@ -750,6 +758,36 @@ namespace
 				}
 				else if (message == "window:close-cancelled" && !notifications.m_closeApproved)
 					notifications.m_closeRequested = false;
+				else if (message == "update:ui-ready" && notifications.m_frontendReady)
+				{
+					LauncherUpdate::NotifyUpdateReady(s_updateArguments, LAUNCHER_VERSION);
+					s_updateArguments.clear();
+				}
+				else if (message == "update:check") updates.Check();
+				else if (message == "update:cancel") updates.Cancel();
+				else if (message.starts_with("update:approve:")) updates.Approve(message.substr(15));
+				else if (message.starts_with("update:install:")) updates.Install(message.substr(15));
+				else if (message == "update:poll")
+				{
+					if (updates.WantsSafeStop() && !notifications.m_closeRequested && !gameData.IsWorking())
+					{
+#ifdef CEMU_NATIVE_HOST
+						const bool safe = core ? core->TryBeginLauncherUpdate() : history->IsDurable();
+#else
+						const bool safe = history->IsDurable();
+#endif
+						if (safe) { updateGate = true; updates.BeginWhenSafe(true); }
+					}
+					if (updateGate && !updates.BlocksPlay())
+					{
+#ifdef CEMU_NATIVE_HOST
+						if (core) core->CancelLauncherUpdate();
+#endif
+						updateGate = false;
+					}
+					webview.execute("window.dispatchEvent(new CustomEvent('launcher-update-state', {detail:" + updates.Json() + "}));");
+					if (updates.WantsClose() && !updateClose) { updateClose = true; window->close(); }
+				}
 				else if (message.starts_with("history:query:"))
 				{
 					if (const auto request = ParseSaveRequest(message.substr(std::string_view("history:query:").size())); request && request->second.size() <= 256)
@@ -787,7 +825,7 @@ namespace
 #ifdef CEMU_NATIVE_HOST
 				else if (core && message == "game:start")
 				{
-					if (!notifications.m_closeRequested && !gameData.IsWorking()) core->LaunchGame();
+					if (!notifications.m_closeRequested && !updates.BlocksPlay() && !gameData.IsWorking()) core->LaunchGame();
 					publishCore(core->StatusJson());
 				}
 				else if (core && message.starts_with("settings:save:"))
@@ -1078,6 +1116,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 	else if (arguments == L"--core-initialize-test")
 		s_launchImmediately = false;
 #endif
+	else if (arguments.starts_with(L"--update-ready ")) s_updateArguments = arguments;
 	else if (!arguments.empty())
 		ExitProcess(2);
 	try

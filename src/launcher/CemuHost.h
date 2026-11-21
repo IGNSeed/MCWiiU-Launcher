@@ -35,6 +35,8 @@ public:
 	CemuHost& operator=(const CemuHost&) = delete;
 	void Start(bool launchImmediately);
 	void LaunchGame();
+	bool TryBeginLauncherUpdate();
+	void CancelLauncherUpdate();
 	GameInstallationService::Result StartGameDataOperation(GameInstallationService::Request request);
 	GameInstallationService::Snapshot GameDataStatus() const;
 	bool CanManageGameData() const;

@@ -1,0 +1,10 @@
+set(MCWIIU_LAUNCHER_VERSION "0.3.0")
+set(MCWIIU_FOUNDATION_VERSION "1.0.0")
+# Windows EXEの版情報と同じ整数範囲に固定する。
+if(NOT MCWIIU_LAUNCHER_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+    message(FATAL_ERROR "Invalid launcher version")
+endif()
+if(CMAKE_MATCH_1 GREATER 65535 OR CMAKE_MATCH_2 GREATER 65535 OR CMAKE_MATCH_3 GREATER 65535)
+    message(FATAL_ERROR "Launcher version exceeds executable version limits")
+endif()
+string(REPLACE "." "," MCWIIU_FOUNDATION_VERSION_TUPLE "${MCWIIU_FOUNDATION_VERSION}")

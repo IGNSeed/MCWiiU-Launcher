@@ -382,6 +382,11 @@ void SessionHistory::End(uint64_t sessionId)
 	++m_impl->ledger.revision;
 	m_impl->urgent = true; m_impl->wake.notify_one();
 }
+bool SessionHistory::IsDurable() const
+{
+	std::lock_guard lock(m_impl->mutex);
+	return !m_impl->active && !m_impl->readOnly && m_impl->savedRevision == m_impl->ledger.revision && m_impl->notice.empty();
+}
 void SessionHistory::ClockChanged()
 {
 	std::lock_guard lock(m_impl->mutex);

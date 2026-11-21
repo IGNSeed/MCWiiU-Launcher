@@ -14,6 +14,7 @@
   <script src="graphic-packs.js" defer></script>
   <script src="game-data.js" defer></script>
   <script src="session-history.js" defer></script>
+  <script src="updates.js" defer></script>
 </head>
 <body>
   <header class="titlebar" aria-label="ウィンドウ操作">
@@ -40,6 +41,7 @@
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main data-view="home">
+      <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden><span id="update-banner-text"></span><button id="update-view" type="button">View Update</button><button id="update-later" type="button">Later</button><button id="update-close" type="button" aria-label="Close update notification">Close</button></div>
       <header class="topbar"><span id="page-label">Settings</span></header>
       <p id="history-global-notice" class="footnote core-error" role="alert" hidden></p>
       <p id="core-error" class="footnote core-error" role="alert" hidden></p>
@@ -136,14 +138,14 @@
         <div class="settings-content">
           <div id="panel-general" role="tabpanel" aria-labelledby="tab-general">
             <h2 class="settings-heading">Updates</h2>
-            <p class="footnote">将来の更新機能の設定です。現在は設定の保存のみ対応し、更新の確認・ダウンロード・インストールは行いません。</p>
+            <p class="footnote">Stable Release を確認します。ダウンロードとインストールには承認が必要です。</p>
             <fieldset id="update-preferences" disabled>
               <legend class="visually-hidden">更新の設定</legend>
-              <label class="checkbox-row"><input id="automatic-updates" type="checkbox">Enable Automatic Updates</label>
               <label class="checkbox-row"><input id="check-on-startup" type="checkbox">Check for Updates on Startup</label>
-              <label class="checkbox-row"><input id="preview-updates" type="checkbox">Receive Preview Updates</label>
             </fieldset>
             <p id="preferences-note" class="footnote" role="status">設定を読み込んでいます。</p>
+            <div class="game-data-actions"><button id="update-check" type="button">Check for Updates</button><button id="update-details" type="button" hidden>View Update</button></div>
+            <p id="update-status" class="footnote" role="status" aria-live="polite"></p>
             <h2 class="settings-heading">Launcher Information</h2>
             <dl class="settings-info"><dt>Launcher Version</dt><dd id="launcher-version">取得待ち</dd><dt>Minecraft</dt><dd>Wii U Edition · v560</dd><dt>Core</dt><dd id="core-information">準備中</dd></dl>
           </div>
@@ -414,6 +416,13 @@
       <button id="stop-cancel" type="button" autofocus>キャンセル</button>
       <button id="stop-confirm" type="button">ゲームを終了</button>
     </div>
+  </dialog>
+<dialog id="update-dialog" aria-labelledby="update-title">
+    <h2 id="update-title">Update Available</h2>
+    <dl class="settings-info"><dt>Current Version</dt><dd id="update-current"></dd><dt>New Version</dt><dd id="update-version"></dd><dt>Download Size</dt><dd id="update-size"></dd></dl>
+    <h3>What's New</h3><pre id="update-notes"></pre>
+    <p id="update-progress-text" role="status" aria-live="polite"></p><progress id="update-progress" hidden></progress>
+    <div class="game-data-actions"><button id="update-now" type="button">Update Now</button><button id="update-cancel" type="button">Later</button></div>
   </dialog>
 </body>
 </html>
