@@ -4,7 +4,7 @@
 
 対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.0 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
 
-**再現性の制限:** Phase 13 の Native / Standalone 増分ビルドは成功していますが、既存キャッシュ、ローカル取得 SDK、保護された未公開 wx 差分を含む同一開発ホストでの検証です。クリーン環境での完全再現性・配布バイナリとのソース一致は未検証です。Phase 14 は文書変更で、ゲーム・製品の再ビルドを実施したとは扱いません。
+**検証範囲:** Phase 15A では、Commit `b54cc33ce8fb07adaf2d428cc37173af9e678ce2` と再帰 submodule を固定した隔離 checkout で Native / Standalone Release を構築しました。既存 CMakeCache・オブジェクト・PDB・ビルド済み依存ライブラリを使わず、依存もソースから再構築し、成果物の版・アイコン・原文通知・SHA-256 を照合しています。未公開 wx 差分は含めていません。同一開発ホストでのクリーンビルド確認であり、別 PC での再現、bit 単位の同一性、本番鍵付きの最終配布物の受入は未完了です。
 
 ## 開発環境
 
@@ -61,7 +61,13 @@ cmake --build out/build/LauncherRelease --target LauncherShell MCWiiU-SigningToo
 
 構成に必要な実在オプションは Native の `-S . -B out/build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_LAUNCHER=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static`、Standalone の `-S src/launcher -B out/build/LauncherRelease -G Ninja -DCMAKE_BUILD_TYPE=Release` です。これらは既存構成スクリプトと CMakeCache に対応しますが、短縮した引数列だけで新規環境が完全再現できるという意味ではありません。
 
-現ホストではさらに依存 source/cache・NuGet の配置と、日本語 MSVC のヘッダー依存対策の compiler launcher / make-rule override を使っています。使用中の補助ファイルを削除せず、cache の設定を維持してください。Standalone も既存 Native の `out/build/Release/vcpkg_installed/x64-windows-static` の OpenSSL・libzip・原文通知を参照するため、Native の依存準備が先です。正確な初回構成と SDK 供給の独立再現は配布前の残課題です。
+現ホストではさらに依存 source/cache・NuGet の配置と、日本語 MSVC のヘッダー依存対策の compiler launcher / make-rule override を使っています。使用中の補助ファイルを削除せず、cache の設定を維持してください。Standalone も Native の `out/build/Release/vcpkg_installed/x64-windows-static` の OpenSSL・libzip・原文通知を参照するため、Native の依存準備が先です。Phase 15A の新規構成では、Standalone に `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` を指定し、新しく構築した static 依存と CRT を合わせました。SDK の別 PC への供給・契約確認は配布前の残課題です。
+
+独立 checkout では `git submodule update --init --recursive` が必要です。トップレベル7件に加えて cubeb 内の googletest / sanitizers-cmake も固定 revision を取得します。Windows の checkout で overlay の `.patch` / `.diff` が CRLF へ変換されると `git apply` が失敗するため、追加した `.gitattributes` の LF 指定を保持してください。通常ソースを一括して LF 化する必要はありません。
+
+Core の現行 CMake は libusb 検出に `vcpkg_installed/x64-windows/tools/pkgconf/pkgconf.exe` を参照します。標準の host triplet を確認してください。host を `x64-windows-static` に揃えた隔離構成では、同じ install root に実際の `pkgconf:x64-windows` を追加しました。必要な固定依存を揃えてから `VCPKG_MANIFEST_INSTALL=OFF` で構成を続け、manifest 再同期による追加 host tool の除去を避けています。Core の機能を無効化する対応は行っていません。
+
+配布候補には `-DCEMU_BUILD_REVISION=<実際のソースCommit SHA>` を明示し、cache の古い override を引き継がないでください。`d86ee62` が残る旧開発 cache は配布に使用していません。Source Commit、gitlinks、toolchain、依存版、SDK hash、成果物 hash を一緒に記録します。
 
 `MCWIIU_DEVELOPER_DIAGNOSTICS` は通常 Release で **OFF** を維持します。保護対象の既存ソースやユーザーデータをリセットしたり、別の構成を大量に作ったり、キャッシュを毎回消したりしないでください。ビルド前後で空き容量を確認します。
 
@@ -85,7 +91,7 @@ cmake --build out/build/LauncherRelease --target LauncherShell MCWiiU-SigningToo
 
 既存の署名ツールには読み取りの `identity`、`fingerprint <公開鍵>`、`verify-manifest <公開鍵> <Manifest> <署名>`、`verify-foundation`、`verify-bundle <公開鍵> <bundle> <bin>` があります。本番生成コマンドをこの文書の確認目的で実行しないでください。Setup は Authenticode 署名を使わない方針です。
 
-原文通知・秘密情報・バイナリ・ソース対応・Runtime・入力/音声/描画・更新/復旧の検査を経てから、別途配布可否を判断します。125件の通知は全法的条件の完了を保証しません。既存 Cemu workflow は Launcher の正式配布 CI ではなく、旧公開 job は無効化済みです。
+原文通知・秘密情報・バイナリ・ソース対応・Runtime・入力/音声/描画・更新/復旧の検査を経てから、別途配布可否を判断します。Phase 13 の125件に対し、Phase 15A の fresh 構成では build tool の pkgconf 通知も採取され126件でした。通知件数は全法的条件の完了を保証しません。既存 Cemu workflow は Launcher の正式配布 CI ではなく、旧公開 job は無効化済みです。
 
 ## 検証と貢献
 

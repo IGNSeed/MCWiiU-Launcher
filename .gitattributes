@@ -1,1 +1,5 @@
 text=auto eol=lf
+
+# git apply が読む依存パッチは Windows の checkout でも LF を維持する。
+dependencies/vcpkg_overlay_ports/**/*.patch text eol=lf
+dependencies/vcpkg_overlay_ports/**/*.diff text eol=lf
