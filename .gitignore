@@ -62,6 +62,17 @@ AGENTS.md
 tests/
 docs/
 
+# 公開する製品ガイドだけを許可する。調査資料や下位の docs は除外を維持する。
+!/docs/
+/docs/*
+!/docs/INSTALLATION.md
+!/docs/GAME_DATA.md
+!/docs/FEATURES.md
+!/docs/UPDATING.md
+!/docs/TROUBLESHOOTING.md
+!/docs/PRIVACY.md
+!/docs/THIRD_PARTY_NOTICES.md
+
 # ビルド中間生成物、ログ、一時ファイル、IDE のローカル設定
 *.pdb
 *.ilk

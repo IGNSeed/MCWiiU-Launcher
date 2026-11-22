@@ -1,273 +1,94 @@
-# Build Instructions
+# MCWiiU Launcher の Windows x64 ビルド
 
-## Table of Contents
+[README](README.md) / [貢献方法](CONTRIBUTING.md) / [第三者通知](docs/THIRD_PARTY_NOTICES.md)
 
-- [Windows](#windows)
-- [Linux](#linux)
-   - [Dependencies](#dependencies)
-      - [For Arch and derivatives:](#for-arch-and-derivatives)
-      - [For Debian, Ubuntu and derivatives](#for-debian-ubuntu-and-derivatives)
-      - [For Fedora and derivatives:](#for-fedora-and-derivatives)
-   - [Build Cemu](#build-cemu)
-      - [CMake and Clang](#cmake-and-clang)
-      - [GCC](#gcc)
-      - [Debug Build](#debug-build)
-      - [Troubleshooting Steps](#troubleshooting-steps)
-         - [Compiling Errors](#compiling-errors)
-         - [Building Errors](#building-errors)
-- [macOS](#macos)
-   - [Installing brew](#installing-brew)
-   - [Dependencies](#dependencies-1)
-   - [MoltenVK](#moltenvk)
-   - [Build Cemu using CMake](#build-cemu-using-cmake)
-- [FreeBSD](#freebsd)
-	- [Installing Dependencies](#installing-dependencies)
-	- [Build Cemu on BSD with CMake](#build-cemu-on-bsd-with-cmake)
-- [Updating Cemu and source code](#updating-cemu-and-source-code)
+対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.0 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
 
-## Windows
+**再現性の制限:** Phase 13 の Native / Standalone 増分ビルドは成功していますが、既存キャッシュ、ローカル取得 SDK、保護された未公開 wx 差分を含む同一開発ホストでの検証です。クリーン環境での完全再現性・配布バイナリとのソース一致は未検証です。Phase 14 は文書変更で、ゲーム・製品の再ビルドを実施したとは扱いません。
 
-Prerequisites:
-- git
-- A recent version of Visual Studio 2022 with the following additional components:
-   - C++ CMake tools for Windows
-   - Windows 10/11 SDK
+## 開発環境
 
-Instructions for Visual Studio 2022:
+| 項目 | 現行構成・条件 |
+|---|---|
+| Visual Studio / MSVC | C++ デスクトップ開発、x64 tools と Windows SDK。既存キャッシュの compiler は MSVC 14.51.36231、Visual Studio 18 Community。C++23 を扱える環境が必要 |
+| CMake / Ninja | Launcher の最低 CMake は3.25（Core 側3.21.1）。既存ホストの実測は Visual Studio 同梱 CMake 3.31.6-msvc6 / Ninja 1.12.1 |
+| Windows SDK | 既存ホストに10.0.26100.0を導入。Windows x64 / RC / WinHTTP / Crypto / COM 等を使用。新規ホストでの互換性は別途確認 |
+| Git | submodule を含めて取得。対応 revision を維持し、無条件の上流 main 更新はしない |
+| vcpkg | `dependencies/vcpkg` と tracked overlays / `vcpkg.json`。Native は `x64-windows-static`、既存 cache を再利用 |
+| saucer / WebView2 SDK | [Launcher CMake](src/launcher/CMakeLists.txt) で saucer 8.0.5 の archive と SHA-256 を固定。WebView2 backend、SDK 1.0.3650.58 は saucer の NuGet 経由。Runtime は別途必要 |
+| Discord Social SDK | 認可された公式 C++ SDK。下記の版・DLL hash と原文 notice を検査 |
+| Inno Setup | Setup 作成には **7.1.1**。ISCC の SHA-256 は `e0f9f1dc32032650c6629f6dee41eb6d20ba140e4e3c07c25d8a24f9ba781644` に固定 |
 
-1. Run `git clone --recursive https://github.com/cemu-project/Cemu`
-2. Open the newly created Cemu directory in Visual Studio using the "Open a local folder" option
-3. In the menu select Project -> Configure CMake. Wait until it is done, this may take a long time
-4. You can now build, run and debug Cemu
+既存 CMakeSettings.json は Visual Studio の一般構成で、Launcher 用 CMakePresets.json はありません。`--preset` を前提にしないでください。初回依存取得にはネットワーク・容量・時間が必要です。通常は既存オブジェクトと依存キャッシュを使用します。
 
-Any other IDE should also work as long as it has CMake and MSVC support. CLion and Visual Studio Code have been confirmed to work.
+## ソースと Discord SDK
 
-## Linux
-
-To compile Cemu, a recent enough compiler and STL with C++20 support is required! Clang-15 or higher is what we recommend.
-
-### Dependencies
-
-#### For Arch and derivatives:
-`sudo pacman -S --needed base-devel bluez-libs clang cmake freeglut git glm gtk3 libgcrypt libpulse libsecret linux-headers llvm nasm ninja systemd unzip zip wayland-protocols`
-
-#### For Debian, Ubuntu and derivatives:
-`sudo apt install -y cmake curl clang-15 freeglut3-dev git libbluetooth-dev libgcrypt20-dev libglm-dev libgtk-3-dev libpulse-dev libsecret-1-dev libsystemd-dev libtool nasm ninja-build`
-
-You may also need to install `libusb-1.0-0-dev` as a workaround for an issue with the vcpkg hidapi package.
-
-At Step 3 in [Build Cemu using CMake and Clang](#cmake-and-clang), use the following command instead:
-   `cmake -S . -B build -DCMAKE_BUILD_TYPE=release -DCMAKE_C_COMPILER=/usr/bin/clang-15 -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15 -G Ninja -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja`
-
-#### For Fedora and derivatives:
-`sudo dnf install bluez-libs-devel clang cmake cubeb-devel freeglut-devel git glm-devel gtk3-devel kernel-headers libgcrypt-devel libsecret-devel libtool libusb1-devel llvm nasm ninja-build perl-core systemd-devel wayland-protocols-devel zlib-devel zlib-static`
-
-### Build Cemu
-
-#### CMake and Clang
-
-```
-git clone --recursive https://github.com/cemu-project/Cemu
-cd Cemu
-cmake -S . -B build -DCMAKE_BUILD_TYPE=release -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -G Ninja
-cmake --build build
+```powershell
+git clone --recurse-submodules https://github.com/IGNSeed/MCWiiU-Launcher.git
+cd MCWiiU-Launcher
+git submodule update --init --recursive
 ```
 
-#### GCC
+配布物を再現する場合は、将来の Release に示される正確な Commit SHA へ対応付けます。現時点で正式 Release Tag はありません。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
 
-If you are building using GCC, make sure you have g++ installed:
-- Installation for Arch and derivatives: `sudo pacman -S gcc`
-- Installation for Debian, Ubuntu and derivatives: `sudo apt install g++`
-- Installation for Fedora and derivatives: `sudo dnf install gcc-c++`
+Discord SDK は [Discord Developer Portal](https://discord.com/developers/applications) で認可されたアプリの Social SDK ダウンロードから取得します。リポジトリへ SDK をコピー・Commit しないでください。既定のローカル配置先は `.local/dependencies/discord-social-sdk`。別配置は `MCWIIU_DISCORD_SDK_ROOT` と `MCWIIU_DISCORD_SDK_NOTICES` で指定できます。
 
-```
-git clone --recursive https://github.com/cemu-project/Cemu
-cd Cemu
-cmake -S . -B build -DCMAKE_BUILD_TYPE=release -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ -G Ninja
-cmake --build build
+必須ファイルは `include/discordpp.h`、`lib/release/discord_partner_sdk.lib`、`bin/release/discord_partner_sdk.dll`、原文 `License-Notices.txt` です。現行の SDK は **1.11.24259**、DLL の SHA-256 は次の値です。
+
+```text
+0688b44b738148cb0df9beca00a64f2b8b351f87a7af39035bc378008df34f0d
 ```
 
-#### Debug Build
+不一致・不足は構成を停止します。検査を無効化せず、版・互換性・契約を確認してください。CMake は SDK を自動取得・代用品へ置換しません。配布対象は統合 DLL と原文 notice であり、SDK 全体の再配布や CI 供給の認可を推定しません。
 
-```
-git clone --recursive https://github.com/cemu-project/Cemu
-cd Cemu
-cmake -S . -B build -DCMAKE_BUILD_TYPE=debug -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -G Ninja
-cmake --build build
-```
+## Native Release と Standalone Release
 
-If you are using GCC, replace `cmake -S . -B build -DCMAKE_BUILD_TYPE=debug -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++ -G Ninja` with `cmake -S . -B build -DCMAKE_BUILD_TYPE=debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ -G Ninja`
+| 構成 | ソース・出力 | 用途 |
+|---|---|---|
+| Native | ルート CMake、`ENABLE_NATIVE_LAUNCHER=ON`、`out/build/Release` | Cemu Core と同一プロセスでゲームを動かす製品構成 |
+| Standalone | `src/launcher` CMake、`out/build/LauncherRelease` | Core のない UI/更新等の開発構成。ゲームを起動できず、Core 必須機能も利用不可 |
 
-#### Troubleshooting Steps
+両方の本体出力名は `bin/MCWiiU Launcher.exe` です。内部 target は `LauncherShell` のままです。Bootstrapper は `MCWiiU-Launcher`、Updater は `MCWiiU-Updater`、Setup helper は `MCWiiU-SetupGuard`、署名ツールは `MCWiiU-SigningTool`。後者は EXCLUDE_FROM_ALL のため明示的にビルドします。
 
-##### Compiling Errors
+以下の target 指定は Phase 13 の増分ビルドで使用したものです。**既存の構成済みキャッシュ**と、x64 MSVC / CMake / Ninja の環境が必要です。
 
-This section refers to running `cmake -S...` (truncated).
-
-* `vcpkg install failed`
-   * Run the following in the root directory and try running the command again (don't forget to change directories afterwards):
-      * `cd dependencies/vcpkg && git fetch --unshallow`
-* `Please ensure you're using the latest port files with git pull and vcpkg update.`
-   * Either:
-      * Update vcpkg by running the following command:
-         * `git submodule update --remote dependencies/vcpkg`
-      * If you are sure vcpkg is up to date, check the following logs:
-         * `Cemu/dependencies/vcpkg/buildtrees/wxwidgets/config-x64-linux-out.log`
-         * `Cemu/dependencies/vcpkg/buildtrees/libsystemd/config-x64-linux-dbg-meson-log.txt.log`
-         * `Cemu/dependencies/vcpkg/buildtrees/libsystemd/config-x64-linux-dbg-out.log`
-* Not able to find Ninja.
-   * Add the following and try running the command again:
-      * `-DCMAKE_MAKE_PROGRAM=/usr/bin/ninja`
-* Compiling failed during the boost-build dependency.
-   * It means you don't have a working/good standard library installation. Check the integrity of your system headers and make sure that C++ related packages are installed and intact.
-* Compiling failed during rebuild after `git pull` with an error that mentions RPATH
-   * Add the following and try running the command again:
-      * `-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON`
-* Environment variable `VCPKG_FORCE_SYSTEM_BINARIES` must be set.
-   * Execute the following and then try running the command again:
-      * `export VCPKG_FORCE_SYSTEM_BINARIES=1`
-* If you are getting a random error, read the [package-name-and-platform]-out.log and [package-name-and-platform]-err.log for the actual reason to see if you might be lacking the headers from a dependency.
-
-
-If you are getting a different error than any of the errors listed above, you may either open an issue in this repo or try using [GCC](#gcc). Make sure your standard library and compilers are updated since Cemu uses a lot of modern features!
-
-
-##### Building Errors
-
-This section refers to running `cmake --build build`.
-
-* `main.cpp.o: in function 'std::__cxx11::basic_string...`
-   * You likely are experiencing a clang-14 issue. This can only be fixed by either lowering the clang version or using GCC, see [GCC](#gcc).
-* `fatal error: 'span' file not found`
-   *  You're either missing `libstdc++` or are using a version that's too old. Install at least v10 with your package manager, e.g. `sudo apt install libstdc++-10-dev`. See [#644](https://github.com/cemu-project/Cemu/issues/644).
-* `undefined libdecor_xx`
-   * You are likely experiencing an issue with the sdl2 package that comes with vcpkg. Delete sdl2 from vcpkg.json in source file and recompile.
-
-If you are getting a different error than any of the errors listed above, you may either open an issue in this repo or try using [GCC](#gcc). Make sure your standard library and compilers are updated since Cemu uses a lot of modern features!
-
-## macOS
-
-To compile Cemu, a recent enough compiler and STL with C++20 support is required! LLVM 13 and below
-don't support the C++20 feature set required, so either install LLVM from Homebrew or make sure that
-you have a recent enough version of Xcode. Xcode 15 is known to work.
-
-### Installing brew
-
-To install the dependencies required to build Cemu, you will need to install Homebrew package manager first. You can do this by running the following command in your terminal:
-
-1. `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
-2. Set up the Homebrew shell environment:
-   - **On an Apple Silicon Mac:** eval `"$(/opt/homebrew/bin/brew shellenv)"`
-   - **On an Intel Mac:** `eval "$(/usr/local/Homebrew/bin/brew shellenv)"`
-
-### Dependencies
-
-The following dependencies are required. You can install them using Homebrew with the following command:
-
-`brew install automake boost cmake git libtool nasm ninja pkgconf`
-
-### MoltenVK
-
-Cemu uses the MoltenVK library to provide Vulkan support on macOS. While available on Brew, Cemu requires the "privateapi" version of MoltenVK, which is not available on Brew. To install the required version, follow the instructions below:
-
-1. `curl -L -O https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-macos-privateapi.tar`
-1. `tar xf MoltenVK-macos-privateapi.tar`
-1. Create a directory for the MoltenVK dylib if it doesn't already exist:
-   - **On an Apple Silicon Mac:** `sudo mkdir -p /opt/homebrew/lib`
-   - **On an Intel Mac:** `sudo mkdir -p /usr/local/lib/`
-1. Copy the MoltenVK dylib to your system library directory:
-   - **On an Apple Silicon Mac:** `sudo cp MoltenVK/lib/libMoltenVK.dylib /opt/homebrew/lib/`
-   - **On an Intel Mac:** `sudo cp MoltenVK/lib/libMoltenVK.dylib /usr/local/lib/`
-
-Alternatively, you can use the non-privateapi version of MoltenVK, but you may encounter some rendering issues due to the lack of logicOp support. If you want to go this route, simply install MoltenVK from Brew with `brew install molten-vk` and skip the steps above.
-
-### Build Cemu using CMake
-
-1. `git clone --recursive https://github.com/cemu-project/Cemu`
-2. `cd Cemu`
-3. `cmake -S . -B build -DCMAKE_BUILD_TYPE=release -G Ninja`
-4. `cmake --build build`
-5. You should now have a Cemu executable file in the /bin folder, which you can run using `./bin/Cemu_release`.
-
-#### Creating an app bundle
-- If you want to create an app bundle instead of a raw executable, append the following flag to the command in step 3:
-   - `-DMACOS_BUNDLE=ON`
-
-#### Troubleshooting steps
-- If step 3 gives you an error about not being able to find ninja, try appending the following to the command and try again:
-   - **On an Apple Silicon Mac:** `-DCMAKE_MAKE_PROGRAM=/opt/homebrew/bin/ninja`
-   - **On an Intel Mac:** `-DCMAKE_MAKE_PROGRAM=/usr/local/bin/ninja`
-
-## FreeBSD
-
-The following instructions to build Cemu on FreeBSD are experimental. Some features available on other platforms are not available on FreeBSD (discord rich presence, bluetooth/support for actual Wii U controllers, auto-updates, etc.)
-
-To compile Cemu, a recent enough compiler and STL with C++20 support is required! Clang-15 or higher is what we recommend. Any version of FreeBSD 13.3-RELEASE or higher comes bundled with LLVM > version 15 as part of the base system. However, if for whatever reason your system lacks a recent version of LLVM you can install one by executing:
-
-`sudo pkg install llvm15`
-
-Or a higher version as desired.
-
-### Installing Dependencies
-
-`sudo pkg install boost-libs cmake-core curl glslang gtk3 libzip ninja png pkgconf pugixml rapidjson sdl2 wayland wayland-protocols wx32-gtk3 xorg zstd`
-
-### Build Cemu on BSD with CMake
-
-```
-git clone --recursive https://github.com/cemu-project/Cemu
-cd Cemu
-cmake -B build -DCMAKE_BUILD_TYPE=release -DENABLE_BLUEZ=OFF -DENABLE_DISCORD_RPC=OFF -DENABLE_FERAL_GAMEMODE=OFF -DENABLE_HIDAPI=OFF -DENABLE_VCPKG=OFF -G Ninja
-cmake --build build
-
-cd build && ninja install
+```powershell
+cmake --build out/build/Release --target LauncherShell CemuBin --parallel 8
+cmake --build out/build/LauncherRelease --target LauncherShell MCWiiU-SigningTool --parallel 6
 ```
 
-You should now have a Cemu executable file in the /bin folder, which you can run using `./bin/Cemu_release`.
+このホストではローカルの `.local/temp/incremental-integration.cmd`、`.local/temp/incremental-launcher.cmd` と署名ツール target を使うラッパーで環境を初期化しています。これらは公開リポジトリには含まれないため、新しい clone に存在するとは案内しません。既存の `.local/temp/build-release.cmd` は CemuBin の構成/ビルド入口で、単体では Native Launcher の構成指定を代替しません。
 
-## Updating Cemu and source code
-1. To update your Cemu local repository, use the command `git pull --recurse-submodules` (run this command in the Cemu root).
-    - This should update your local copy of Cemu and all of its dependencies.
-2. Then, you can rebuild Cemu using the steps listed above, according to whether you use Linux or Windows.
+構成に必要な実在オプションは Native の `-S . -B out/build/Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_LAUNCHER=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static`、Standalone の `-S src/launcher -B out/build/LauncherRelease -G Ninja -DCMAKE_BUILD_TYPE=Release` です。これらは既存構成スクリプトと CMakeCache に対応しますが、短縮した引数列だけで新規環境が完全再現できるという意味ではありません。
 
-If CMake complains about Cemu already being compiled or another similar error, try deleting the `CMakeCache.txt` file inside the `build` folder and retry building.
+現ホストではさらに依存 source/cache・NuGet の配置と、日本語 MSVC のヘッダー依存対策の compiler launcher / make-rule override を使っています。使用中の補助ファイルを削除せず、cache の設定を維持してください。Standalone も既存 Native の `out/build/Release/vcpkg_installed/x64-windows-static` の OpenSSL・libzip・原文通知を参照するため、Native の依存準備が先です。正確な初回構成と SDK 供給の独立再現は配布前の残課題です。
 
-## CMake configure flags
-Some flags can be passed during CMake configure to customise which features are enabled on build.
+`MCWIIU_DEVELOPER_DIAGNOSTICS` は通常 Release で **OFF** を維持します。保護対象の既存ソースやユーザーデータをリセットしたり、別の構成を大量に作ったり、キャッシュを毎回消したりしないでください。ビルド前後で空き容量を確認します。
 
-Example usage: `cmake -S . -B build -DCMAKE_BUILD_TYPE=release -DENABLE_SDL=ON -DENABLE_VULKAN=OFF`
+## パッケージと署名
 
-### All platforms
-| Flag               |   | Description                                                                 | Default | Note               |
-|--------------------|:--|-----------------------------------------------------------------------------|---------|--------------------|
-| ALLOW_PORTABLE     |   | Allow Cemu to use the `portable` directory to store configs and data        | ON      |                    |
-| CEMU_CXX_FLAGS     |   | Flags passed straight to the compiler, e.g. `-march=native`, `-Wall`, `/W3` | ""      |                    |
-| ENABLE_CUBEB       |   | Enable cubeb audio backend                                                  | ON      |                    |
-| ENABLE_DISCORD_RPC |   | Enable Discord Rich presence support                                        | ON      |                    |
-| ENABLE_OPENGL      |   | Enable OpenGL graphics backend                                              | ON      |                    |
-| ENABLE_HIDAPI      |   | Enable HIDAPI (used for Wiimote controller API)                             | ON      |                    |
-| ENABLE_SDL         |   | Enable SDLController controller API                                         | ON      |                    |
-| ENABLE_VCPKG       |   | Use VCPKG package manager to obtain dependencies                            | ON      |                    |
-| ENABLE_VULKAN      |   | Enable the Vulkan graphics backend                                          | ON      |                    |
-| ENABLE_WXWIDGETS   |   | Enable wxWidgets UI                                                         | ON      | Currently required |
-| ENABLE_LIBUSB      |   | Enable libusb                                                               | ON      |                    |
+以下は既存実装と Phase 13 の隔離試験に基づく工程です。本番鍵が未生成・公開鍵が未設定なので、**現状で正式 Setup を生成・配布できる手順ではありません**。ここでは本番鍵生成、Release / Draft / Tag 作成、アップロード、workflow 実行を行いません。
 
-### Windows
-| Flag               | Description                       | Default | Note               |
-|--------------------|-----------------------------------|---------|--------------------|
-| ENABLE_DIRECTAUDIO | Enable DirectAudio audio backend  | ON      | Currently required |
-| ENABLE_DIRECTINPUT | Enable DirectInput controller API | ON      | Currently required |
-| ENABLE_XAUDIO      | Enable XAudio audio backend       | ON      |                    |
-| ENABLE_XINPUT      | Enable XInput controller API      | ON      |                    |
+| 順序 | 実在するツール・入力・出力 |
+|---|---|
+| 1 | `installer/PreparePackage.ps1 -BinaryDirectory <Native bin> -OutputDirectory <新規.local出力先>`。payload・ZIP・package-plan.json を生成。Asset ID はまだ不要 |
+| 2 | 別途承認された配布工程で確定 ZIP の GitHub Asset metadata を採取。ID、名前、Tag、size、digest、browser_download_url を保持。ローカル推測値は使わない |
+| 3 | `installer/BuildPackage.ps1 -PreparedDirectory <準備先> -ReleaseAssetId <実ID> -AssetMetadata <metadata JSON>`。確定 ZIP と照合して manifest.unsigned.json を生成 |
+| 4 | `MCWiiU-SigningTool.exe sign manifest <署名鍵入力> <公開鍵ファイル> <unsigned manifest> <新規署名出力先>`。正確な bytes を署名し manifest.json / manifest.sig を生成 |
+| 5 | `installer/BuildFoundation.ps1 -BinaryDirectory <bin> -SigningTool <tool> -OutputDirectory <新規.local出力先>`、同 tool の `sign foundation` で foundation.json / foundation.sig を生成 |
+| 6 | 同一 bundle に ZIP、payload、manifest.json/.sig、foundation.json/.sig をそろえる。公開 asset の Manifest 名は update-manifest.json / update-manifest.sig という契約に合わせる |
+| 7 | `installer/BuildSetup.ps1` に BinaryDirectory、BundleDirectory、OutputDirectory、InnoCompiler、SigningTool、PublicKeyFile を明示。全署名・ZIP・payload・基盤 EXE と固定 ISCC を検証してから Setup を生成し、入力を再検証 |
 
-### Linux
-| Flag                  | Description                                        | Default |
-|-----------------------|----------------------------------------------------|---------|
-| ENABLE_BLUEZ          | Build with Bluez (used for Wiimote controller API) | ON      |
-| ENABLE_FERAL_GAMEMODE | Enable Feral Interactive GameMode support          | ON      |
-| ENABLE_WAYLAND        | Enable Wayland support                             | ON      |
+`installer/` は [src/launcher/installer](src/launcher/installer/PreparePackage.ps1) の略です。実パラメーターは各スクリプトの `param` を参照してください。出力は workspace の `.local/` 内の新しいディレクトリに限定します。署名後の ZIP/Manifest は変更せず、変更が必要なら新規取引として再準備・再署名します。
 
-### macOS
-| Flag         | Description                                    | Default |
-|--------------|------------------------------------------------|---------|
-| MACOS_BUNDLE | macOS executable will be an application bundle | OFF     |
+鍵の入力欄は構文説明用で、本番秘密鍵の実体・保存先は記載していません。署名は認可された管理環境でのみ行い、秘密値をソース・コマンド履歴・ログへ貼り付けないでください。将来の本番鍵導入は別工程です。
+
+既存の署名ツールには読み取りの `identity`、`fingerprint <公開鍵>`、`verify-manifest <公開鍵> <Manifest> <署名>`、`verify-foundation`、`verify-bundle <公開鍵> <bundle> <bin>` があります。本番生成コマンドをこの文書の確認目的で実行しないでください。Setup は Authenticode 署名を使わない方針です。
+
+原文通知・秘密情報・バイナリ・ソース対応・Runtime・入力/音声/描画・更新/復旧の検査を経てから、別途配布可否を判断します。125件の通知は全法的条件の完了を保証しません。既存 Cemu workflow は Launcher の正式配布 CI ではなく、旧公開 job は無効化済みです。
+
+## 検証と貢献
+
+変更範囲に応じて静的確認、対象 target のビルド、隔離試験を選びます。ゲーム原本・セーブ・MLC・Account・SDK 原本は保護し、物理デバイスやクリーン PC の未試験を PASS にしません。文書変更の検査で実ゲームや OS の受入が完了したとは扱いません。
+
+`git diff --check`、リンク・製品表記・コマンドのソース照合と、許可したパスだけのステージングを行います。生成物、SDK 原本、鍵、ユーザーデータ、ローカル検証物を公開しないでください。規約は[CONTRIBUTING](CONTRIBUTING.md)と[CODING_STYLE](CODING_STYLE.md)を参照してください。
