@@ -19,13 +19,7 @@ namespace LauncherUpdate
 			unsigned schema_version = 1;
 			std::string product_id, app_id;
 		};
-		struct Foundation
-		{
-			unsigned schema_version = 1;
-			std::string product_id, app_id, bootstrapper_version;
-			unsigned updater_protocol_version = 2;
-			std::vector<Manifest::Entry> files;
-		};
+
 	} // namespace InstallationDetail
 	namespace
 	{
@@ -66,18 +60,10 @@ namespace LauncherUpdate
 		{
 			return VerifyManifest(ReadFileBytes(directory / L"manifest.json", MetadataLimit), ReadFileBytes(directory / L"manifest.sig", 128), TrustedPublicKey, ProductId);
 		}
-		InstallationDetail::Foundation ReadFoundation(const fs::path& root)
+		FoundationMetadata ReadFoundation(const fs::path& root)
 		{
 			const auto bytes = ReadFileBytes(root / L"foundation.json", MetadataLimit);
-			VerifySignature(bytes, ReadFileBytes(root / L"foundation.sig", 128), TrustedPublicKey);
-			const auto record = ReadJson<InstallationDetail::Foundation>(root / L"foundation.json");
-			Require(record.schema_version == 1 && record.product_id == ProductId && record.app_id == AppId && Version::Parse(record.bootstrapper_version) >= Version::Parse("1.0.0") && record.updater_protocol_version >= ProtocolVersion && record.files.size() == 2, "foundation-identity-or-protocol-mismatch");
-			std::set<std::string> names;
-			for (const auto& item : record.files)
-			{
-				Require((item.path == "MCWiiU-Launcher.exe" || item.path == "MCWiiU-Updater.exe") && names.insert(item.path).second && item.size > 0 && item.sha256.size() == 64 && item.sha256.find_first_not_of("0123456789abcdef") == std::string::npos, "unexpected-foundation-file");
-			}
-			return record;
+			return VerifyFoundationMetadata(bytes, ReadFileBytes(root / L"foundation.sig", 128), TrustedPublicKey);
 		}
 		void CheckTree(const fs::path& directory, const Manifest& manifest)
 		{
@@ -175,6 +161,19 @@ namespace LauncherUpdate
 			Require(RemoveDirectoryW(directory.c_str()), "version-directory-not-empty");
 		}
 	} // namespace
+	FoundationMetadata VerifyFoundationMetadata(std::string_view bytes, std::string_view signature, std::string_view key)
+	{
+		VerifySignature(bytes, signature, key);
+		FoundationMetadata record;
+		Require(!glz::read<glz::opts{.error_on_missing_keys = true}>(record, bytes) && glz::write_json(record).value() == bytes, "invalid-foundation-metadata");
+		Require(record.schema_version == 1 && record.product_id == ProductId && record.app_id == AppId && Version::Parse(record.bootstrapper_version) >= Version::Parse("1.0.0") && record.updater_protocol_version >= ProtocolVersion && record.files.size() == 2, "foundation-identity-or-protocol-mismatch");
+		std::set<std::string> names;
+		for (const auto& item : record.files)
+		{
+			Require((item.path == "MCWiiU-Launcher.exe" || item.path == "MCWiiU-Updater.exe") && names.insert(item.path).second && item.size > 0 && item.sha256.size() == 64 && item.sha256.find_first_not_of("0123456789abcdef") == std::string::npos, "unexpected-foundation-file");
+		}
+		return record;
+	}
 	fs::path ProcessImage(HANDLE process)
 	{
 		std::array<wchar_t, 32768> value{};
@@ -213,7 +212,7 @@ namespace LauncherUpdate
 	bool FoundationCompatible(const fs::path& root, const Manifest& manifest)
 	{
 		VerifyFoundationFiles(root);
-		const auto record = ReadJson<InstallationDetail::Foundation>(root / L"foundation.json");
+		const auto record = ReadFoundation(root);
 		return Version::Parse(manifest.required_bootstrapper_version) <= Version::Parse(record.bootstrapper_version) && manifest.required_updater_protocol_version <= ProtocolVersion && manifest.required_updater_protocol_version <= record.updater_protocol_version;
 	}
 	fs::path InstalledRoot(const fs::path& launcher)

@@ -3,6 +3,14 @@
 
 namespace LauncherUpdate
 {
+	struct FoundationMetadata
+	{
+		unsigned schema_version = 1;
+		std::string product_id, app_id, bootstrapper_version;
+		unsigned updater_protocol_version = 2;
+		std::vector<Manifest::Entry> files;
+	};
+	FoundationMetadata VerifyFoundationMetadata(std::string_view bytes, std::string_view signature, std::string_view key);
 	struct VersionRef
 	{
 		std::string version, package_id;

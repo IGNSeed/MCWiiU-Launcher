@@ -260,6 +260,7 @@ namespace LauncherUpdate
 			candidate.bytes = handoff.manifest;
 			candidate.signature = handoff.signature;
 			candidate.manifest = VerifyManifest(candidate.bytes, candidate.signature, TrustedPublicKey, ProductId);
+			Require(candidate.manifest.package_format == "zip", "foundation-updates-require-manual-setup");
 			BindRelease(candidate, handoff.release);
 			Require(candidate.targetId == handoff.targetId && handoff.nonce.size() == 64 && handoff.nonce.find_first_not_of("0123456789abcdef") == std::string::npos, "stale-update-handoff");
 			Require(!fs::exists(root / L"pending.json"), "recover-existing-transaction-first");
@@ -269,10 +270,7 @@ namespace LauncherUpdate
 			const auto package = transaction / Wide(candidate.manifest.package_filename);
 			auto packageLock = OpenLocked(package);
 			VerifyPackage(package, candidate.manifest);
-			if (candidate.manifest.package_format == "zip")
-				Require(FoundationCompatible(root, candidate.manifest), "foundation-update-required");
-			else
-				VerifyFoundationSetup(package, candidate.manifest);
+			Require(FoundationCompatible(root, candidate.manifest), "foundation-update-required");
 			if (status)
 				status(State::AwaitingShutdown);
 			Log(transaction, "AwaitingShutdown");
@@ -290,36 +288,7 @@ namespace LauncherUpdate
 				Log(transaction, "CancelledBeforeActivation");
 				return true;
 			}
-			if (candidate.manifest.package_format == "inno-setup")
-			{
-				if (status) status(State::Activating);
-				Log(transaction,"FoundationInstalling");
-				VerifyFoundationSetup(package, candidate.manifest);
-				previous.locks.clear();
-				// Setup自身による基盤更新だけを許可する。Launcher更新の承認は引き継がない。
-				auto command = L"\"" + package.wstring() + L"\" /CURRENTUSER /NORESTART /NOLAUNCH=1 /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /DIR=\"" + root.wstring() + L"\"";
-				STARTUPINFOW startup{sizeof(startup)};
-				PROCESS_INFORMATION process{};
-				Require(CreateProcessW(package.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, transaction.c_str(), &startup, &process), "cannot-start-foundation-setup");
-				File owner(process.hProcess), thread(process.hThread);
-				packageLock = {};
-				Require(WaitForSingleObject(owner.handle, INFINITE) == WAIT_OBJECT_0 && GetExitCodeProcess(owner.handle, &exit) && exit == 0, "foundation-setup-failed-use-verified-setup");
-				ValidateRegisteredRoot(root);
-				Require(FoundationCompatible(root, candidate.manifest), "foundation-setup-did-not-provide-required-version");
-				for (const auto& item : candidate.manifest.files)
-				{
-					auto file = OpenLocked(root / Wide(item.path), true);
-					LARGE_INTEGER size{};
-					Require(GetFileSizeEx(file.handle, &size) && size.QuadPart >= 0 && static_cast<uint64_t>(size.QuadPart) == item.size && FileSha256(file.handle) == item.sha256, "foundation-result-inventory-mismatch");
-				}
-				const auto retained = ReadCurrent(root);
-				Require(retained.current == current.current && retained.previous == current.previous, "foundation-changed-launcher-state");
-				auto verified = VerifyVersion(root, current.current);
-				operation = {};
-				Require(LaunchReady(root / L"MCWiiU-Launcher.exe", current.current.version, nullptr, nullptr, true), "foundation-bootstrapper-restart-failed");
-				Log(transaction, "FoundationCompleted");
-				return true;
-			}
+
 			if (status)
 				status(State::Staging);
 			Log(transaction, "Staging");

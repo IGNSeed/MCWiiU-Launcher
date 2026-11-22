@@ -55,11 +55,11 @@ Version Version::Parse(std::string_view text)
 }
 std::string_view Name(State state)
 {
- constexpr std::string_view names[] = {"Idle","Checking","UpToDate","UpdateAvailable","Scheduled","Downloading","Verifying","Staging","Staged","AwaitingShutdown","Activating","VerifyingStartup","Committing","Completed","RollingBack","Failed","RecoveryRequired"};
+ constexpr std::string_view names[] = {"Idle","Checking","UpToDate","UpdateAvailable","Scheduled","Downloading","Verifying","Staging","Staged","AwaitingShutdown","Activating","VerifyingStartup","Committing","Completed","RollingBack","Failed","RecoveryRequired","FoundationRequired"};
  Require(static_cast<unsigned>(state) < std::size(names), "invalid-update-state");
  return names[static_cast<unsigned>(state)];
 }
-bool CanCancel(State state) { return state == State::Checking || (state >= State::UpdateAvailable && state <= State::Staged); }
+bool CanCancel(State state) { return state == State::FoundationRequired || state == State::Checking || (state >= State::UpdateAvailable && state <= State::Staged); }
 bool RollbackCompatible(const Manifest& previous, const Manifest& next)
 {
  return previous.product_id == next.product_id && previous.architecture == next.architecture &&
@@ -70,8 +70,9 @@ bool CanTransition(State from, State to)
  if (to == State::Failed || to == State::RecoveryRequired) return from != State::Completed;
  if (to == State::Idle) return CanCancel(from) || from == State::UpToDate || from == State::Failed;
  switch (from) {
- case State::Idle: case State::UpToDate: case State::Failed: case State::UpdateAvailable: return to == State::Checking || (from == State::UpdateAvailable && to == State::Scheduled);
- case State::Checking: return to == State::UpToDate || to == State::UpdateAvailable;
+ case State::Idle: case State::UpToDate: case State::Failed: case State::UpdateAvailable: return to == State::Checking || (from == State::UpdateAvailable && (to == State::Scheduled || to == State::FoundationRequired));
+ case State::Checking: return to == State::UpToDate || to == State::UpdateAvailable || to == State::FoundationRequired;
+ case State::FoundationRequired: return to == State::Checking;
  case State::Scheduled: return to == State::Downloading;
  case State::Downloading: return to == State::Verifying;
  case State::Verifying: return to == State::Staging;

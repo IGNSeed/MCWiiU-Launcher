@@ -20,7 +20,7 @@ struct Version
 	auto operator<=>(const Version&) const = default;
 	static Version Parse(std::string_view text);
 };
-enum class State { Idle, Checking, UpToDate, UpdateAvailable, Scheduled, Downloading, Verifying, Staging, Staged, AwaitingShutdown, Activating, VerifyingStartup, Committing, Completed, RollingBack, Failed, RecoveryRequired };
+enum class State { Idle, Checking, UpToDate, UpdateAvailable, Scheduled, Downloading, Verifying, Staging, Staged, AwaitingShutdown, Activating, VerifyingStartup, Committing, Completed, RollingBack, Failed, RecoveryRequired, FoundationRequired };
 std::string_view Name(State state);
 bool CanTransition(State from, State to);
 bool CanCancel(State state);

@@ -81,6 +81,22 @@
     {
       "name": "wxwidgets",
       "version": "3.3.3"
+    },
+    {
+      "name": "openssl",
+      "version": "3.5.9"
+    },
+    {
+      "name": "curl",
+      "version": "8.23.0"
+    },
+    {
+      "name": "libpng",
+      "version": "1.6.59"
+    },
+    {
+      "name": "expat",
+      "version": "2.10.0"
     }
   ]
 }

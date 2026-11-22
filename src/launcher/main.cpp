@@ -769,6 +769,7 @@ namespace
 				}
 				else if (message == "update:check") updates.Check();
 				else if (message == "update:cancel") updates.Cancel();
+				else if (message == "update:open-foundation-releases") updates.OpenFoundationReleases();
 				else if (message.starts_with("update:approve:")) updates.Approve(message.substr(15));
 				else if (message.starts_with("update:install:")) updates.Install(message.substr(15));
 				else if (message == "update:poll")
@@ -1112,7 +1113,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 {
 	const auto processStart = Launcher::DiscordPresence::ProcessStartTime();
 	const std::wstring_view arguments(commandLine);
-	if (arguments == L"--native-host-diagnostics" || arguments == L"--native-host-diagnostics-fail-after-create")
+	if (arguments.starts_with(L"--update-ready ")) s_updateArguments = arguments;
+#ifdef MCWIIU_DEVELOPER_DIAGNOSTICS
+	else if (arguments == L"--native-host-diagnostics" || arguments == L"--native-host-diagnostics-fail-after-create")
 	{
 		s_nativeHostDiagnostics = true;
 		s_failHostInitialization = arguments == L"--native-host-diagnostics-fail-after-create";
@@ -1127,7 +1130,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 	else if (arguments == L"--core-initialize-test")
 		s_launchImmediately = false;
 #endif
-	else if (arguments.starts_with(L"--update-ready ")) s_updateArguments = arguments;
+
+#endif
 	else if (!arguments.empty())
 		ExitProcess(2);
 	try

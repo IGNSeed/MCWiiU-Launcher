@@ -4,6 +4,7 @@
 #include "LauncherPaths.h"
 #include "VersionedInstallation.h"
 #include <glaze/glaze.hpp>
+#include <shellapi.h>
 
 using namespace LauncherUpdate;
 namespace UpdateServiceDetail
@@ -11,10 +12,10 @@ namespace UpdateServiceDetail
 	struct Asset { uint64_t id = 0; std::string name, browser_download_url, state; uint64_t size = 0; };
 	struct Release { uint64_t id = 0; std::string tag_name; bool draft = true, prerelease = true; std::vector<Asset> assets; };
 	struct Snapshot { std::string state, targetId, version, notes, error; uint64_t revision, downloaded, size; bool canCancel, blocksPlay; std::string packageKind, foundationVersion; };
-	Candidate ReadCandidate(const Release& release, std::string_view releaseJson, std::atomic_bool& cancel, bool foundation = false)
+	Candidate ReadCandidate(const Release& release, std::string_view releaseJson, std::atomic_bool& cancel)
 	{
 		Candidate candidate;
-		for (auto name : (foundation ? std::array{"foundation-update-manifest.json", "foundation-update-manifest.sig"} : std::array{"update-manifest.json", "update-manifest.sig"}))
+		for (auto name : std::array{"update-manifest.json", "update-manifest.sig"})
 		{
 			const Asset* selected = nullptr;
 			for (const auto& asset : release.assets) if (asset.name == name) { Require(!selected && asset.id && asset.state == "uploaded", "duplicate-manifest-asset"); selected = &asset; }
@@ -25,7 +26,7 @@ namespace UpdateServiceDetail
 			if (std::string_view(name).ends_with(".sig")) candidate.signature = metadata.body; else candidate.bytes = metadata.body;
 		}
 		candidate.manifest = VerifyManifest(candidate.bytes, candidate.signature, TrustedPublicKey, ProductId);
-		Require(candidate.manifest.package_format == (foundation ? "inno-setup" : "zip"), "invalid-update-manifest-kind");
+		Require(candidate.manifest.package_format == "zip", "invalid-update-manifest-kind");
 		BindRelease(candidate, releaseJson);
 		return candidate;
 	}
@@ -72,24 +73,32 @@ void UpdateService::CheckWorker()
 	const auto version = Version::Parse(std::string_view(release.tag_name).substr(1));
 	if (version <= Version::Parse(ExecutableVersion(ProcessImage()))) { std::lock_guard lock(m_mutex); Require(!m_cancel, "cancelled"); Move(State::UpToDate); return; }
 	auto candidate = ReadCandidate(release, response.body, m_cancel);
-	if (candidate.manifest.package_format == "zip") {
-		bool compatible = false;
-		try { compatible = FoundationCompatible(ProcessImage().parent_path().parent_path().parent_path(),candidate.manifest); }
-		catch (const std::exception&) { compatible = Version::Parse(candidate.manifest.required_bootstrapper_version) <= Version::Parse(BootstrapperVersion) && candidate.manifest.required_updater_protocol_version <= ProtocolVersion; }
-		if (!compatible) {
-			try { candidate = ReadCandidate(release,response.body,m_cancel,true); }
-			catch (const std::exception&) { throw std::runtime_error("foundation-update-required-no-verified-setup-available"); }
-		}
-	}
-	std::lock_guard lock(m_mutex); Require(!m_cancel, "cancelled"); m_candidate = std::move(candidate); m_release = response.body; Move(State::UpdateAvailable);
+	const auto image = ProcessImage();
+	const bool installed = image.parent_path().parent_path().filename() == L"versions";
+	const bool compatible = installed ? FoundationCompatible(image.parent_path().parent_path().parent_path(), candidate.manifest) :
+		Version::Parse(candidate.manifest.required_bootstrapper_version) <= Version::Parse(BootstrapperVersion) && candidate.manifest.required_updater_protocol_version <= ProtocolVersion;
+	std::lock_guard lock(m_mutex); Require(!m_cancel, "cancelled"); m_candidate = std::move(candidate); m_release = response.body;
+	Move(compatible ? State::UpdateAvailable : State::FoundationRequired);
 }
 void UpdateService::Approve(std::string_view targetId)
 {
 	std::lock_guard lock(m_mutex);
 	if (m_state != State::UpdateAvailable || targetId != m_candidate.targetId || m_working) return;
- try { if (m_candidate.manifest.package_format == "zip" && !FoundationCompatible(InstalledRoot(ProcessImage()),m_candidate.manifest)) { m_error = "foundation-update-required"; ++m_generation; return; } }
+ try { if (!FoundationCompatible(InstalledRoot(ProcessImage()),m_candidate.manifest)) { Move(State::FoundationRequired); return; } }
  catch (const std::exception& error) { m_error = error.what(); ++m_generation; return; }
  Move(State::Scheduled);
+}
+void UpdateService::OpenFoundationReleases()
+{
+	std::lock_guard lock(m_mutex);
+	if (m_state != State::FoundationRequired) return;
+	// 検証済みの不一致を表示中に利用者が押した場合だけ、固定の公式ページを開く。
+	SHELLEXECUTEINFOW open{sizeof(open)};
+	open.fMask = SEE_MASK_FLAG_NO_UI;
+	open.lpVerb = L"open";
+	open.lpFile = L"https://github.com/IGNSeed/MCWiiU-Launcher/releases";
+	open.nShow = SW_SHOWNORMAL;
+	if (!ShellExecuteExW(&open)) { m_error = "cannot-open-official-releases"; ++m_generation; }
 }
 void UpdateService::Cancel()
 {
@@ -112,11 +121,12 @@ void UpdateService::ConfirmApproval()
 	Require(response.status == 200, "approved-release-no-longer-available");
 	Release release;
 	Require(!glz::read<glz::opts{.error_on_unknown_keys = false}>(release, response.body) && release.id && !release.draft && !release.prerelease, "approved-release-changed");
-	const auto current = ReadCandidate(release, response.body, m_cancel, m_candidate.manifest.package_format == "inno-setup");
+	const auto current = ReadCandidate(release, response.body, m_cancel);
 	Require(current.targetId == m_candidate.targetId && current.notes == m_candidate.notes, "approved-update-changed-check-again");
 }
 void UpdateService::DownloadWorker()
 {
+ Require(m_candidate.manifest.package_format == "zip", "foundation-updates-require-manual-setup");
  const auto root = InstalledRoot(ProcessImage());
  const auto current = ReadCurrent(root); auto verified = VerifyVersion(root,current.current);
  Require(verified.manifest.version == ExecutableVersion(ProcessImage()) && RollbackCompatible(verified.manifest,m_candidate.manifest), "update-data-or-version-incompatible");
@@ -141,8 +151,7 @@ void UpdateService::DownloadWorker()
 	WriteNew(m_transaction / L"manifest.json", m_candidate.bytes); WriteNew(m_transaction / L"manifest.sig", m_candidate.signature);
  { std::lock_guard lock(m_mutex); Require(!m_cancel,"cancelled"); Move(State::Staging); }
  { auto operation = LockInstallation(root);
-   if (manifest.package_format == "zip") StageVersion(root,m_transaction/Wide(manifest.package_filename),m_candidate.bytes,m_candidate.signature);
-   else VerifyFoundationSetup(m_transaction/Wide(manifest.package_filename),manifest);
+   StageVersion(root,m_transaction/Wide(manifest.package_filename),m_candidate.bytes,m_candidate.signature);
  }
 	std::lock_guard lock(m_mutex); Require(!m_cancel, "cancelled"); Move(State::Staged);
 }

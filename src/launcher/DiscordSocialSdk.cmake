@@ -16,6 +16,10 @@ endforeach()
 if(NOT EXISTS "${MCWIIU_DISCORD_SDK_NOTICES}")
     message(FATAL_ERROR "Set MCWIIU_DISCORD_SDK_NOTICES to the original notices supplied with the official SDK. Review its redistribution terms before packaging.")
 endif()
+file(SHA256 "${discord_sdk_runtime}" discord_runtime_hash)
+if(NOT discord_runtime_hash STREQUAL "0688b44b738148cb0df9beca00a64f2b8b351f87a7af39035bc378008df34f0d")
+    message(FATAL_ERROR "Discord Social SDK 1.11.24259 runtime hash mismatch. Review SDK compatibility before changing the pin.")
+endif()
 
 add_library(DiscordSocialSdk SHARED IMPORTED)
 set_target_properties(DiscordSocialSdk PROPERTIES

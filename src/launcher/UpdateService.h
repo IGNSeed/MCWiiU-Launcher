@@ -11,6 +11,7 @@ public:
 	void Check();
 	void Approve(std::string_view targetId);
 	void Cancel();
+	void OpenFoundationReleases();
 	void BeginWhenSafe(bool safe);
 	void Install(std::string_view targetId);
 	bool BlocksPlay() const;

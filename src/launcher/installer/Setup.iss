@@ -8,7 +8,10 @@
   #define StableAppId "{362BA210-0BBE-45ED-A0F5-6000DB57594B}"
 #endif
 #ifndef FoundationVersion
-  #define FoundationVersion "1.0.0"
+  #define FoundationVersion "1.0.2"
+#endif
+#ifndef LauncherVersion
+  #define LauncherVersion "0.4.0"
 #endif
 
 [Setup]
@@ -35,7 +38,7 @@ RestartIfNeededByRun=no
 ChangesAssociations=no
 UninstallDisplayIcon={app}\MCWiiU-Launcher.exe
 UninstallDisplayName={#ProductName}
-OutputBaseFilename={#ProductId}-Setup
+OutputBaseFilename={#ProductId}-{#LauncherVersion}-Setup-x64
 OutputDir={#OutputPath}
 Compression=lzma2/fast
 SolidCompression=yes
@@ -55,6 +58,10 @@ Source: "{#BundlePath}\manifest.json"; Flags: dontcopy
 Source: "{#BundlePath}\manifest.sig"; Flags: dontcopy
 Source: "{#BundlePath}\{#PackageName}"; Flags: dontcopy
 Source: "{#BinaryPath}\MCWiiU-SetupGuard.dll"; Flags: dontcopy
+Source: "{#BinaryPath}\MCWiiU-Launcher.exe"; Flags: dontcopy
+Source: "{#BinaryPath}\MCWiiU-Updater.exe"; Flags: dontcopy
+Source: "{#BundlePath}\foundation.json"; Flags: dontcopy
+Source: "{#BundlePath}\foundation.sig"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\{#ProductName}"; Filename: "{app}\MCWiiU-Launcher.exe"; WorkingDir: "{app}"
@@ -101,6 +108,10 @@ begin
     ExtractTemporaryFile('manifest.json');
     ExtractTemporaryFile('manifest.sig');
     ExtractTemporaryFile('{#PackageName}');
+    ExtractTemporaryFile('foundation.json');
+    ExtractTemporaryFile('foundation.sig');
+    ExtractTemporaryFile('MCWiiU-Launcher.exe');
+    ExtractTemporaryFile('MCWiiU-Updater.exe');
     if ValidateBundle(ExpandConstant('{tmp}')) <> 0 then
       Result := 'The signed program bundle could not be verified. Nothing will be installed.';
   end;

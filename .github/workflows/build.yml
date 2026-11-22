@@ -2,17 +2,13 @@ name: Build Cemu
 
 on:
   workflow_call:
-    inputs:
-      next_version_major:
-        required: false
-        type: string
-      next_version_minor:
-        required: false
-        type: string
+
+permissions:
+  contents: read
 
 env:
   VCPKG_ROOT: "${{github.workspace}}/dependencies/vcpkg"
-  VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
+  VCPKG_BINARY_SOURCES: 'clear'
   VCPKG_FORCE_DOWNLOADED_BINARIES: true
   
 jobs:
@@ -42,12 +38,6 @@ jobs:
         echo "BUILD_FLAGS=" >> $GITHUB_ENV
         echo "Build mode is release"
 
-    - name: Setup build flags for version
-      if: ${{ inputs.next_version_major != '' }}
-      run: |
-        echo "[INFO] Version ${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}"
-        echo "BUILD_FLAGS=${{ env.BUILD_FLAGS }} -DEMULATOR_VERSION_MAJOR=${{ inputs.next_version_major }} -DEMULATOR_VERSION_MINOR=${{ inputs.next_version_minor }}" >> $GITHUB_ENV
-
     - name: "Install system dependencies"
       run: |
         sudo apt update -qq
@@ -57,20 +47,6 @@ jobs:
       run: |
         bash ./dependencies/vcpkg/bootstrap-vcpkg.sh
 
-    - name: 'Setup NuGet Credentials for vcpkg'
-      shell: 'bash'
-      run: |
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
-        sources add \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-        -storepasswordincleartext \
-        -name "GitHub" \
-        -username "${{ github.repository_owner }}" \
-        -password "${{ secrets.GITHUB_TOKEN }}"
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
-        setapikey "${{ secrets.GITHUB_TOKEN }}" \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-        
     - name: "cmake"
       run: |
         cmake -S . -B build ${{ env.BUILD_FLAGS }} -DCMAKE_BUILD_TYPE=${{ env.BUILD_MODE }} -DCMAKE_C_COMPILER=/usr/bin/clang-15 -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15 -G Ninja -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja
@@ -141,12 +117,6 @@ jobs:
         echo "BUILD_FLAGS=" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "Build mode is release"
 
-    - name: Setup build flags for version
-      if: ${{ inputs.next_version_major != '' }}
-      run: |
-        echo "[INFO] Version ${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}"
-        echo "BUILD_FLAGS=${{ env.BUILD_FLAGS }} -DEMULATOR_VERSION_MAJOR=${{ inputs.next_version_major }} -DEMULATOR_VERSION_MINOR=${{ inputs.next_version_minor }}" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
-
     - name: "Setup cmake"
       uses: jwlawson/actions-setup-cmake@v2
       with:
@@ -155,20 +125,6 @@ jobs:
     - name: "Bootstrap vcpkg"
       run: |
         ./dependencies/vcpkg/bootstrap-vcpkg.bat
-
-    - name: 'Setup NuGet Credentials for vcpkg'
-      shell: 'bash'
-      run: |
-        `./dependencies/vcpkg/vcpkg.exe fetch nuget | tail -n 1` \
-        sources add \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-        -storepasswordincleartext \
-        -name "GitHub" \
-        -username "${{ github.repository_owner }}" \
-        -password "${{ secrets.GITHUB_TOKEN }}"
-        `./dependencies/vcpkg/vcpkg.exe fetch nuget | tail -n 1` \
-        setapikey "${{ secrets.GITHUB_TOKEN }}" \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
 
     - name: "cmake"
       run: |
@@ -186,13 +142,6 @@ jobs:
     - name: Prepare artifact
       run: |
         Rename-Item bin/Cemu_release.exe Cemu.exe
-        Rename-Item bin/Cemu_release.pdb Cemu.pdb
-
-    - name: Build NSIS Installer
-      shell: cmd
-      run: |
-        cd src\resource
-        makensis /DPRODUCT_VERSION=${{ inputs.next_version_major }}.${{ inputs.next_version_minor }} installer.nsi
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
@@ -200,13 +149,6 @@ jobs:
         name: cemu-bin-windows-x64
         path: |
           ./bin/Cemu.exe
-          ./bin/Cemu.pdb
-
-    - name: Upload NSIS Installer
-      uses: actions/upload-artifact@v6
-      with:
-        name: cemu-installer-windows-x64
-        path: ./src/resource/cemu-${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}-windows-x64-installer.exe
 
   build-macos:
     runs-on: macos-15
@@ -225,12 +167,6 @@ jobs:
         echo "BUILD_MODE=release" >> $GITHUB_ENV
         echo "BUILD_FLAGS=" >> $GITHUB_ENV
         echo "Build mode is release"
-
-    - name: Setup build flags for version
-      if: ${{ inputs.next_version_major != '' }}
-      run: |
-        echo "[INFO] Version ${{ inputs.next_version_major }}.${{ inputs.next_version_minor }}"
-        echo "BUILD_FLAGS=${{ env.BUILD_FLAGS }} -DEMULATOR_VERSION_MAJOR=${{ inputs.next_version_major }} -DEMULATOR_VERSION_MINOR=${{ inputs.next_version_minor }}" >> $GITHUB_ENV
 
     - name: "Install system dependencies"
       run: |
@@ -255,20 +191,6 @@ jobs:
     - name: "Bootstrap vcpkg"
       run: |
         bash ./dependencies/vcpkg/bootstrap-vcpkg.sh
-
-    - name: 'Setup NuGet Credentials for vcpkg'
-      shell: 'bash'
-      run: |
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
-        sources add \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-        -storepasswordincleartext \
-        -name "GitHub" \
-        -username "${{ github.repository_owner }}" \
-        -password "${{ secrets.GITHUB_TOKEN }}"
-        mono `./dependencies/vcpkg/vcpkg fetch nuget | tail -n 1` \
-        setapikey "${{ secrets.GITHUB_TOKEN }}" \
-        -source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
 
     - name: "cmake"
       run: |

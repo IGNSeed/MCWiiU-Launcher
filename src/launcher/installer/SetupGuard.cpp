@@ -9,45 +9,6 @@ namespace
 {
 	LauncherUpdate::File s_operation;
 	std::filesystem::path s_operationRoot;
-	bool ApprovedFoundationParent(const std::filesystem::path& root)
-	{
-		using namespace LauncherUpdate;
-		File snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
-		Require(snapshot.handle != INVALID_HANDLE_VALUE, "cannot-identify-setup-parent");
-		DWORD pid = GetCurrentProcessId();
-		for (unsigned depth = 0; depth < 4; ++depth)
-		{
-			PROCESSENTRY32W entry{sizeof(entry)};
-			DWORD parent = 0;
-			if (Process32FirstW(snapshot.handle, &entry))
-				do
-				{
-					if (entry.th32ProcessID == pid)
-					{
-						parent = entry.th32ParentProcessID;
-						break;
-					}
-				}
-				while (Process32NextW(snapshot.handle, &entry));
-			if (!parent)
-				return false;
-			pid = parent;
-			File process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid));
-			if (!process.handle)
-				return false;
-			const auto image = ProcessImage(process.handle);
-			if (image.filename() != L"MCWiiU-Updater.exe")
-				continue;
-			const auto transaction = image.parent_path();
-			const auto id = Utf8(transaction.filename().wstring());
-			if (transaction.parent_path() != LauncherPaths::LocalRoot() / L"Cache" / L"Updates" || id.size() != 64 || id.find_first_not_of("0123456789abcdef") != std::string::npos)
-				return false;
-			VerifyFoundationFiles(root);
-			auto staged = OpenLocked(image, true), installed = OpenLocked(root / L"MCWiiU-Updater.exe", true);
-			return FileSha256(staged.handle) == FileSha256(installed.handle);
-		}
-		return false;
-	}
 	void ReserveSetup(const std::filesystem::path& root)
 	{
 		if (!std::filesystem::exists(root / L"installation.json"))
@@ -57,14 +18,8 @@ namespace
 			LauncherUpdate::Require(s_operationRoot == root, "setup-reservation-mismatch");
 			return;
 		}
-		try
-		{
-			s_operation = LauncherUpdate::LockInstallation(root);
-			s_operationRoot = root;
-		} catch (const std::exception&)
-		{
-			LauncherUpdate::Require(ApprovedFoundationParent(root), "another-update-is-running");
-		}
+		s_operation = LauncherUpdate::LockInstallation(root);
+		s_operationRoot = root;
 	}
 	bool LegacyMsiPresent()
 	{
@@ -120,6 +75,12 @@ extern "C" __declspec(dllexport) int __stdcall ValidateBundle(const wchar_t* sou
 		using namespace LauncherUpdate; Require(source && *source,"missing-install-source"); const std::filesystem::path directory(source);
 		const auto manifest = VerifyManifest(ReadFileBytes(directory/L"manifest.json",256*1024),ReadFileBytes(directory/L"manifest.sig",128),TrustedPublicKey,ProductId);
 		Require(manifest.package_format == "zip","invalid-initial-package-format"); VerifyPackage(directory/Wide(manifest.package_filename),manifest);
+		const auto foundation = VerifyFoundationMetadata(ReadFileBytes(directory/L"foundation.json",256*1024), ReadFileBytes(directory/L"foundation.sig",128), TrustedPublicKey);
+		Require(Version::Parse(foundation.bootstrapper_version) <= Version::Parse(BootstrapperVersion) && Version::Parse(manifest.required_bootstrapper_version) <= Version::Parse(foundation.bootstrapper_version) && manifest.required_updater_protocol_version <= foundation.updater_protocol_version, "setup-foundation-incompatible");
+		for (const auto& entry : foundation.files) {
+			auto file = OpenLocked(directory/Wide(entry.path)); LARGE_INTEGER size{};
+			Require(GetFileSizeEx(file.handle,&size) && size.QuadPart >= 0 && static_cast<uint64_t>(size.QuadPart) == entry.size && FileSha256(file.handle) == entry.sha256 && ExecutableVersion(directory/Wide(entry.path)) == foundation.bootstrapper_version, "setup-foundation-integrity-failed");
+		}
 	});
 }
 extern "C" __declspec(dllexport) int __stdcall PrepareRemoval(const wchar_t* path)
