@@ -2,9 +2,9 @@
 
 [README](README.md) / [貢献方法](CONTRIBUTING.md) / [第三者通知](docs/THIRD_PARTY_NOTICES.md)
 
-対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.0 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
+対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.1 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
 
-**検証範囲:** Phase 15A では、Commit `b54cc33ce8fb07adaf2d428cc37173af9e678ce2` と再帰 submodule を固定した隔離 checkout で Native / Standalone Release を構築しました。既存 CMakeCache・オブジェクト・PDB・ビルド済み依存ライブラリを使わず、依存もソースから再構築し、成果物の版・アイコン・原文通知・SHA-256 を照合しています。未公開 wx 差分は含めていません。同一開発ホストでのクリーンビルド確認であり、別 PC での再現、bit 単位の同一性、本番鍵付きの最終配布物の受入は未完了です。
+**検証範囲:** Phase 15A では、Commit `b54cc33ce8fb07adaf2d428cc37173af9e678ce2` と再帰 submodule を固定した隔離 checkout で Native / Standalone Release を構築しました。既存 CMakeCache・オブジェクト・PDB・ビルド済み依存ライブラリを使わず、依存もソースから再構築し、成果物の版・アイコン・原文通知・SHA-256 を照合しています。未公開 wx 差分は含めていません。同一開発ホストでのクリーンビルド確認です。別 PC での再現と bit 単位の同一性は未確認です。v0.4.1 は同キャッシュで Native を増分ビルドし、署名・bundle・公開ダウンロードを検証しました。別 Windows プロファイルでの実インストールと自動更新の通し試験は未実施です。
 
 ## 開発環境
 
@@ -29,7 +29,7 @@ cd MCWiiU-Launcher
 git submodule update --init --recursive
 ```
 
-配布物を再現する場合は、将来の Release に示される正確な Commit SHA へ対応付けます。現時点で正式 Release Tag はありません。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
+v0.4.1 の正式 Release Tag は `v0.4.1`、配布ソース Commit は `6b074e5a329f64fb26fca7e370c83d318e7f9b39` です。配布物を再現する場合はこの Commit と対応 submodule を使用します。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
 
 Discord SDK は [Discord Developer Portal](https://discord.com/developers/applications) で認可されたアプリの Social SDK ダウンロードから取得します。リポジトリへ SDK をコピー・Commit しないでください。既定のローカル配置先は `.local/dependencies/discord-social-sdk`。別配置は `MCWIIU_DISCORD_SDK_ROOT` と `MCWIIU_DISCORD_SDK_NOTICES` で指定できます。
 

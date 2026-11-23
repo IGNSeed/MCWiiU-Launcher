@@ -2,7 +2,7 @@
 
 [README](../README.md) / [ゲームデータ導入](GAME_DATA.md)
 
-**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) を公開しました。** [Setup をダウンロード](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe)できます。Foundation 1.0.2 / Updater Protocol 2。配布バイナリのソース Commit: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c)。クリーン Windows 10 / 11 等の全面受入は未完了です。
+**[0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) を公開しました。** [Setup をダウンロード](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe)できます。Foundation 1.0.2 / Updater Protocol 2。配布バイナリのソース Commit: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39)。クリーン Windows 10 / 11 等の全面受入は未完了です。
 
 ## 事前確認
 
@@ -13,8 +13,8 @@
 
 ## Setup の取得と導入
 
-1. [正規 GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を開き、所有者が `IGNSeed`、リポジトリが `MCWiiU-Launcher` であることを確認します。広告・第三者ミラーを配布元と取り違えないでください。0.4.0 Stable を選びます。
-2. [MCWiiU-Launcher-0.4.0-Setup-x64.exe](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe) と、その Release の説明・SHA-256 を確認します。
+1. [正規 GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を開き、所有者が `IGNSeed`、リポジトリが `MCWiiU-Launcher` であることを確認します。広告・第三者ミラーを配布元と取り違えないでください。0.4.1 Stable を選びます。
+2. [MCWiiU-Launcher-0.4.1-Setup-x64.exe](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe) と、その Release の説明・SHA-256 を確認します。
 3. Setup を通常のユーザー権限で起動します。既定の導入先は `%LOCALAPPDATA%\Programs\MCWiiU-Launcher` です。ディレクトリ選択画面で変更できます。同じユーザーだけが書き込める専用フォルダを使用します。
 4. Desktop shortcut は任意です。Setup が Runtime 不足・安全でない配置先・未完了更新を報告した場合は、理由を解消してから再試行します。
 5. 完了後はスタートメニューの `MCWiiU Launcher`、または導入先の `MCWiiU-Launcher.exe` で起動します。通常は Setup の完了処理からも起動されます。
@@ -29,7 +29,7 @@ Setup は **Authenticode 署名を使用しません**。Windows が発行元を
 
 警告が出たら、配布元・Release の状態・ファイル名・配布者が示す独立した検証情報を再確認してください。判断できなければ実行を中止します。Windows Defender、SmartScreen、Smart App Control を無効化する手順は案内しません。未署名 Setup の独立した信頼確認手順は一般配布前の残課題です。
 
-Release に SHA-256 が掲載された場合は、PowerShell の `Get-FileHash -LiteralPath '.\MCWiiU-Launcher-0.4.0-Setup-x64.exe' -Algorithm SHA256` で一致を確認できます。**同じ配布場所にあるハッシュ値との一致だけでは、発行元の真正性までは保証できません。** 内部の Ed25519 検証と Windows の発行元認証も別の仕組みです。
+Release に SHA-256 が掲載された場合は、PowerShell の `Get-FileHash -LiteralPath '.\MCWiiU-Launcher-0.4.1-Setup-x64.exe' -Algorithm SHA256` で一致を確認できます。**同じ配布場所にあるハッシュ値との一致だけでは、発行元の真正性までは保証できません。** 内部の Ed25519 検証と Windows の発行元認証も別の仕組みです。
 
 ## 保存先とアンインストール
 

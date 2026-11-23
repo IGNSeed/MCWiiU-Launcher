@@ -7,7 +7,7 @@
 <p align="center">在一个启动器中畅玩 Minecraft: Wii U Edition。</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — 已发布</strong><br>
+  <strong>0.4.1 Stable — 已发布</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,9 +27,11 @@ MCWiiU Launcher 是一款基于 Cemu 的非官方启动器，用于在 Windows P
 
 ## 发布情况
 
-**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) 已发布。** Foundation 为 **1.0.2**，Updater Protocol 为 **2**。[下载 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe)。
+改进账户导入完成操作、8 种语言及 System Default、精简界面说明以及 TV / GamePad 初始音频输出。共享设置保持 v2，语言单独保存，回滚到 v0.4.0 后仍可读取更新设置。 [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)
 
-发布二进制文件对应的源代码 Commit：[52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c)。
+**[0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) 已发布。** Foundation 为 **1.0.2**，Updater Protocol 为 **2**。[下载 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe)。
+
+发布二进制文件对应的源代码 Commit：[6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39)。
 
 已内置生产环境 Ed25519 公钥，并验证了签名 Manifest、分发文件的完整性和公开下载。图片再分发许可、许可证与对应源代码的未确认事项、依赖库的剩余漏洞，以及全新 Windows 10 / 11 环境中的全面验收仍未完成。
 
@@ -61,7 +63,7 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 ## 安装
 
 1. 阅读 [INSTALLATION](../docs/INSTALLATION.md)，了解环境要求和安全检查。
-2. 请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
+2. 请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
 3. 运行 `MCWiiU-Launcher.exe`（Bootstrapper），安装自有游戏数据，然后在 Home 中选择 `PLAY`。程序本体为 `MCWiiU Launcher.exe`，更新程序为 `MCWiiU-Updater.exe`。
 
 从旧开发版本自动迁移不在正式支持范围内。卸载和数据保留方式也请参阅安装指南。
@@ -74,7 +76,7 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 
 ## 更新
 
-常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。**已内置生产环境公钥。0.4.0 不会更新到相同版本；尚未执行向后续版本的实际更新测试。**
+常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。**已内置生产环境公钥。已验证 0.4.0 → 0.4.1 的签名、设置兼容性及公开 Asset 对应关系；尚未执行完整的实际自动更新测试。**
 
 Foundation 采用**手动 Setup 更新**，与常规 Launcher 更新分开进行。详情和恢复方式见 [UPDATING](../docs/UPDATING.md)。
 

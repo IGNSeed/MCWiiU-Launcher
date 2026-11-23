@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition, en un solo lanzador.</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — Publicado</strong><br>
+  <strong>0.4.1 Stable — Publicado</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,9 +27,11 @@ MCWiiU Launcher es un lanzador no oficial basado en Cemu para jugar a Minecraft:
 
 ## Estado del lanzamiento
 
-**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) ya está disponible.** Foundation **1.0.2**, Updater Protocol **2**. [Descargar Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe).
+Mejoras en la importación de cuentas, ocho idiomas y System Default, textos más breves y salida de audio TV / GamePad predeterminada. Las preferencias compartidas siguen en v2; el idioma se guarda por separado para conservar la compatibilidad al volver a v0.4.0. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)
 
-Commit fuente de los binarios publicados: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c).
+**[0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) ya está disponible.** Foundation **1.0.2**, Updater Protocol **2**. [Descargar Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe).
+
+Commit fuente de los binarios publicados: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39).
 
 La clave pública Ed25519 de producción está integrada; se han verificado la integridad del manifiesto firmado, los archivos y las descargas públicas. Siguen pendientes los permisos de redistribución de imágenes, las comprobaciones abiertas de licencias y código fuente correspondiente, las vulnerabilidades restantes de las dependencias y la aceptación completa en instalaciones limpias de Windows 10 / 11.
 
@@ -61,7 +63,7 @@ Las pruebas de aceptación se han realizado principalmente en un único equipo d
 ## Instalación
 
 1. Lee [INSTALLATION](../docs/INSTALLATION.md) para conocer los requisitos y las comprobaciones de seguridad.
-2. Descarga Setup de las [GitHub Releases oficiales](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) y elige un directorio de instalación. Setup **no utiliza firma Authenticode**. Sigue la guía para verificar de forma independiente el origen y la integridad del archivo.
+2. Descarga Setup de las [GitHub Releases oficiales](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) y elige un directorio de instalación. Setup **no utiliza firma Authenticode**. Sigue la guía para verificar de forma independiente el origen y la integridad del archivo.
 3. Ejecuta `MCWiiU-Launcher.exe` (Bootstrapper), instala tus propios datos del juego y selecciona `PLAY` en Home. La aplicación se llama `MCWiiU Launcher.exe` y el actualizador, `MCWiiU-Updater.exe`.
 
 La migración automática desde versiones de desarrollo anteriores no tiene soporte oficial. La guía también explica la desinstalación y la conservación de datos.
@@ -74,7 +76,7 @@ Usa Update **v560** de la misma región que BASE. El DLC es opcional. [GAME_DATA
 
 ## Actualizaciones
 
-Las actualizaciones normales del Launcher aplican un ZIP firmado tras la aprobación del usuario. Se verifican Ed25519, SHA-256, la vinculación con el GitHub Asset y el inventario de archivos. Si falla la comprobación Readiness de 30 segundos, Rollback vuelve a una versión anterior verificable. **La clave pública de producción está integrada. La versión 0.4.0 no se actualiza a sí misma; todavía no se ha probado una actualización real a una versión posterior.**
+Las actualizaciones normales del Launcher aplican un ZIP firmado tras la aprobación del usuario. Se verifican Ed25519, SHA-256, la vinculación con el GitHub Asset y el inventario de archivos. Si falla la comprobación Readiness de 30 segundos, Rollback vuelve a una versión anterior verificable. **La clave pública de producción está integrada. Se verificaron las firmas, la compatibilidad de preferencias y los assets públicos de 0.4.0 → 0.4.1; no se ha ejecutado una actualización automática completa.**
 
 Foundation se actualiza **manualmente mediante Setup**, en un proceso separado de las actualizaciones normales del Launcher. Consulta [UPDATING](../docs/UPDATING.md) para conocer los detalles y la recuperación.
 

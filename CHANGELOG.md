@@ -2,6 +2,19 @@
 
 以下は Launcher 固有の変更履歴で、上流 Cemu のリリース履歴ではありません。
 
+## [0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) — 2026-11-23
+
+Launcher 0.4.1 / Foundation 1.0.2 / Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe) / [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)。配布ソース Commit: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39)。Tag はこの Commit に固定しています。
+
+- Add Account はインポート成功後に閉じ、失敗・キャンセル時は保持します。
+- 8言語＋System Default、言語の保存と再起動復元。Home / Friends / World などのタブ名は英語固定です。
+- 重複する小さい UI 説明文を整理しました。
+- 新規 TV / GamePad Audio Output は Default。既存 Disabled・個別デバイス指定は保持します。
+- 共有設定を旧版互換 v2 とし、言語を独立保存。v0.4.0 からの読込みと、旧版へ戻した場合の更新設定の読書きを確認しました。不正・将来版の既存設定は上書きしません。
+- Setup の製品表示・ファイル版を Launcher 版へ統一しました。Foundation 版は 1.0.2 を維持します。
+
+本番 Ed25519 署名、v0.4.0 実パーサーによる Manifest 受理と公開 Asset 照合、Setup bundle、4ファイルの匿名ダウンロードとハッシュを確認しました。実自動更新・実ユーザー環境へのインストール・ゲーム全面回帰は未実施です。既知の素材許諾・ライセンス/対応ソース・依存評価等の未確認事項は引き続き未完了です。
+
 ## [0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) — 2026-11-23
 
 初回 Stable Release。Launcher Version 0.4.0、Foundation Version 1.0.2、Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe) を公開し、本番 Ed25519 署名・配布ファイルの整合性・匿名ダウンロードを確認済みです。

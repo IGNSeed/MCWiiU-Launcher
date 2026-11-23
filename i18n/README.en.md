@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition, together in one launcher.</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — Released</strong><br>
+  <strong>0.4.1 Stable — Released</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,9 +27,11 @@ MCWiiU Launcher is an unofficial, Cemu-based launcher for Minecraft: Wii U Editi
 
 ## Release status
 
-**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) is available.** Foundation **1.0.2**, Updater Protocol **2**. [Download Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe).
+Improved account import completion, eight languages plus System Default, concise UI descriptions and default TV / GamePad audio output. Shared preferences remain at v2; language is stored separately so v0.4.0 can still read update preferences after rollback. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)
 
-Release binary source commit: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c).
+**[0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) is available.** Foundation **1.0.2**, Updater Protocol **2**. [Download Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe).
+
+Release binary source commit: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39).
 
 The production Ed25519 public key is embedded; signed manifest integrity and public downloads have been verified. Image redistribution rights, open license and corresponding-source checks, remaining dependency vulnerabilities, and full acceptance on clean Windows 10 / 11 systems remain incomplete.
 
@@ -61,7 +63,7 @@ Acceptance so far has mainly used one Windows 11 development host, an isolated, 
 ## Installation
 
 1. Read [INSTALLATION](../docs/INSTALLATION.md) for requirements and safety checks.
-2. Obtain Setup from the official [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) and choose an installation directory. Setup **does not use Authenticode signing**. Follow the guide's independent source and integrity checks.
+2. Obtain Setup from the official [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) and choose an installation directory. Setup **does not use Authenticode signing**. Follow the guide's independent source and integrity checks.
 3. Start `MCWiiU-Launcher.exe` (Bootstrapper), install your own game data, and select `PLAY` on Home. The application is `MCWiiU Launcher.exe`; the updater is `MCWiiU-Updater.exe`.
 
 Automatic migration from older development builds is not officially supported. The installation guide also covers uninstalling and data retention.
@@ -74,7 +76,7 @@ Use Update **v560** from the same region as BASE. DLC is optional. [GAME_DATA](.
 
 ## Updates
 
-Normal Launcher updates apply a signed ZIP after user approval. Verification covers Ed25519, SHA-256, GitHub Asset binding and the file inventory. If the 30-second Readiness check fails, Rollback returns to a verifiable previous version. **The production public key is embedded. Version 0.4.0 does not update to itself; a real update to a later release has not been tested.**
+Normal Launcher updates apply a signed ZIP after user approval. Verification covers Ed25519, SHA-256, GitHub Asset binding and the file inventory. If the 30-second Readiness check fails, Rollback returns to a verifiable previous version. **The production public key is embedded. Signatures, preferences compatibility and public asset binding for 0.4.0 → 0.4.1 are verified; an end-to-end automatic update has not been run.**
 
 Foundation uses a **manual Setup update**, separate from normal Launcher updates. See [UPDATING](../docs/UPDATING.md) for details and recovery.
 
