@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition を、ひとつのランチャーから。</p>
 
 <p align="center">
-  <strong>0.4.1 Stable — 公開済み</strong><br>
+  <strong>0.4.2 Stable — 公開済み</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,11 +27,11 @@ MCWiiU Launcher は、Minecraft: Wii U Edition **v560** を Windows PC で遊ぶ
 
 ## リリース
 
-Add Account のインポート完了操作、8言語＋System Default、説明文の簡素化、TV / GamePad の初期 Audio Output を改善しました。共有設定は v2 のまま言語を別保存し、v0.4.0 への Rollback 時も更新設定を保持します。 [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)
+JPN v560の初回Miiデータベース自動初期化に対応しました。一度の `PLAY` で不足DBを生成・検証し、専用セッションを正常停止してMinecraftを通常起動します。完了した作業用MLCは所有情報とファイルIDを検証して整理します。既存DB・Account・セーブは保持し、破損DBを上書きしません。検証済みRPX identityと、ご自身が所有するFFLリソースが必要です。USA / EURのMii自動初期化は未対応です。 [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)
 
-**[0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) を公開しました。** Foundation は **1.0.2**、Updater Protocol は **2** です。[Setup をダウンロード](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe)できます。
+**[0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) を公開しました。** Foundation は **1.0.2**、Updater Protocol は **2** です。[Setup をダウンロード](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe)できます。
 
-配布バイナリのソース Commit: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39)。
+配布バイナリのソース Commit: [c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca)。
 
 本番 Ed25519 公開鍵を組み込み、署名済み Manifest と配布ファイルの整合性・公開ダウンロードを確認済みです。画像素材の再配布許諾、ライセンス・対応ソースの未確認事項、依存ライブラリの残存脆弱性、クリーン Windows 10 / 11 での全面受入は引き続き未完了です。
 
@@ -63,7 +63,7 @@ Windows 10 の通常サポートは **2025-10-14 に終了**しています。�
 ## インストール
 
 1. [INSTALLATION](docs/INSTALLATION.md) で必要環境と安全確認を読みます。
-2. 正規の [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) から Setup を取得し、導入先を選びます。Setup は **Authenticode 署名を使用しません**。ガイドの独立した配布元・整合性の確認を行ってください。
+2. 正規の [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) から Setup を取得し、導入先を選びます。Setup は **Authenticode 署名を使用しません**。ガイドの独立した配布元・整合性の確認を行ってください。
 3. `MCWiiU-Launcher.exe`（Bootstrapper）から起動し、所有ゲームを導入して Home の `PLAY` を選びます。本体名は `MCWiiU Launcher.exe`、Updater は `MCWiiU-Updater.exe` です。
 
 旧開発版からの自動移行は正式サポート対象外です。アンインストールとデータ保持についても導入ガイドを参照してください。
@@ -76,7 +76,7 @@ BASE と同じ地域の Update **v560** を使用してください。DLC は任
 
 ## 更新
 
-通常の Launcher 更新は、利用者の承認後に署名付き ZIP を適用する方式です。Ed25519、SHA-256、GitHub Asset の対応、ファイル一覧を検証し、30秒の Readiness 確認に失敗した場合は検証可能な以前の版へ Rollback します。**本番公開鍵を組込み済みです。0.4.0 → 0.4.1 の署名・設定互換性と公開Assetの照合は確認済みですが、実際の自動更新の通し試験は未実施です。**
+通常の Launcher 更新は、利用者の承認後に署名付き ZIP を適用する方式です。Ed25519、SHA-256、GitHub Asset の対応、ファイル一覧を検証し、30秒の Readiness 確認に失敗した場合は検証可能な以前の版へ Rollback します。**本番公開鍵を組込み済みです。0.4.1 → 0.4.2 の署名・設定互換性と公開Assetの照合は確認済みですが、実際の自動更新の通し試験は未実施です。**
 
 Foundation は **手動 Setup 更新**です。通常の Launcher 更新とは別の工程になります。詳細と復旧方法は [UPDATING](docs/UPDATING.md) を参照してください。
 

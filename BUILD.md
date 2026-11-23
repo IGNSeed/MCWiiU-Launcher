@@ -2,9 +2,11 @@
 
 [README](README.md) / [貢献方法](CONTRIBUTING.md) / [第三者通知](docs/THIRD_PARTY_NOTICES.md)
 
-対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.1 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
+対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.2 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
 
 **検証範囲:** Phase 15A では、Commit `b54cc33ce8fb07adaf2d428cc37173af9e678ce2` と再帰 submodule を固定した隔離 checkout で Native / Standalone Release を構築しました。既存 CMakeCache・オブジェクト・PDB・ビルド済み依存ライブラリを使わず、依存もソースから再構築し、成果物の版・アイコン・原文通知・SHA-256 を照合しています。未公開 wx 差分は含めていません。同一開発ホストでのクリーンビルド確認です。別 PC での再現と bit 単位の同一性は未確認です。v0.4.1 は同キャッシュで Native を増分ビルドし、署名・bundle・公開ダウンロードを検証しました。別 Windows プロファイルでの実インストールと自動更新の通し試験は未実施です。
+
+v0.4.2は同じ依存・増分キャッシュを使用し、最新のCore・frontend・Cleanup実装をNative Releaseへ含めました。既存の未公開wx差分は除外しています。最終Native / SigningToolビルドとSetupビルドの終了コードは0です。JPN初回・2回目のタイトルメニュー起動と作業MLC整理をOpenGL / Vulkanで確認しました。全面ゲーム回帰・別GPU / OS・実インストール・実自動更新全工程はNOT RUNです。
 
 ## 開発環境
 
@@ -29,7 +31,7 @@ cd MCWiiU-Launcher
 git submodule update --init --recursive
 ```
 
-v0.4.1 の正式 Release Tag は `v0.4.1`、配布ソース Commit は `6b074e5a329f64fb26fca7e370c83d318e7f9b39` です。配布物を再現する場合はこの Commit と対応 submodule を使用します。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
+v0.4.2 の正式 Release Tag は `v0.4.2`、配布ソース Commit は `c758cb39180ff28311638315ffa90b80994b0bca` です。配布物を再現する場合はこの Commit と対応 submodule を使用します。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
 
 Discord SDK は [Discord Developer Portal](https://discord.com/developers/applications) で認可されたアプリの Social SDK ダウンロードから取得します。リポジトリへ SDK をコピー・Commit しないでください。既定のローカル配置先は `.local/dependencies/discord-social-sdk`。別配置は `MCWIIU_DISCORD_SDK_ROOT` と `MCWIIU_DISCORD_SDK_NOTICES` で指定できます。
 
@@ -40,6 +42,10 @@ Discord SDK は [Discord Developer Portal](https://discord.com/developers/applic
 ```
 
 不一致・不足は構成を停止します。検査を無効化せず、版・互換性・契約を確認してください。CMake は SDK を自動取得・代用品へ置換しません。配布対象は統合 DLL と原文 notice であり、SDK 全体の再配布や CI 供給の認可を推定しません。
+
+## Mii初期化を含む製品構成
+
+v0.4.2のNative配布構成は`ENABLE_NATIVE_LAUNCHER=ON`、`MCWIIU_JPN_MII_INITIALIZATION=ON`、`MCWIIU_DEVELOPER_DIAGNOSTICS=OFF`です。JPNゲートは検証済みRPX identityだけを許可します。USA / EURへ一般化したり、FFL資源やDBをパッケージへ追加したりしないでください。所有するFFLリソースとAccountが実行時に必要です。通常起動は既存の設定を使用し、初期化セッションのinterpreter指定は一時的です。
 
 ## Native Release と Standalone Release
 

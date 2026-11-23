@@ -2,6 +2,18 @@
 
 以下は Launcher 固有の変更履歴で、上流 Cemu のリリース履歴ではありません。
 
+## [0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) — 2026-11-23
+
+Launcher 0.4.2 / Foundation 1.0.2 / Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe) / [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)。配布ソースCommit: [c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca)。TagはこのCommitに固定しています。
+
+- JPN v560の初回Mii DB自動初期化。一度のPLAYで専用セッション、検証、通常のMinecraft起動へ進みます。正常なHDB / ODBがあれば直接起動します。
+- 検証済みFFL完了境界でCoreを正常停止し、既知の初回クラッシュ経路への進行を防ぎます。RPX・guest戻り値の書換えや意図的なクラッシュは行いません。
+- 3DBのヘッダー・完全長・CRCを検証し、不足分だけを上書きなしで追加します。既存の破損DBは保持してエラーにします。
+- 完了した作業MLCは、セッション所有情報・実ファイルID・内容・排他handleを確認して整理します。復旧を先に処理し、中断したCleanupは再開可能です。使用中・権限不足・未知ファイル・所有不明の旧作業データは保持します。
+- 既存journal v1とFoundation 1.0.2 / Protocol 2を維持。v0.4.1の実設定パーサー・署名検証・公開Asset照合との互換性を確認しました。
+
+検証済みRPX identityと所有するFFLリソースが必要です。USA / EURのMii自動初期化は未対応。隔離環境でOpenGL / Vulkanの初回・2回目メニュー、正常停止、約1.53GBの作業MLC整理、Account・セーブ・原本の保持を確認しました。本番署名・Setup bundle・4ファイルの匿名ダウンロードも確認済みです。実ユーザープロファイルでのSetup実行・実自動更新全工程・全ゲーム回帰・他GPU / OSはNOT RUN。既知の素材許諾・ライセンス/対応ソース・依存評価の未確認事項は継続します。
+
 ## [0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) — 2026-11-23
 
 Launcher 0.4.1 / Foundation 1.0.2 / Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe) / [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-win-x64.zip)。配布ソース Commit: [6b074e5a329f64fb26fca7e370c83d318e7f9b39](https://github.com/IGNSeed/MCWiiU-Launcher/commit/6b074e5a329f64fb26fca7e370c83d318e7f9b39)。Tag はこの Commit に固定しています。

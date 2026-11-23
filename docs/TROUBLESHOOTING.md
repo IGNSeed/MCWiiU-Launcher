@@ -8,10 +8,10 @@
 
 | 症状・表示 | 考えられる原因と確認 | 安全な対処 |
 |---|---|---|
-| Launcher が起動しない | 誤った EXE、Runtime 不足、破損した版、Windows によるブロック。配布元・実行した EXE・警告を確認 | スタートメニューか `MCWiiU-Launcher.exe` から起動。[導入ガイド](INSTALLATION.md)の Runtime・署名方針を確認。正式 Setup はまだ未公開 |
+| Launcher が起動しない | 誤った EXE、Runtime 不足、破損した版、Windows によるブロック。配布元・実行した EXE・警告を確認 | スタートメニューか `MCWiiU-Launcher.exe` から起動。[導入ガイド](INSTALLATION.md)の Runtime・署名方針を確認。[v0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2)を取得できます |
 | `Install the Microsoft Edge WebView2 Evergreen Runtime before installing the launcher.` | Setup が Runtime の登録を確認できない | Microsoft 公式の Runtime 導入を確認して再試行。Edge 本体の有無とは区別 |
 | `Installation stopped. Close the launcher normally...` | 稼働中、未完了更新、安全でない配置先など | 通常終了後、専用導入先・未完了状態を確認。ジャーナルを消して強行しない |
-| `The signed program bundle could not be verified. Nothing will be installed.` | 改変・破損・誤った署名/入力など | 実行を止め、配布元・ファイルを確認。本番鍵がない現状で正式 Setup を生成できるとは案内しない |
+| `The signed program bundle could not be verified. Nothing will be installed.` | 改変・破損・誤った署名/入力など | 実行を止め、配布元・ファイルを確認。本番署名の検証失敗を迂回しない |
 | `Launcher readiness failed. Use a verified Setup for manual recovery.` | 起動後の準備確認が失敗 | データを保持し、[Rollback・手動復旧](UPDATING.md)を参照 |
 | アンインストールできない | 稼働中・未完了更新・未知のファイル・検証器破損 | 表示を保存して通常終了。ユーザーデータを保全し、検証済み Setup での修復を検討。フォルダ一括削除はしない |
 
@@ -20,6 +20,9 @@
 | 症状・表示 | 考えられる原因と確認 | 安全な対処 |
 |---|---|---|
 | PLAY が無効 / ゲームが起動しない | Core 未準備、Standalone、導入不足、別操作・保存中 | Home の理由と `Settings → Game Data` の状態を確認。Native 版、BASE + 同地域 Update v560 が必要 |
+| Mii初期化エラー / `This JPN RPX is not supported...` | 未対応identity、FFLリソース・Account不足、既存DB破損、容量不足等 | [Mii初期化の対応条件](GAME_DATA.md#初回miiデータベースの自動初期化)を確認。USA / EURの自動初期化は未対応。ダミーDBや別環境のファイルで検査を通さない |
+| `Mii data initialization could not stop. Restart Launcher.` | 専用セッションの安全な停止を確認できない | 再初期化や通常PLAYを強行せず、表示どおりLauncherの再起動が必要。既存DB・作業記録を保全 |
+| `.mii-initialization`の作業コピーが残る | 使用中、権限、未知ファイル、未完了復旧、旧形式で所有不明等 | 正常終了後の安全な再試行に任せる。所有不明の旧コピーは自動削除されない。MLC・journalの一括削除で解消しない |
 | PLAY 後クラッシュ・黒画面 | データ不足、外部パック、描画 API / GPU / ドライバー等。原因未特定の場合もある | エラーと起動条件を記録。停止後に有効パックを確認し、必要なら選択を戻す。管理データを消さない |
 | 「タイトルフォルダまたはmeta/meta.xmlを選択してください。」 | 選択階層・形式が違う | [必須構造](GAME_DATA.md#対応形式)を確認し、元のタイトルフォルダまたは `meta/meta.xml` を選択 |
 | 「メタデータ、タイトルID、または選択セッションを確認してください。」 | XML 不整合、選択後の原本変更など | 所有原本を確認して選び直す。XML 改変で検査を通さない |

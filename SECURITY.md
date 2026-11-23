@@ -1,10 +1,10 @@
 # セキュリティと配布確認
 
-MCWiiU Launcher は 2026-11-23 に [0.4.1 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.1) を公開しました。本番 Ed25519 公開鍵を組込み済みです。旧開発版の自動移行は正式サポート外です。
+MCWiiU Launcher は 2026-11-23 に [0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) を公開しました。本番 Ed25519 公開鍵を組込み済みです。旧開発版の自動移行は正式サポート外です。
 
 ## 正規の配布元
 
-[IGNSeed/MCWiiU-Launcher の Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を確認してください。所有者・リポジトリ・対象版・ファイル名を照合し、第三者ミラーや広告を取り違えないでください。[正式 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.1/MCWiiU-Launcher-0.4.1-Setup-x64.exe) を取得できます。
+[IGNSeed/MCWiiU-Launcher の Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を確認してください。所有者・リポジトリ・対象版・ファイル名を照合し、第三者ミラーや広告を取り違えないでください。[正式 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe) を取得できます。
 
 Setup には **Authenticode 署名を使用しません**。Windows による発行元認証があるとは案内していません。SmartScreen / Smart App Control の警告やブロック時に、Windows のセキュリティ機能を無効化しないでください。判断できないファイルは実行を止めます。
 
@@ -14,7 +14,7 @@ SHA-256 は内容の一致確認です。同じ配布場所のハッシュ値だ
 
 通常の Launcher 更新は Ed25519 署名付き Manifest、GitHub Stable Release の Asset 情報、ZIP の SHA-256 / サイズ / 全ファイル一覧、パス・互換性検査を行います。利用者の `Update Now` 承認後に進め、起動 Readiness 失敗時は検証できる previous へ Rollback する方式です。
 
-Foundation 更新は利用者が正規 Releases から Setup を取得して実行する手動方式です。自動 Setup 実行は行いません。内部署名検証は未署名 Setup 自体に対する Windows の発行元認証の代替ではありません。本番鍵・配布ファイルと v0.4.0 の実パーサーによる署名・設定互換性は確認済みですが、実際の自動更新の通し試験は未実施です。検証失敗は受理せず停止する設計です。
+Foundation 更新は利用者が正規 Releases から Setup を取得して実行する手動方式です。自動 Setup 実行は行いません。内部署名検証は未署名 Setup 自体に対する Windows の発行元認証の代替ではありません。本番鍵・配布ファイルと v0.4.1 の実パーサーによる署名・設定互換性は確認済みですが、実際の自動更新の通し試験は未実施です。検証失敗は受理せず停止する設計です。
 
 [更新・復旧ガイド](docs/UPDATING.md)に従い、署名検証を迂回したり、Manifest・current・pending を改変して更新を強行したりしないでください。
 
