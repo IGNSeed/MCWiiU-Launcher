@@ -412,6 +412,11 @@ RECT NativeGameHost::GameBounds() const
 	return rect;
 }
 
+void NativeGameHost::SetExitLabels(const std::array<std::wstring, 4>& labels)
+{
+	if (OnUiThread() && m_exitDialog) m_exitDialog->SetLabels(labels);
+}
+
 void NativeGameHost::SetExitConfirmation(bool visible)
 {
 	if (!OnUiThread() || visible == m_exitVisible) return;

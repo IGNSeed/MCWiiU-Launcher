@@ -12,21 +12,21 @@ function graphicPacksEditable() {
 }
 function graphicPacksMessage(value) {
   const messages = {
-    saved:"保存しました。次回ゲーム起動時に反映されます。",
-    "game-running-or-busy":"ゲーム停止中に変更できます。",
-    "stale-revision":"設定が変更されています。一覧を開き直してください。",
-    "stale-request":"要求が古いため変更しませんでした。",
-    "folder-opened":"フォルダを開きました。一覧を自動更新します。ゲームへの反映は次回PLAY時です。",
-    "folder-open-busy":"フォルダを開いています。",
-    "invalid-pack-skipped":"読み取れないパックがあります。rules.txtを確認してください。修正後は自動更新します。",
-    "settings-corrupt":"設定ファイルを読み取れません。既存の設定は上書きしていません。",
-    "pack-changed":"パックが変更されています。自動更新後に選び直してください。",
-    "save-failed":"設定を保存できませんでした。変更前の選択を保持しています。",
-    "invalid-preset":"選択できないPresetです。",
-    "invalid-request":"要求を受け付けられませんでした。",
-    "not-ready":"Graphic Packの管理を利用できません。"
+    get saved() { return LauncherI18n.t("Saved."); },
+    get "game-running-or-busy"() { return LauncherI18n.t("Available after the game stops."); },
+    get "stale-revision"() { return LauncherI18n.t("Settings changed. Reopen the list."); },
+    get "stale-request"() { return LauncherI18n.t("Stale request ignored."); },
+    get "folder-opened"() { return ""; },
+    get "folder-open-busy"() { return LauncherI18n.t("Opening folder…"); },
+    get "invalid-pack-skipped"() { return LauncherI18n.t("Some packs could not be read. Check rules.txt; the list refreshes automatically."); },
+    get "settings-corrupt"() { return LauncherI18n.t("Cannot read settings. Existing settings were not overwritten."); },
+    get "pack-changed"() { return LauncherI18n.t("Pack changed. Select it again after the list refreshes."); },
+    get "save-failed"() { return LauncherI18n.t("Could not save. Previous selections are preserved."); },
+    get "invalid-preset"() { return LauncherI18n.t("This preset is unavailable."); },
+    get "invalid-request"() { return LauncherI18n.t("Request rejected."); },
+    get "not-ready"() { return LauncherI18n.t("Graphic pack management unavailable."); }
   };
-  return messages[value] || (value ? "処理できませんでした。設定ファイルとパックの状態を確認してください。" : "");
+  return messages[value] || (value ? LauncherI18n.t("Could not complete the action. Check settings and packs.") : "");
 }
 function updateGraphicPacksControls() {
   graphicPacksFolder.disabled = !graphicPacksReady() || !!graphicPacksPending || performance.now() < graphicPacksCooldown;
@@ -34,7 +34,7 @@ function updateGraphicPacksControls() {
   graphicPacksList.setAttribute("aria-busy", String(!!graphicPacksPending));
 }
 function renderGraphicPacks() {
-  const key = JSON.stringify(graphicPacksSnapshot.packs);
+  const key = LauncherI18n.language + JSON.stringify(graphicPacksSnapshot.packs);
   if (key === graphicPacksRendered) { updateGraphicPacksControls(); return; }
   graphicPacksRendered = key;
   const focus = document.activeElement;
@@ -43,7 +43,7 @@ function renderGraphicPacks() {
   const packs = graphicPacksSnapshot.packs;
   if (!packs.length) {
     const empty = document.createElement("p"); empty.className = "footnote";
-    empty.textContent = "Minecraft向けのGraphic Packはインストールされていません。";
+    LauncherI18n.bind(empty, "textContent", () => LauncherI18n.t("No Minecraft graphic packs installed."));
     graphicPacksList.append(empty);
   }
   for (const pack of packs) {
@@ -51,20 +51,20 @@ function renderGraphicPacks() {
     const row = document.createElement("label"); row.className = "graphic-pack-title";
     const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = pack.enabled;
     toggle.dataset.graphicPackId = pack.id;
-    const name = document.createElement("span"); name.textContent = pack.name;
-    const status = document.createElement("span"); status.className = "footnote"; status.textContent = pack.enabled ? "Enabled" : "Disabled";
+    const name = document.createElement("span"); LauncherI18n.bind(name, "textContent", () => pack.name);
+    const status = document.createElement("span"); status.className = "footnote"; LauncherI18n.bind(status, "textContent", () => pack.enabled ? LauncherI18n.t("Enabled") : LauncherI18n.t("Disabled"));
     row.append(toggle, name, status); card.append(row);
     toggle.addEventListener("change", () => {
       const enabled = toggle.checked; toggle.checked = pack.enabled;
       if (graphicPacksEditable()) sendGraphicPacks("enable", {id:pack.id, enabled, revision:graphicPacksSnapshot.revision});
     });
-    if (pack.description) { const description = document.createElement("p"); description.className = "graphic-pack-description footnote"; description.textContent = pack.description; card.append(description); }
+    if (pack.description) { const description = document.createElement("p"); description.className = "graphic-pack-description footnote"; LauncherI18n.bind(description, "textContent", () => pack.description); card.append(description); }
     for (const category of pack.categories) {
       if (!category.options.length) continue;
       const label = document.createElement("label"); label.className = "graphic-pack-preset input-row";
-      const title = document.createElement("span"); title.textContent = category.name || "Preset";
+      const title = document.createElement("span"); LauncherI18n.bind(title, "textContent", () => category.name || LauncherI18n.t("Preset"));
       const select = document.createElement("select"); select.dataset.graphicPackId = pack.id; select.dataset.graphicPackCategory = category.name;
-      for (const option of category.options) { const node = document.createElement("option"); node.value = option; node.textContent = option; select.append(node); }
+      for (const option of category.options) { const node = document.createElement("option"); node.value = option; LauncherI18n.bind(node, "textContent", () => option); select.append(node); }
       select.value = category.selected;
       select.addEventListener("change", () => {
         const name = select.value; select.value = category.selected;
@@ -80,7 +80,7 @@ function renderGraphicPacks() {
 function sendGraphicPacks(op, extra = {}) {
   if (!graphicPacksReady() || graphicPacksPending) return;
   graphicPacksPending = ++graphicPacksSerial;
-  graphicPacksNotice.textContent = op === "list" ? "Graphic Packを読み込み中…" : "処理中…";
+  LauncherI18n.bind(graphicPacksNotice, "textContent", () => op === "list" ? LauncherI18n.t("Loading graphic packs…") : LauncherI18n.t("Working…"));
   updateGraphicPacksControls();
   windowCommand(`graphic-packs:${op === "open-folder" ? "open-folder" : "command"}:${graphicPacksPending}:${JSON.stringify(op === "open-folder" ? {} : {op,...extra})}`);
 }
@@ -90,7 +90,7 @@ function updateGraphicPacksView() {
   if (visible && (!graphicPacksVisible || graphicPacksDirty || context !== graphicPacksContext) && graphicPacksReady() && !graphicPacksPending) {
     graphicPacksVisible = true; graphicPacksDirty = false; graphicPacksContext = context; sendGraphicPacks("list");
   } else if (!visible) graphicPacksVisible = false;
-  if (visible && !graphicPacksReady()) graphicPacksNotice.textContent = window.launcherCoreState?.phase === "unavailable" ? "CoreがないためGraphic Packの管理は利用できません。" : "準備完了後にGraphic Packを表示します。";
+  if (visible && !graphicPacksReady()) LauncherI18n.bind(graphicPacksNotice, "textContent", () => window.launcherCoreState?.phase === "unavailable" ? LauncherI18n.t("Graphic pack management requires Cemu Core.") : LauncherI18n.t("Preparing…"));
   updateGraphicPacksControls();
 }
 graphicPacksFolder.addEventListener("click", () => {
@@ -106,7 +106,7 @@ window.addEventListener("launcher-graphic-packs-result", event => {
   if (state && typeof state.revision === "string" && typeof state.canEdit === "boolean" && Array.isArray(state.packs) && state.packs.length <= 512 && state.packs.every(validPack)) {
     graphicPacksSnapshot = state; renderGraphicPacks();
   }
-  graphicPacksNotice.textContent = graphicPacksMessage(state?.problem || state?.notice);
+  LauncherI18n.bind(graphicPacksNotice, "textContent", () => graphicPacksMessage(state?.problem || state?.notice));
   updateGraphicPacksControls();
 });
 window.addEventListener("launcher-core-state", updateGraphicPacksView);
@@ -119,5 +119,7 @@ window.addEventListener("launcher-library-change", event => {
 window.addEventListener("launcher-live-state", event => {
   if (selectedPage !== "graphic-packs" || document.hidden) return;
   updateGraphicPacksView();
-  if (event.detail?.state?.graphicPacksDeferred && window.launcherCoreState?.phase === "running") graphicPacksNotice.textContent = "フォルダの変更はゲーム終了後に再検査します。実行中の適用状態は保持しています。";
+  if (event.detail?.state?.graphicPacksDeferred && window.launcherCoreState?.phase === "running") LauncherI18n.bind(graphicPacksNotice, "textContent", () => LauncherI18n.t("Folder changes will be checked after the game stops. Current selections are preserved."));
 });
+
+window.addEventListener("launcher-language-changed", () => { graphicPacksRendered = ""; if (graphicPacksSnapshot) renderGraphicPacks(); });

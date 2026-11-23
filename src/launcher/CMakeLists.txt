@@ -120,6 +120,8 @@ saucer_embed("frontend" TARGET LauncherShell DESTINATION "${CMAKE_CURRENT_BINARY
 # 埋め込み配列のサイズ変更時にも、宣言を参照する main を再コンパイルする。
 set_property(SOURCE main.cpp APPEND PROPERTY OBJECT_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/app.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/i18n.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/locales.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/game-data.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/friends.js"
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/world.js"

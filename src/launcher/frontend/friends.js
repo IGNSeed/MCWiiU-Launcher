@@ -7,26 +7,26 @@ const friendsMotion = new LauncherMotion.PanelTransition(document.querySelector(
 }, () => {});
 const friendsIndicator = new LauncherMotion.SlidingIndicator(document.querySelector(".friends-tabs"), document.getElementById("friends-tab-indicator"), friendTabs, () => friendTabs.find(tab => tab.dataset.friendTab === selectedFriendTab));
 const friendStatus = {
-  offline:"Offline", connecting:"Connecting", connected:"Connected", reconnecting:"Reconnecting",
-  "authentication-failed":"Authentication Failed", "network-error":"Network Error", "server-unavailable":"Server Unavailable",
-  "account-not-ready":"Account Not Ready", unavailable:"Core unavailable"
+  get offline() { return LauncherI18n.t("Offline"); }, get connecting() { return LauncherI18n.t("Connecting"); }, get connected() { return LauncherI18n.t("Connected"); }, get reconnecting() { return LauncherI18n.t("Reconnecting"); },
+  get "authentication-failed"() { return LauncherI18n.t("Authentication Failed"); }, get "network-error"() { return LauncherI18n.t("Network Error"); }, get "server-unavailable"() { return LauncherI18n.t("Server Unavailable"); },
+  get "account-not-ready"() { return LauncherI18n.t("Account Not Ready"); }, get unavailable() { return LauncherI18n.t("Core unavailable"); }
 };
 function friendNode(tag, text, className) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
+  if (text !== undefined) LauncherI18n.bind(node, "textContent", () => text);
   return node;
 }
 function renderFriends() {
   const state = friendsSnapshot;
   const connected = state?.status === "connected";
-  const status = friendStatus[state?.status] || "Account Not Ready";
-  document.getElementById("friends-status").textContent = state?.service && state.service !== "Offline" ? `${state.service} · ${status}` : status;
-  document.getElementById("friends-note").textContent = state?.preferencesUnset ? "サーバーのPreferenceは未設定です。自動変更せず、取得した情報を表示します。" : "";
+  const status = friendStatus[state?.status] || LauncherI18n.t("Account Not Ready");
+  LauncherI18n.bind(document.getElementById("friends-status"), "textContent", () => state?.service && state.service !== "Offline" ? `${state.service} · ${status}` : status);
+  LauncherI18n.bind(document.getElementById("friends-note"), "textContent", () => state?.preferencesUnset ? LauncherI18n.t("Server preferences are unset. Showing received information without changing them.") : "");
   updateFriendManagement();
   const incoming = connected ? state.requests.filter(request => request.incoming).length : 0;
   const badge = document.getElementById("friends-badge");
-  badge.hidden = incoming === 0; badge.textContent = incoming ? String(incoming) : "";
+  badge.hidden = incoming === 0; LauncherI18n.bind(badge, "textContent", () => incoming ? String(incoming) : "");
   const key = state ? JSON.stringify([state.generation,state.connectionId,state.status,state.friends,state.requests]) : "empty";
   if (friendsRendered === key) return;
   friendsRendered = key;
@@ -41,7 +41,7 @@ function renderFriends() {
     const focus = list.contains(active) ? {pid:active.dataset.pid,messageId:active.dataset.messageId,operation:active.dataset.friendOperation} : null;
     const old = new Map([...list.children].map(row => [row.dataset.key,row]));
     for (const entry of entries) {
-      const key = `${entry.pid}:${entry.messageId || "0"}`, signature = JSON.stringify(entry);
+      const key = `${entry.pid}:${entry.messageId || "0"}`, signature = LauncherI18n.language + JSON.stringify(entry);
       const existing = old.get(key);
       if (existing?.dataset.signature === signature) { rows.push(existing); continue; }
       const row = friendNode("li", undefined, "friend-row");
@@ -53,22 +53,22 @@ function renderFriends() {
       profile.append(friendNode("strong", entry.displayName || entry.accountId || String(entry.pid)), friendNode("span", entry.accountId ? `PNID · ${entry.accountId}` : `PID · ${entry.pid}`, "friend-secondary"));
       if (request && entry.message) profile.append(friendNode("p", entry.message, "friend-message"));
       row.append(profile);
-      let description = request ? (entry.incoming ? "Incoming request" : "Outgoing request") : entry.online ? "Online" : "Offline";
-      if (request && entry.expired) description = "Expired request";
+      let description = request ? (entry.incoming ? LauncherI18n.t("Incoming request") : LauncherI18n.t("Outgoing request")) : entry.online ? LauncherI18n.t("Online") : LauncherI18n.t("Offline");
+      if (request && entry.expired) description = LauncherI18n.t("Expired request");
       if (!request && entry.online && entry.titleId) description = ["00050000101dbe00","00050000101d9d00","00050000101d7500"].includes(entry.titleId) ? "Minecraft: Wii U Edition" : `Title ID · ${entry.titleId}`;
       row.append(friendNode("span", description, "friend-activity"));
       const actions = friendNode("div", undefined, "friend-row-actions");
-      for (const [operation,label] of request ? (entry.incoming ? [["accept","Accept"],["reject","Reject"]] : [["cancel","Cancel Request"]]) : [["menu","…"]]) {
+      for (const [operation,label] of request ? (entry.incoming ? [["accept",LauncherI18n.t("Accept")],["reject",LauncherI18n.t("Decline")]] : [["cancel",LauncherI18n.t("Cancel Request")]]) : [["menu","…"]]) {
         const button = friendNode("button", label);
         button.type = "button"; button.dataset.friendOperation = operation; button.dataset.pid = String(entry.pid); button.dataset.messageId = entry.messageId || "0";
         button.disabled = !canManageFriends() || (request && (entry.manageable !== true || (operation === "accept" && entry.expired)));
-        if (!request) { button.setAttribute("aria-label", `Actions for ${entry.displayName || entry.accountId}`); button.setAttribute("aria-haspopup","menu"); }
-        if (request && entry.manageable !== true) button.title = "This request type cannot be managed safely.";
+        if (!request) { LauncherI18n.bind(button, "aria-label", () => LauncherI18n.t("Actions for {0}", [entry.displayName || entry.accountId]), true); button.setAttribute("aria-haspopup","menu"); }
+        if (request && entry.manageable !== true) LauncherI18n.bind(button, "title", () => LauncherI18n.t("This request type cannot be managed safely."));
         actions.append(button);
       }
       row.append(actions); rows.push(row);
     }
-    if (!entries.length) rows.push(friendNode("li", connected ? (request ? "No requests" : "No friends") : "接続後に最新の情報を表示します。", "friends-empty"));
+    if (!entries.length) rows.push(friendNode("li", connected ? (request ? LauncherI18n.t("No requests") : LauncherI18n.t("No friends")) : "", "friends-empty"));
     for (const [index,row] of rows.entries()) if (list.children[index] !== row) list.insertBefore(row,list.children[index] || null);
     for (const row of [...list.children]) if (!rows.includes(row)) row.remove();
     if (focus && !active.isConnected) {
@@ -106,7 +106,7 @@ window.addEventListener("launcher-friends-state", event => {
   friendsSnapshot = state;
   const incoming = state.status === "connected" ? state.requests.filter(request => request.incoming).length : 0;
   const badge = document.getElementById("friends-badge");
-  badge.hidden = incoming === 0; badge.textContent = incoming ? String(incoming) : "";
+  badge.hidden = incoming === 0; LauncherI18n.bind(badge, "textContent", () => incoming ? String(incoming) : "");
   if (selectedPage === "friends" && !document.hidden) renderFriends();
 });
 window.addEventListener("launcher-account-result", event => {
@@ -137,28 +137,28 @@ const friendDialog = document.getElementById("friend-dialog"), friendMenu = docu
 const friendInput = document.getElementById("friend-pnid"), friendConfirm = document.getElementById("friend-dialog-confirm");
 let friendTarget = null, friendMenuTarget = null, friendFocusTarget = null, friendCommandSerial = Date.now(), friendCommandPending = 0;
 const friendOperations = {
-  send:["Add Friend","Enter the PNID of the person you want to add.","Send Request"],
-  remove:["Remove Friend","Are you sure you want to remove this friend?","Remove Friend"],
-  accept:["Accept Request","Accept this person's friend request?","Accept Request"],
-  reject:["Reject Request","Are you sure you want to reject this request?","Reject Request"],
-  cancel:["Cancel Request","Are you sure you want to cancel this outgoing request?","Cancel Request"]
+  get send() { return [LauncherI18n.t("Add Friend"),LauncherI18n.t("Enter the PNID of the person you want to add."),LauncherI18n.t("Send Request")]; },
+  get remove() { return [LauncherI18n.t("Remove Friend"),LauncherI18n.t("Are you sure you want to remove this friend?"),LauncherI18n.t("Remove Friend")]; },
+  get accept() { return [LauncherI18n.t("Accept Request"),LauncherI18n.t("Accept this person's friend request?"),LauncherI18n.t("Accept Request")]; },
+  get reject() { return [LauncherI18n.t("Reject Request"),LauncherI18n.t("Are you sure you want to reject this request?"),LauncherI18n.t("Reject Request")]; },
+  get cancel() { return [LauncherI18n.t("Cancel Request"),LauncherI18n.t("Are you sure you want to cancel this outgoing request?"),LauncherI18n.t("Cancel Request")]; }
 };
 const friendNotices = {
-  "invalid-pnid":"Use 6–16 letters, numbers, dots, hyphens or underscores. Start and end with a letter or number; use single punctuation characters.",
-  "self-request":"You cannot send a request to yourself.", "already-friends":"You are already friends.", "already-requested":"A friend request already exists. Check Requests.",
-  "friend-not-found":"This friend is no longer in the current list.", "request-not-found":"This request is no longer available. The list updates automatically.",
-  "request-expired":"This request has expired.", "unsupported-request":"This request type cannot be managed safely.",
-  "stale-session":"The account or connection changed. Wait for synchronization and try again.", "offline":"Connect to Pretendo to manage friends.",
-  "not-connected":"Wait until Friends is connected.", "operation-busy":"Another operation is still in progress.", "duplicate-request":"This command has already been handled.",
-  "user-not-found":"No user was found with this PNID.", "lookup-failed":"The PNID lookup failed. Check the connection and try again.",
-  "server-error":"The server could not complete this operation.", "refresh-failed":"The latest server state could not be retrieved. No new change was sent.",
-  "connection-lost":"Connection lost. The result may be unknown. Wait for synchronization before trying again.",
+  get "invalid-pnid"() { return LauncherI18n.t("Use 6–16 letters, numbers, dots, hyphens or underscores. Start and end with a letter or number; use single punctuation characters."); },
+  get "self-request"() { return LauncherI18n.t("You cannot send a request to yourself."); }, get "already-friends"() { return LauncherI18n.t("You are already friends."); }, get "already-requested"() { return LauncherI18n.t("A friend request already exists. Check Requests."); },
+  get "friend-not-found"() { return LauncherI18n.t("This friend is no longer in the current list."); }, get "request-not-found"() { return LauncherI18n.t("This request is no longer available. The list updates automatically."); },
+  get "request-expired"() { return LauncherI18n.t("This request has expired."); }, get "unsupported-request"() { return LauncherI18n.t("This request type cannot be managed safely."); },
+  get "stale-session"() { return LauncherI18n.t("The account or connection changed. Wait for synchronization and try again."); }, get "offline"() { return LauncherI18n.t("Connect to Pretendo to manage friends."); },
+  get "not-connected"() { return LauncherI18n.t("Wait until Friends is connected."); }, get "operation-busy"() { return LauncherI18n.t("Another operation is still in progress."); }, get "duplicate-request"() { return LauncherI18n.t("This command has already been handled."); },
+  get "user-not-found"() { return LauncherI18n.t("No user was found with this PNID."); }, get "lookup-failed"() { return LauncherI18n.t("The PNID lookup failed. Check the connection and try again."); },
+  get "server-error"() { return LauncherI18n.t("The server could not complete this operation."); }, get "refresh-failed"() { return LauncherI18n.t("The latest server state could not be retrieved. No new change was sent."); },
+  get "connection-lost"() { return LauncherI18n.t("Connection lost. The result may be unknown. Wait for synchronization before trying again."); },
   "outcome-unknown":"The result is unknown. Checking server state; the request will not be resent automatically.",
-  "sync-pending":"The server accepted the request, but the updated list is still pending. The list will update automatically.",
-  "state-confirmed":"The updated server state has been confirmed.", saved:"Done. The server list is up to date.",
-  "invalid-command":"The operation could not be validated. Wait for synchronization and try again."
+  get "sync-pending"() { return LauncherI18n.t("The server accepted the request, but the updated list is still pending. The list will update automatically."); },
+  get "state-confirmed"() { return LauncherI18n.t("The updated server state has been confirmed."); }, get saved() { return LauncherI18n.t("Done. The server list is up to date."); },
+  get "invalid-command"() { return LauncherI18n.t("The operation could not be validated. Wait for synchronization and try again."); }
 };
-const friendProgress = {queued:"Preparing…",resolving:"Looking up PNID…",checking:"Checking current server state…",sent:"Request sent. Waiting for the server…",syncing:"Syncing server state…"};
+const friendProgress = {queued:"Preparing…",get resolving() { return LauncherI18n.t("Looking up PNID…"); },get checking() { return LauncherI18n.t("Checking current server state…"); },get sent() { return LauncherI18n.t("Request sent. Waiting for the server…"); },get syncing() { return LauncherI18n.t("Syncing server state…"); }};
 function canManageFriends() {
   return friendsSnapshot?.status === "connected" && friendsSnapshot.service === "Pretendo" && !friendCommandPending && !friendsSnapshot.operation?.busy;
 }
@@ -166,9 +166,9 @@ function resetFriendManagement() {
   if (friendDialog.open) friendDialog.close();
   friendMenu.hidePopover(); friendTarget = null; friendMenuTarget = null; friendCommandPending = 0;
   friendFocusTarget = null; friendInput.value = "";
-  document.getElementById("friend-dialog-target").textContent = "";
-  document.getElementById("friend-dialog-notice").textContent = "";
-  document.getElementById("friends-management-notice").textContent = "";
+  LauncherI18n.bind(document.getElementById("friend-dialog-target"), "textContent", () => "");
+  LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => "");
+  LauncherI18n.bind(document.getElementById("friends-management-notice"), "textContent", () => "");
 }
 function validFriendPnid(value) {
   const pnid = value.replace(/^ +| +$/g, "");
@@ -183,15 +183,15 @@ function currentFriendTarget(target) {
 function updateFriendManagement() {
   const operation = friendsSnapshot?.operation;
   if (friendCommandPending && operation?.id === friendCommandPending) {
-    const message = operation.notice ? friendNotices[operation.notice] || "The operation could not be completed." : friendProgress[operation.state] || "";
-    document.getElementById("friends-management-notice").textContent = message;
-    if (friendDialog.open) document.getElementById("friend-dialog-notice").textContent = message;
+    const message = operation.notice ? friendNotices[operation.notice] || LauncherI18n.t("The operation could not be completed.") : friendProgress[operation.state] || "";
+    LauncherI18n.bind(document.getElementById("friends-management-notice"), "textContent", () => message);
+    if (friendDialog.open) LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => message);
     if (!operation.busy) {
       friendCommandPending = 0;
       if (operation.state === "succeeded" && friendDialog.open) friendDialog.close();
     }
   } else if (!friendCommandPending && operation?.busy) {
-    document.getElementById("friends-management-notice").textContent = friendProgress[operation.state] || "Working…";
+    LauncherI18n.bind(document.getElementById("friends-management-notice"), "textContent", () => friendProgress[operation.state] || LauncherI18n.t("Working…"));
   }
   const enabled = canManageFriends();
   document.getElementById("friends-add").disabled = !enabled;
@@ -202,8 +202,8 @@ function updateFriendManagement() {
   friendInput.disabled = Boolean(friendCommandPending || operation?.busy);
   friendConfirm.disabled = !enabled || !currentFriendTarget(friendTarget) || (friendTarget?.operation === "send" && !validFriendPnid(friendInput.value));
   document.getElementById("friend-form").setAttribute("aria-busy", String(Boolean(friendCommandPending || operation?.busy)));
-  friendConfirm.textContent = friendCommandPending || operation?.busy ? "Working…" : friendOperations[friendTarget?.operation || "send"][2];
-  document.getElementById("friend-dialog-cancel").textContent = friendCommandPending || operation?.busy ? "Close" : friendTarget?.operation === "cancel" ? "Keep Request" : "Cancel";
+  LauncherI18n.bind(friendConfirm, "textContent", () => friendCommandPending || operation?.busy ? LauncherI18n.t("Working…") : friendOperations[friendTarget?.operation || "send"][2]);
+  LauncherI18n.bind(document.getElementById("friend-dialog-cancel"), "textContent", () => friendCommandPending || operation?.busy ? LauncherI18n.t("Close") : friendTarget?.operation === "cancel" ? LauncherI18n.t("Keep Request") : LauncherI18n.t("Cancel"));
 }
 function openFriendDialog(operation, entry = {}, opener = document.activeElement) {
   if (!canManageFriends() || !Object.hasOwn(friendOperations,operation)) return;
@@ -211,14 +211,14 @@ function openFriendDialog(operation, entry = {}, opener = document.activeElement
   friendTarget = {operation,pid:entry.pid || 0,messageId:entry.messageId || "0",generation:friendsSnapshot.generation,connectionId:friendsSnapshot.connectionId};
   friendFocusTarget = opener;
   const [title,description,confirm] = friendOperations[operation];
-  document.getElementById("friend-dialog-title").textContent = title;
-  document.getElementById("friend-dialog-description").textContent = description;
-  document.getElementById("friend-dialog-target").textContent = operation === "send" ? "" : `${entry.displayName || entry.accountId || entry.pid}\nPNID · ${entry.accountId || "Unavailable"}`;
+  LauncherI18n.bind(document.getElementById("friend-dialog-title"), "textContent", () => title);
+  LauncherI18n.bind(document.getElementById("friend-dialog-description"), "textContent", () => description);
+  LauncherI18n.bind(document.getElementById("friend-dialog-target"), "textContent", () => operation === "send" ? "" : `${entry.displayName || entry.accountId || entry.pid}\nPNID · ${entry.accountId || LauncherI18n.t("Unavailable")}`);
   document.getElementById("friend-pnid-row").hidden = operation !== "send";
   friendInput.value = "";
-  document.getElementById("friend-dialog-notice").textContent = "";
-  document.getElementById("friend-dialog-cancel").textContent = operation === "cancel" ? "Keep Request" : "Cancel";
-  friendConfirm.textContent = confirm;
+  LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => "");
+  LauncherI18n.bind(document.getElementById("friend-dialog-cancel"), "textContent", () => operation === "cancel" ? LauncherI18n.t("Keep Request") : LauncherI18n.t("Cancel"));
+  LauncherI18n.bind(friendConfirm, "textContent", () => confirm);
   friendDialog.showModal(); updateFriendManagement();
   (operation === "send" ? friendInput : document.getElementById("friend-dialog-cancel")).focus();
 }
@@ -243,7 +243,7 @@ document.getElementById("friend-menu-remove").addEventListener("click", () => {
   if (target?.generation === friendsSnapshot?.generation && target.connectionId === friendsSnapshot?.connectionId) openFriendDialog("remove",target.entry,target.opener);
 });
 friendMenu.addEventListener("toggle", event => { if (event.newState === "closed" && !friendDialog.open && friendMenuTarget?.opener?.isConnected) friendMenuTarget.opener.focus({preventScroll:true}); });
-friendInput.addEventListener("input", () => { document.getElementById("friend-dialog-notice").textContent = validFriendPnid(friendInput.value) || !friendInput.value ? "" : friendNotices["invalid-pnid"]; updateFriendManagement(); });
+friendInput.addEventListener("input", () => { LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => validFriendPnid(friendInput.value) || !friendInput.value ? "" : friendNotices["invalid-pnid"]); updateFriendManagement(); });
 document.getElementById("friend-dialog-cancel").addEventListener("click", () => friendDialog.close());
 friendDialog.addEventListener("close", () => {
   if (selectedPage === "friends") (friendFocusTarget?.isConnected && !friendFocusTarget.disabled ? friendFocusTarget : document.getElementById("friend-tab-all")).focus({preventScroll:true});
@@ -262,7 +262,7 @@ document.getElementById("friend-form").addEventListener("submit", event => {
   const target = friendTarget;
   friendCommandPending = ++friendCommandSerial;
   const payload = {op:target.operation,generation:target.generation,connectionId:target.connectionId,pid:target.pid,messageId:target.messageId,pnid:target.operation === "send" ? friendInput.value : ""};
-  document.getElementById("friend-dialog-notice").textContent = "Preparing…";
+  LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => "Preparing…");
   windowCommand(`friends:command:${friendCommandPending}:${JSON.stringify(payload)}`);
   updateFriendManagement(); friendsRendered = "";
 });
@@ -271,9 +271,11 @@ window.addEventListener("launcher-friends-command", event => {
   if (!result || result.requestId !== friendCommandPending || typeof result.notice !== "string") return;
   if (result.notice !== "queued") {
     friendCommandPending = 0;
-    const message = friendNotices[result.notice] || "The operation could not be completed.";
-    document.getElementById("friends-management-notice").textContent = message;
-    if (friendDialog.open) document.getElementById("friend-dialog-notice").textContent = message;
+    const message = friendNotices[result.notice] || LauncherI18n.t("The operation could not be completed.");
+    LauncherI18n.bind(document.getElementById("friends-management-notice"), "textContent", () => message);
+    if (friendDialog.open) LauncherI18n.bind(document.getElementById("friend-dialog-notice"), "textContent", () => message);
   }
   updateFriendManagement();
 });
+
+window.addEventListener("launcher-language-changed", () => { friendsRendered = ""; renderFriends(); friendsIndicator.schedule(false); });

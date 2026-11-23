@@ -31,6 +31,8 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
+#include <array>
+#include <glaze/glaze.hpp>
 
 namespace
 {
@@ -491,9 +493,14 @@ namespace
 			const bool preferencesHealthy = preferencesNotice == "loaded" || preferencesNotice == "default";
 			UpdateService updates(LauncherPaths::Get().cache);
 			bool updateGate = false, updateClose = false;
+			wchar_t userLocale[LOCALE_NAME_MAX_LENGTH]{};
+			GetUserDefaultLocaleName(userLocale, LOCALE_NAME_MAX_LENGTH);
+			char userLocaleUtf8[LOCALE_NAME_MAX_LENGTH * 4]{};
+			WideCharToMultiByte(CP_UTF8, 0, userLocale, -1, userLocaleUtf8, sizeof(userLocaleUtf8), nullptr, nullptr);
+			const std::string systemLanguage(userLocaleUtf8);
 			const auto publishPreferences = [&] {
 				webview.execute("window.dispatchEvent(new CustomEvent('launcher-preferences', {detail:{values:" + preferences.Json() +
-					",notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
+					",systemLanguage:'" + systemLanguage + "',notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
 			};
 			auto history = std::make_shared<SessionHistory>(LauncherPaths::Get());
 			std::string lastHistoryNotice;
@@ -750,6 +757,22 @@ namespace
 				// 埋め込みページからの完全一致するウィンドウ操作だけを受け付ける。
 				if (message == "window:minimize")
 					window->set_minimized(true);
+				else if (message.starts_with("language:exit-labels:") && message.size() <= 8192)
+				{
+					std::array<std::string, 4> labels;
+					std::array<std::wstring, 4> wideLabels;
+					bool valid = !glz::read_json(labels, message.substr(std::string_view("language:exit-labels:").size()));
+					for (size_t i = 0; valid && i < labels.size(); ++i)
+					{
+						const auto& text = labels[i];
+						if (text.empty() || text.size() > 2048 || text.find('\0') != std::string::npos) { valid = false; break; }
+						const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+						if (!length) { valid = false; break; }
+						wideLabels[i].resize(length);
+						valid = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), wideLabels[i].data(), length) == length;
+					}
+					if (valid) gameHost.SetExitLabels(wideLabels);
+				}
 				else if (message == "window:toggle-maximize")
 					window->set_maximized(!window->maximized());
 				else if (message == "window:close")

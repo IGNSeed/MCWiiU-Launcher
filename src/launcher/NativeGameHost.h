@@ -37,6 +37,7 @@ public:
 	bool SetOpenGLComposition(bool enabled);
 	void SetControlsVisible(bool visible);
 	void SetExitConfirmation(bool visible);
+	void SetExitLabels(const std::array<std::wstring, 4>& labels);
 	void CancelTouch();
 	std::function<void(bool)> exitResult;
 	std::function<void()> stateChanged;

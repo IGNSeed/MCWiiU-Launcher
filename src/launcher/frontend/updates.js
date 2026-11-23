@@ -4,20 +4,21 @@
   const banner = $("update-banner"), dialog = $("update-dialog");
   let state = {state:"Idle",revision:0}, dismissed = false, requested = "", approval = "";
   const messages = {
-    Idle:"", Checking:"Checking for Updates", UpToDate:"You're Up to Date", UpdateAvailable:"Update Available",
-    Scheduled:"Update scheduled — waiting for Minecraft and pending saves to finish.",
-    Downloading:"Downloading Update", Verifying:"Verifying Update", Staging:"Staging Update", Staged:"Ready to Install",
-    AwaitingShutdown:"Preparing to close the launcher and install the update", Failed:"Unable to Check for Updates",
-    FoundationRequired:"A newer launcher foundation is required. Download and install the latest setup from the official GitHub Releases page, then close the launcher normally before running setup."
+    Idle:"", get Checking() { return LauncherI18n.t("Checking for Updates"); }, get UpToDate() { return LauncherI18n.t("You're Up to Date"); }, get UpdateAvailable() { return LauncherI18n.t("Update Available"); },
+    get Scheduled() { return LauncherI18n.t("Update scheduled — waiting for Minecraft and pending saves to finish."); },
+    get Downloading() { return LauncherI18n.t("Downloading Update"); }, get Verifying() { return LauncherI18n.t("Verifying Update"); }, get Staging() { return LauncherI18n.t("Staging Update"); }, get Staged() { return LauncherI18n.t("Ready to Install"); },
+    get AwaitingShutdown() { return LauncherI18n.t("Preparing to close the launcher and install the update"); }, get Failed() { return LauncherI18n.t("Unable to Check for Updates"); },
+    get FoundationRequired() { return LauncherI18n.t("A newer launcher foundation is required. Download and install the latest setup from the official GitHub Releases page, then close the launcher normally before running setup."); }
   };
+  window.addEventListener("launcher-language-changed", render);
   function hideBanner() { dismissed = true; banner.hidden = true; }
   function details() {
     if (!state.targetId) return;
     const foundation = state.state === "FoundationRequired";
-    $("update-current").textContent = foundation ? `Launcher ${$("launcher-version").textContent} (retained)` : $("launcher-version").textContent;
-    $("update-version").textContent = foundation ? `Foundation ${state.foundationVersion} (launcher unchanged)` : state.version;
-    $("update-size").textContent = `${state.size.toLocaleString()} bytes`;
-    $("update-notes").textContent = state.notes;
+    LauncherI18n.bind($("update-current"), "textContent", () => foundation ? LauncherI18n.t("Launcher {0} (retained)", [$("launcher-version").textContent]) : $("launcher-version").textContent);
+    LauncherI18n.bind($("update-version"), "textContent", () => foundation ? LauncherI18n.t("Foundation {0} (launcher unchanged)", [state.foundationVersion]) : state.version);
+    LauncherI18n.bind($("update-size"), "textContent", () => `${state.size.toLocaleString(LauncherI18n.language)} B`);
+    LauncherI18n.bind($("update-notes"), "textContent", () => state.notes);
     if (!dialog.open) dialog.showModal();
     render();
   }
@@ -25,24 +26,24 @@
     const available = state.state === "UpdateAvailable";
     const active = ["Scheduled","Downloading","Verifying","Staging","Staged","AwaitingShutdown"].includes(state.state);
     const foundation = state.state === "FoundationRequired";
-    const label = state.state === "Failed" && state.targetId ? "Update Failed" : messages[state.state] || state.state;
+    const label = state.state === "Failed" && state.targetId ? LauncherI18n.t("Update Failed") : messages[state.state] ?? state.state;
     const text = label + (state.error ? ` (${state.error})` : "");
-    $("update-status").textContent = text;
-    $("update-progress-text").textContent = text;
-    $("update-banner-text").textContent = foundation ? `Foundation ${state.foundationVersion} or later is required. Install the latest setup manually.` : active ? text : `MCWiiU-Launcher v${state.version} is available.`;
+    LauncherI18n.bind($("update-status"), "textContent", () => text);
+    LauncherI18n.bind($("update-progress-text"), "textContent", () => text);
+    LauncherI18n.bind($("update-banner-text"), "textContent", () => foundation ? LauncherI18n.t("Foundation {0} or later is required. Install the latest setup manually.", [state.foundationVersion]) : active ? text : LauncherI18n.t("MCWiiU-Launcher v{0} is available.", [state.version]));
     banner.hidden = dismissed || (!available && !active && !foundation) || document.querySelector("main").dataset.view === "game";
     $("update-check").disabled = state.state === "Checking" || active;
     $("update-details").hidden = !state.targetId;
     $("update-now").disabled = !available && !foundation;
-    $("update-now").textContent = foundation ? "Open Official Releases" : "Update Now";
+    LauncherI18n.bind($("update-now"), "textContent", () => foundation ? LauncherI18n.t("Open Official Releases") : LauncherI18n.t("Update Now"));
     $("update-cancel").disabled = state.state === "AwaitingShutdown";
-    $("update-cancel").textContent = available ? "Later" : state.canCancel ? "Cancel Update" : "Close";
+    LauncherI18n.bind($("update-cancel"), "textContent", () => available ? LauncherI18n.t("Later") : state.canCancel ? LauncherI18n.t("Cancel Update") : LauncherI18n.t("Close"));
     const downloading = state.state === "Downloading";
     $("update-progress").hidden = !downloading;
     if (downloading) {
       $("update-progress").max = state.size;
       $("update-progress").value = state.downloaded;
-      $("update-progress-text").textContent += ` — ${state.downloaded.toLocaleString()} / ${state.size.toLocaleString()} bytes (${Math.floor(100 * state.downloaded / state.size)}%)`;
+      $("update-progress-text").textContent += ` — ${state.downloaded.toLocaleString()} / ${state.size.toLocaleString(LauncherI18n.language)} B (${Math.floor(100 * state.downloaded / state.size)}%)`;
     }
     updatePlay();
   }

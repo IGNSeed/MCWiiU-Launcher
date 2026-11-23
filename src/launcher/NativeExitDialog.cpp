@@ -29,6 +29,19 @@ NativeExitDialog::~NativeExitDialog()
 	if (m_class) UnregisterClassW(s_dialogClass, GetModuleHandleW(nullptr));
 }
 
+void NativeExitDialog::SetLabels(const std::array<std::wstring, 4>& labels)
+{
+	m_labels = labels;
+	if (!m_panel) return;
+	SetWindowTextW(m_panel, m_labels[0].c_str());
+	for (unsigned i = 0; i < 2; ++i)
+	{
+		SetWindowTextW(m_buttons[i], m_labels[i + 2].c_str());
+		InvalidateRect(m_buttons[i], nullptr, FALSE);
+	}
+	InvalidateRect(m_panel, nullptr, FALSE);
+}
+
 void NativeExitDialog::Show(bool visible, const RECT& gameBounds)
 {
 	if (!visible)
@@ -42,14 +55,13 @@ void NativeExitDialog::Show(bool visible, const RECT& gameBounds)
 	{
 		m_dim = CreateWindowExW(WS_EX_LAYERED, s_dialogClass, L"Minecraft confirmation backdrop", WS_CHILD | WS_CLIPSIBLINGS,
 			0, 0, 1, 1, m_parent, nullptr, GetModuleHandleW(nullptr), this);
-		m_panel = CreateWindowExW(WS_EX_LAYERED | WS_EX_CONTROLPARENT, s_dialogClass, L"Minecraftを終了しますか？",
+		m_panel = CreateWindowExW(WS_EX_LAYERED | WS_EX_CONTROLPARENT, s_dialogClass, m_labels[0].c_str(),
 			WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 1, 1, m_parent, nullptr, GetModuleHandleW(nullptr), this);
 		if (!m_dim || !m_panel || !SetLayeredWindowAttributes(m_dim, 0, 170, LWA_ALPHA) ||
 			!SetLayeredWindowAttributes(m_panel, 0, 255, LWA_ALPHA)) throw std::runtime_error("Unable to create exit confirmation");
-		const wchar_t* labels[]{L"キャンセル", L"ゲームを終了"};
 		for (unsigned i = 0; i < 2; ++i)
 		{
-			m_buttons[i] = CreateWindowExW(0, L"BUTTON", labels[i], WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+			m_buttons[i] = CreateWindowExW(0, L"BUTTON", m_labels[i + 2].c_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
 				0, 0, 1, 1, m_panel, reinterpret_cast<HMENU>(static_cast<INT_PTR>(200 + i)), GetModuleHandleW(nullptr), nullptr);
 			if (!m_buttons[i] || !SetWindowSubclass(m_buttons[i], ButtonProc, 1, reinterpret_cast<DWORD_PTR>(this)))
 				throw std::runtime_error("Unable to create confirmation buttons");
@@ -114,11 +126,11 @@ void NativeExitDialog::Paint(HWND hwnd)
 		SetTextColor(dc, RGB(245, 245, 245));
 		SelectObject(dc, m_headingFont);
 		RECT heading{px(24), px(24), rect.right - px(24), px(62)};
-		DrawTextW(dc, L"Minecraftを終了しますか？", -1, &heading, DT_LEFT | DT_WORDBREAK);
+		DrawTextW(dc, m_labels[0].c_str(), -1, &heading, DT_LEFT | DT_WORDBREAK);
 		SelectObject(dc, m_font);
 		SetTextColor(dc, RGB(192, 192, 200));
 		RECT text{px(24), px(78), rect.right - px(24), rect.bottom - px(80)};
-		DrawTextW(dc, L"保存していない変更は失われる可能性があります。\n先に Minecraft 内で「Exit and save」を実行してください。", -1, &text, DT_LEFT | DT_WORDBREAK);
+		DrawTextW(dc, m_labels[1].c_str(), -1, &text, DT_LEFT | DT_WORDBREAK);
 	}
 	RestoreDC(dc, saved);
 	EndPaint(hwnd, &paint);

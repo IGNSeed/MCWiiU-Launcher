@@ -144,7 +144,7 @@ void LauncherPaths::Initialize()
 		Require(file != INVALID_HANDLE_VALUE, "Application data directory is not writable");
 		CloseHandle(file);
 	}
-	CreateDefault(data / L"settings.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><content><play_boot_sound>true</play_boot_sound><Graphic><api>1</api></Graphic><Audio/></content>\n");
+	CreateDefault(data / L"settings.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><content><play_boot_sound>true</play_boot_sound><Graphic><api>1</api></Graphic><Audio><TVDevice>default</TVDevice><PadDevice>default</PadDevice></Audio></content>\n");
 	const NativeSettings defaults;
 	CreateDefault(data / L"launcher-native-settings.json", "{\"config_version\":1,\"native_vsync_frequency\":" + std::to_string(defaults.vsyncFrequency) +
 		",\"native_internal_width\":" + std::to_string(defaults.width) + ",\"native_internal_height\":" + std::to_string(defaults.height) + "}\n");

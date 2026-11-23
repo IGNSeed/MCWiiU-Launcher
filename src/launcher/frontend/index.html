@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7,6 +7,8 @@
   <title>MCWiiU Launcher</title>
   <link rel="stylesheet" href="style.css">
   <script src="motion.js" defer></script>
+  <script src="locales.js" defer></script>
+  <script src="i18n.js" defer></script>
   <script src="app.js" defer></script>
   <script src="friends.js" defer></script>
   <script src="world.js" defer></script>
@@ -17,18 +19,18 @@
   <script src="updates.js" defer></script>
 </head>
 <body>
-  <header class="titlebar" aria-label="ウィンドウ操作">
+  <header class="titlebar" aria-label="Window controls" data-i18n-aria-label="Window controls">
     <div id="titlebar-drag" class="titlebar-drag">MCWiiU Launcher</div>
     <div class="window-controls">
-      <button id="window-minimize" type="button" aria-label="最小化" title="最小化"><span class="minimize-icon" aria-hidden="true"></span></button>
-      <button id="window-maximize" type="button" aria-label="元に戻す" title="元に戻す"><span class="maximize-icon" aria-hidden="true"></span></button>
-      <button id="window-close" type="button" aria-label="閉じる" title="閉じる"><span class="close-icon" aria-hidden="true"></span></button>
+      <button id="window-minimize" type="button" aria-label="Minimize" title="Minimize" data-i18n-aria-label="Minimize" data-i18n-title="Minimize"><span class="minimize-icon" aria-hidden="true"></span></button>
+      <button id="window-maximize" type="button" aria-label="Restore" title="Restore" data-i18n-aria-label="Restore" data-i18n-title="Restore"><span class="maximize-icon" aria-hidden="true"></span></button>
+      <button id="window-close" type="button" aria-label="Close" title="Close" data-i18n-aria-label="Close" data-i18n-title="Close"><span class="close-icon" aria-hidden="true"></span></button>
     </div>
   </header>
   <div class="workspace">
-    <aside class="sidebar" aria-label="Launcher navigation">
+    <aside class="sidebar" aria-label="Launcher navigation" data-i18n-aria-label="Launcher navigation">
       <div class="brand">MCWiiU <span>Launcher</span></div>
-      <nav aria-label="Main navigation">
+      <nav aria-label="Main navigation" data-i18n-aria-label="Main navigation">
         <span id="navigation-indicator" aria-hidden="true"></span>
         <button type="button" data-page="home" aria-current="page">Home</button>
         <button type="button" data-page="friends">Friends <span id="friends-badge" class="friends-badge" hidden></span></button>
@@ -41,49 +43,49 @@
       <div class="sidebar-note">Minecraft · v560</div>
     </aside>
     <main data-view="home">
-      <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden><span id="update-banner-text"></span><button id="update-view" type="button">View Update</button><button id="update-later" type="button">Later</button><button id="update-close" type="button" aria-label="Close update notification">Close</button></div>
+      <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden><span id="update-banner-text"></span><button id="update-view" type="button" data-i18n="View Update">View Update</button><button id="update-later" type="button" data-i18n="Later">Later</button><button id="update-close" type="button" aria-label="Close update notification" data-i18n-aria-label="Close update notification" data-i18n="Close">Close</button></div>
       <header class="topbar"><span id="page-label">Settings</span></header>
       <p id="history-global-notice" class="footnote core-error" role="alert" hidden></p>
       <p id="core-error" class="footnote core-error" role="alert" hidden></p>
-      <div id="game-data-banner" class="game-data-banner" role="status" hidden><span id="game-data-banner-text"></span><button id="game-data-view-progress" type="button">進捗を表示</button></div>
+      <div id="game-data-banner" class="game-data-banner" role="status" hidden><span id="game-data-banner-text"></span><button id="game-data-view-progress" type="button" data-i18n="Show progress">Show progress</button></div>
       <section id="setup" aria-labelledby="setup-title" hidden>
         <h1 id="setup-title">Minecraft Wii U Setup</h1>
         <p id="setup-step" class="footnote" role="status"></p>
         <div id="setup-stage" class="game-data-card"></div>
         <p id="setup-notice" class="footnote game-data-error" role="status" aria-live="polite"></p>
-        <div class="game-data-actions setup-actions"><button id="setup-leave" type="button">キャンセル</button><button id="setup-back" type="button" hidden>前へ</button><button id="setup-next" type="button">次へ</button></div>
+        <div class="game-data-actions setup-actions"><button id="setup-leave" type="button" data-i18n="Cancel">Cancel</button><button id="setup-back" type="button" hidden data-i18n="Back">Back</button><button id="setup-next" type="button" data-i18n="Next">Next</button></div>
       </section>
       <section id="home" aria-label="Minecraft: Wii U Edition">
         <div class="home-art">
           <img src="assets/minecraft-wiiu-home.png" width="1980" height="1113" alt="Minecraft: Wii U Edition" draggable="false" fetchpriority="high">
-          <div class="home-play"><button id="play" type="button" disabled>PLAY</button></div>
+          <div class="home-play"><button id="play" type="button" disabled data-i18n="PLAY">PLAY</button></div>
           <p id="home-game-data-note" class="footnote game-data-home-note" role="status"></p>
         </div>
       </section>
       <section id="session-history" aria-labelledby="history-title" hidden>
-        <div class="settings-title-row"><h1 id="history-title">Session History</h1><button type="button" data-return-game hidden>ゲームに戻る</button></div>
-        <p id="history-status" class="footnote" role="status">プレイ時間を読み込んでいます…</p>
-        <div id="history-cards" class="history-cards" aria-label="プレイ時間の統計"></div>
+        <div class="settings-title-row"><h1 id="history-title">Session History</h1><button type="button" data-return-game hidden data-i18n="Return to game">Return to game</button></div>
+        <p id="history-status" class="footnote" role="status" data-i18n="Loading playtime…">Loading playtime…</p>
+        <div id="history-cards" class="history-cards" aria-label="Playtime statistics" data-i18n-aria-label="Playtime statistics"></div>
         <div class="history-chart-header">
-          <div id="history-modes" class="history-modes" role="tablist" aria-label="集計期間">
+          <div id="history-modes" class="history-modes" role="tablist" aria-label="Period" data-i18n-aria-label="Period">
             <button type="button" role="tab" aria-selected="true" data-history-mode="daily">Daily</button>
             <button type="button" role="tab" aria-selected="false" data-history-mode="weekly" tabindex="-1">Weekly</button>
             <button type="button" role="tab" aria-selected="false" data-history-mode="monthly" tabindex="-1">Monthly</button>
             <button type="button" role="tab" aria-selected="false" data-history-mode="yearly" tabindex="-1">Yearly</button>
           </div>
-          <div class="history-period"><button id="history-prev" type="button" aria-label="前の期間">←</button><span id="history-range"></span><button id="history-next" type="button" aria-label="次の期間">→</button><button id="history-current" type="button">現在</button></div>
+          <div class="history-period"><button id="history-prev" type="button" aria-label="Previous period" data-i18n-aria-label="Previous period">←</button><span id="history-range"></span><button id="history-next" type="button" aria-label="Next period" data-i18n-aria-label="Next period">→</button><button id="history-current" type="button" data-i18n="Current">Current</button></div>
         </div>
-        <div class="history-chart-layout"><div id="history-axis" class="history-axis" aria-label="プレイ時間軸"></div><div id="history-chart" class="history-chart" role="group" aria-label="プレイ時間の棒グラフ"></div></div>
+        <div class="history-chart-layout"><div id="history-axis" class="history-axis" aria-label="Playtime axis" data-i18n-aria-label="Playtime axis"></div><div id="history-chart" class="history-chart" role="group" aria-label="Playtime chart" data-i18n-aria-label="Playtime chart"></div></div>
         <p id="history-chart-detail" class="footnote" aria-live="polite"></p>
-        <p id="history-empty" class="footnote" hidden>まだプレイ記録がありません。Minecraft の実行開始後に記録されます。</p>
-        <div class="history-detail-header"><h2 class="settings-heading">日付別の履歴</h2><div class="history-date-select"><label>年 <input id="history-year" type="number" min="1601" max="9998" step="1" inputmode="numeric"></label><label>月 <select id="history-month" aria-label="月"></select></label><button id="history-detail-current" type="button">今月</button></div></div>
+        <p id="history-empty" class="footnote" hidden data-i18n="No play history yet.">No play history yet.</p>
+        <div class="history-detail-header"><h2 class="settings-heading" data-i18n="History by date">History by date</h2><div class="history-date-select"><label><span data-i18n="Year">Year</span> <input id="history-year" type="number" min="1601" max="9998" step="1" inputmode="numeric"></label><label><span data-i18n="Month">Month</span> <select id="history-month" aria-label="Month" data-i18n-aria-label="Month"></select></label><button id="history-detail-current" type="button" data-i18n="This Month">This Month</button></div></div>
         <p id="history-detail-range" class="footnote"></p>
-        <div class="history-dates-wrap"><table class="history-dates"><thead><tr><th scope="col">日付</th><th scope="col">プレイ時間</th></tr></thead><tbody id="history-dates"></tbody></table></div>
+        <div class="history-dates-wrap"><table class="history-dates"><thead><tr><th scope="col" data-i18n="Date">Date</th><th scope="col" data-i18n="Playtime">Playtime</th></tr></thead><tbody id="history-dates"></tbody></table></div>
       </section>
       <section id="friends" aria-labelledby="friends-title" hidden>
-        <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="friends-add" class="friends-primary" type="button" disabled>Add Friend</button></div></div>
-        <p id="friends-status" class="footnote" role="status">Account Not Ready</p>
-        <div class="settings-tabs friends-tabs" role="tablist" aria-label="Friends">
+        <div class="settings-title-row"><h1 id="friends-title">Friends</h1><div class="friends-actions"><button type="button" data-return-game hidden data-i18n="Return to game">Return to game</button><button id="friends-add" class="friends-primary" type="button" disabled data-i18n="Add Friend">Add Friend</button></div></div>
+        <p id="friends-status" class="footnote" role="status" data-i18n="Account Not Ready">Account Not Ready</p>
+        <div class="settings-tabs friends-tabs" role="tablist" aria-label="Friends" data-i18n-aria-label="Friends">
           <span id="friends-tab-indicator" aria-hidden="true"></span>
           <button id="friend-tab-all" type="button" role="tab" aria-selected="true" aria-controls="friend-panel-all" data-friend-tab="all">All Friends</button>
           <button id="friend-tab-online" type="button" role="tab" aria-selected="false" aria-controls="friend-panel-online" data-friend-tab="online" tabindex="-1">Online</button>
@@ -92,39 +94,38 @@
         <div class="friends-content">
           <div id="friend-panel-all" role="tabpanel" aria-labelledby="friend-tab-all"><ul id="friends-all" class="friends-list"></ul></div>
           <div id="friend-panel-online" role="tabpanel" aria-labelledby="friend-tab-online" hidden><ul id="friends-online" class="friends-list"></ul></div>
-          <div id="friend-panel-requests" role="tabpanel" aria-labelledby="friend-tab-requests" hidden><h2 class="settings-heading">Incoming</h2><ul id="friends-incoming" class="friends-list"></ul><h2 class="settings-heading">Outgoing</h2><ul id="friends-outgoing" class="friends-list"></ul></div>
+          <div id="friend-panel-requests" role="tabpanel" aria-labelledby="friend-tab-requests" hidden><h2 class="settings-heading" data-i18n="Incoming">Incoming</h2><ul id="friends-incoming" class="friends-list"></ul><h2 class="settings-heading" data-i18n="Outgoing">Outgoing</h2><ul id="friends-outgoing" class="friends-list"></ul></div>
         </div>
         <p id="friends-note" class="footnote"></p>
         <p id="friends-management-notice" class="footnote" role="status" aria-live="polite"></p>
       </section>
       <section id="world" aria-labelledby="world-title" hidden>
-        <div class="settings-title-row"><h1 id="world-title">World</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="world-open-folder" type="button" title="Open World Folder" aria-label="Open World Folder" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/></svg></button><button id="world-import" type="button" disabled>Import World</button><button id="world-trash" type="button" disabled>Trash</button><button id="world-empty-trash" type="button" class="world-danger" hidden disabled>Empty Trash</button><button id="world-back" type="button" hidden>Back to Worlds</button></div></div>
+        <div class="settings-title-row"><h1 id="world-title">World</h1><div class="friends-actions"><button type="button" data-return-game hidden data-i18n="Return to game">Return to game</button><button id="world-open-folder" type="button" title="Open World Folder" aria-label="Open World Folder" disabled data-i18n-aria-label="Open World Folder" data-i18n-title="Open World Folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/></svg></button><button id="world-import" type="button" disabled data-i18n="Import World">Import World</button><button id="world-trash" type="button" disabled data-i18n="Trash">Trash</button><button id="world-empty-trash" type="button" class="world-danger" hidden disabled data-i18n="Empty Trash">Empty Trash</button><button id="world-back" type="button" hidden data-i18n="Back to Worlds">Back to Worlds</button></div></div>
         <p id="world-account" class="footnote"></p>
         <p id="world-trash-capacity" class="footnote" hidden></p>
         <p id="world-purge-progress" class="footnote" role="status" hidden></p>
-        <p id="world-notice" class="footnote" role="status" aria-live="polite">準備完了後にワールドを表示します。</p>
-        <button id="world-recover" type="button" hidden>中断した操作を復旧</button>
-        <div id="world-list" class="world-list" aria-label="ワールド一覧" aria-busy="false"></div>
+        <p id="world-notice" class="footnote" role="status" aria-live="polite" data-i18n="Preparing…">Preparing…</p>
+        <button id="world-recover" type="button" hidden data-i18n="Recover interrupted operation">Recover interrupted operation</button>
+        <div id="world-list" class="world-list" aria-label="World list" aria-busy="false" data-i18n-aria-label="World list"></div>
       </section>
       <section id="texture" aria-labelledby="texture-title" hidden>
-        <div class="settings-title-row"><h1 id="texture-title">Texture</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="texture-open-folder" type="button" title="Open Texture Folder" aria-label="Open Texture Folder" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/></svg></button></div></div>
-        <p id="texture-notice" class="footnote" role="status" aria-live="polite">準備完了後にテクスチャを表示します。</p>
-        <h2 class="texture-heading">Current Texture</h2>
+        <div class="settings-title-row"><h1 id="texture-title">Texture</h1><div class="friends-actions"><button type="button" data-return-game hidden data-i18n="Return to game">Return to game</button><button id="texture-open-folder" type="button" title="Open Texture Folder" aria-label="Open Texture Folder" disabled data-i18n-aria-label="Open Texture Folder" data-i18n-title="Open Texture Folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/></svg></button></div></div>
+        <p id="texture-notice" class="footnote" role="status" aria-live="polite" data-i18n="Preparing…">Preparing…</p>
+        <h2 class="texture-heading" data-i18n="Current Texture">Current Texture</h2>
         <div id="texture-current" class="texture-current" aria-live="polite"></div>
         <p id="texture-loaded" class="footnote" hidden></p>
-        <button id="texture-recover" type="button" hidden>Default に復旧</button>
+        <button id="texture-recover" type="button" hidden data-i18n="Restore defaults">Restore defaults</button>
         <hr class="texture-divider">
-        <h2 class="texture-heading">Available Textures</h2>
-        <div id="texture-list" class="texture-list" aria-label="利用可能なテクスチャ" aria-busy="false"></div>
+        <h2 class="texture-heading" data-i18n="Available Textures">Available Textures</h2>
+        <div id="texture-list" class="texture-list" aria-label="Available textures" aria-busy="false" data-i18n-aria-label="Available textures"></div>
       </section>
       <section id="graphic-packs" aria-labelledby="graphic-packs-title" hidden>
-        <div class="settings-title-row"><h1 id="graphic-packs-title">Graphic Packs</h1><div class="friends-actions"><button type="button" data-return-game hidden>ゲームに戻る</button><button id="graphic-packs-open-folder" type="button" disabled>フォルダを開く</button></div></div>
-        <p class="footnote">変更は次回ゲーム起動時に反映されます。追加したパックは次回Launcher起動時に認識します。対応するゲームバージョンは各パックの説明を確認してください。</p>
-        <p id="graphic-packs-notice" class="footnote" role="status" aria-live="polite">準備完了後にGraphic Packを表示します。</p>
-        <div id="graphic-packs-list" class="graphic-packs-list" aria-label="インストール済みGraphic Pack"></div>
+        <div class="settings-title-row"><h1 id="graphic-packs-title">Graphic Packs</h1><div class="friends-actions"><button type="button" data-return-game hidden data-i18n="Return to game">Return to game</button><button id="graphic-packs-open-folder" type="button" disabled data-i18n="Open Folder">Open Folder</button></div></div>
+        <p id="graphic-packs-notice" class="footnote" role="status" aria-live="polite" data-i18n="Preparing…">Preparing…</p>
+        <div id="graphic-packs-list" class="graphic-packs-list" aria-label="Installed graphic packs" data-i18n-aria-label="Installed graphic packs"></div>
       </section>
       <section id="settings" aria-labelledby="settings-title" hidden>
-        <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden>ゲームに戻る</button></div>
+        <div class="settings-title-row"><h1 id="settings-title">Settings</h1><button id="return-settings-game" type="button" data-return-game hidden data-i18n="Return to game">Return to game</button></div>
         <div class="settings-tabs" role="tablist" aria-label="Settings">
           <span id="tab-indicator" aria-hidden="true"></span>
           <button id="tab-general" type="button" role="tab" aria-selected="true" aria-controls="panel-general" data-tab="general" tabindex="0">General</button>
@@ -137,191 +138,188 @@
         </div>
         <div class="settings-content">
           <div id="panel-general" role="tabpanel" aria-labelledby="tab-general">
-            <h2 class="settings-heading">Updates</h2>
-            <p class="footnote">Stable Release を確認します。ダウンロードとインストールには承認が必要です。</p>
+            <h2 class="settings-heading" data-i18n="Language">Language</h2>
+            <div class="input-row"><label for="launcher-language" data-i18n="Language">Language</label><select id="launcher-language" disabled><option value="auto">System Default (Auto)</option><option value="en">English</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="zh-CN">简体中文</option><option value="zh-TW">繁體中文</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
+            <h2 class="settings-heading" data-i18n="Updates">Updates</h2>
             <fieldset id="update-preferences" disabled>
-              <legend class="visually-hidden">更新の設定</legend>
-              <label class="checkbox-row"><input id="check-on-startup" type="checkbox">Check for Updates on Startup</label>
+              <legend class="visually-hidden" data-i18n="Update preferences">Update preferences</legend>
+              <label class="checkbox-row"><input id="check-on-startup" type="checkbox"><span data-i18n="Check for Updates on Startup">Check for Updates on Startup</span></label>
             </fieldset>
-            <p id="preferences-note" class="footnote" role="status">設定を読み込んでいます。</p>
-            <div class="game-data-actions"><button id="update-check" type="button">Check for Updates</button><button id="update-details" type="button" hidden>View Update</button></div>
+            <p id="preferences-note" class="footnote" role="status" data-i18n="Loading settings…">Loading settings…</p>
+            <div class="game-data-actions"><button id="update-check" type="button" data-i18n="Check for Updates">Check for Updates</button><button id="update-details" type="button" hidden data-i18n="View Update">View Update</button></div>
             <p id="update-status" class="footnote" role="status" aria-live="polite"></p>
-            <h2 class="settings-heading">Launcher Information</h2>
-            <dl class="settings-info"><dt>Launcher Version</dt><dd id="launcher-version">取得待ち</dd><dt>Minecraft</dt><dd>Wii U Edition · v560</dd><dt>Core</dt><dd id="core-information">準備中</dd></dl>
+            <h2 class="settings-heading" data-i18n="Launcher Information">Launcher Information</h2>
+            <dl class="settings-info"><dt data-i18n="Launcher Version">Launcher Version</dt><dd id="launcher-version" data-i18n="Pending">Pending</dd><dt>Minecraft</dt><dd data-i18n="Wii U Edition · v560">Wii U Edition · v560</dd><dt>Core</dt><dd id="core-information" data-i18n="Preparing">Preparing</dd></dl>
           </div>
           <div id="panel-input" role="tabpanel" aria-labelledby="tab-input" hidden>
-            <h2 class="settings-heading">Controller</h2>
-            <dl class="settings-info"><dt>Emulated Controller</dt><dd>Wii U GamePad</dd><dt>Input API</dt><dd>SDLController</dd></dl>
-            <dl id="controller-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
+            <h2 class="settings-heading" data-i18n="Controller">Controller</h2>
+            <dl class="settings-info"><dt data-i18n="Emulated Controller">Emulated Controller</dt><dd>Wii U GamePad</dd><dt data-i18n="Input API">Input API</dt><dd>SDLController</dd></dl>
+            <dl id="controller-info" class="settings-info"><dt data-i18n="Current settings">Current settings</dt><dd data-i18n="Pending">Pending</dd></dl>
             <fieldset id="input-controls" disabled>
-              <legend class="visually-hidden">コントローラー設定</legend>
-              <div class="input-row"><label for="physical-controller">Physical Controller</label><select id="physical-controller"><option value="">コントローラーを選択</option></select></div>
+              <legend class="visually-hidden" data-i18n="Controller settings">Controller settings</legend>
+              <div class="input-row"><label for="physical-controller" data-i18n="Physical Controller">Physical Controller</label><select id="physical-controller"><option value="" data-i18n="Select controller">Select controller</option></select></div>
               <fieldset id="input-edit" disabled>
-                <legend class="visually-hidden">割当とProfile</legend>
-                <h2 class="settings-heading">Controller Profile</h2>
-                <div class="input-row"><label for="controller-profile">Controller Profile</label><select id="controller-profile"><option value="">Profile を選択</option></select><button id="profile-load" type="button">読込</button></div>
-                <div class="input-row"><label for="profile-name">新しい Profile 名</label><input id="profile-name" type="text" maxlength="64" autocomplete="off" spellcheck="false"><button id="profile-save-as" type="button">新しい名前で保存</button></div>
-                <h2 class="settings-heading">Button Mapping</h2>
-                <label class="checkbox-row"><input id="mapping-continuous" type="checkbox" checked>連続割当</label>
+                <legend class="visually-hidden" data-i18n="Mappings and profile">Mappings and profile</legend>
+                <h2 class="settings-heading" data-i18n="Controller Profile">Controller Profile</h2>
+                <div class="input-row"><label for="controller-profile" data-i18n="Controller Profile">Controller Profile</label><select id="controller-profile"><option value="" data-i18n="Select profile">Select profile</option></select><button id="profile-load" type="button" data-i18n="Load">Load</button></div>
+                <div class="input-row"><label for="profile-name" data-i18n="New profile name">New profile name</label><input id="profile-name" type="text" maxlength="64" autocomplete="off" spellcheck="false"><button id="profile-save-as" type="button" data-i18n="Save As">Save As</button></div>
+                <h2 class="settings-heading" data-i18n="Button Mapping">Button Mapping</h2>
+                <label class="checkbox-row"><input id="mapping-continuous" type="checkbox" checked><span data-i18n="Continuous mapping">Continuous mapping</span></label>
                 <div id="controller-mapping" class="mapping-grid"></div>
-                <button id="input-reset" type="button">Reset to Default</button>
-                <div id="input-reset-confirmation" hidden><p class="footnote">現在の割当と左右のデッドゾーンを既定値へ戻します。変更前の Profile はバックアップされます。</p><button id="input-reset-cancel" type="button">キャンセル</button> <button id="input-reset-confirm" type="button">既定値へ戻す</button></div>
+                <button id="input-reset" type="button" data-i18n="Reset to Default">Reset to Default</button>
+                <div id="input-reset-confirmation" hidden><p class="footnote" data-i18n="Reset mappings and both deadzones? The previous profile will be backed up.">Reset mappings and both deadzones? The previous profile will be backed up.</p><button id="input-reset-cancel" type="button" data-i18n="Cancel">Cancel</button> <button id="input-reset-confirm" type="button" data-i18n="Reset to defaults">Reset to defaults</button></div>
               </fieldset>
             </fieldset>
-            <p id="input-note" class="footnote" role="status">準備完了後とゲーム実行中に変更できます。</p>
-            <div id="capture-actions" hidden><button id="input-capture-skip" type="button">Skip</button> <button id="input-capture-cancel" type="button">Cancel</button> <button id="input-capture-finish" type="button">Finish</button></div>
-            <h2 class="settings-heading">Controller Input Test</h2>
+            <p id="input-note" class="footnote" role="status" data-i18n="Available when ready and during gameplay.">Available when ready and during gameplay.</p>
+            <div id="capture-actions" hidden><button id="input-capture-skip" type="button" data-i18n="Skip">Skip</button> <button id="input-capture-cancel" type="button" data-i18n="Cancel">Cancel</button> <button id="input-capture-finish" type="button" data-i18n="Finish">Finish</button></div>
+            <h2 class="settings-heading" data-i18n="Controller Input Test">Controller Input Test</h2>
             <div class="stick-tests">
-              <div><h3>Left Stick</h3><div id="left-stick-test" class="stick-test" aria-label="左スティック"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="left-stick-value">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
-              <div><h3>Right Stick</h3><div id="right-stick-test" class="stick-test" aria-label="右スティック"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="right-stick-value">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
+              <div><h3 data-i18n="Left Stick">Left Stick</h3><div id="left-stick-test" class="stick-test" aria-label="Left stick" data-i18n-aria-label="Left stick"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="left-stick-value" data-i18n="Raw 0.00 / 0.00 · Output 0.00 / 0.00">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
+              <div><h3 data-i18n="Right Stick">Right Stick</h3><div id="right-stick-test" class="stick-test" aria-label="Right stick" data-i18n-aria-label="Right stick"><i class="deadzone-circle"></i><span class="raw-point"></span><span class="processed-point"></span></div><output id="right-stick-value" data-i18n="Raw 0.00 / 0.00 · Output 0.00 / 0.00">Raw 0.00 / 0.00 · Output 0.00 / 0.00</output></div>
             </div>
-            <p class="footnote">小さい点：生入力 · 明るい点：適用後 · 中央の円：Deadzone</p>
-            <p id="trigger-test" class="footnote">ZL 0.00 / ZR 0.00</p>
-            <p id="button-test" class="footnote">未接続</p>
-            <fieldset id="deadzone-controls" disabled><legend class="visually-hidden">Stick Deadzone</legend>
-                <h2 class="settings-heading">Stick Deadzone</h2>
-                <div class="input-row"><label for="left-deadzone">Left Stick</label><input id="left-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="left-deadzone-value" for="left-deadzone">0.25</output></div>
-                <div class="input-row"><label for="right-deadzone">Right Stick</label><input id="right-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="right-deadzone-value" for="right-deadzone">0.25</output></div>
+            <p class="footnote" data-i18n="Small dot: raw input · Bright dot: applied input · Center circle: deadzone">Small dot: raw input · Bright dot: applied input · Center circle: deadzone</p>
+            <p id="trigger-test" class="footnote" data-i18n="ZL 0.00 / ZR 0.00">ZL 0.00 / ZR 0.00</p>
+            <p id="button-test" class="footnote" data-i18n="Disconnected">Disconnected</p>
+            <fieldset id="deadzone-controls" disabled><legend class="visually-hidden" data-i18n="Stick Deadzone">Stick Deadzone</legend>
+                <h2 class="settings-heading" data-i18n="Stick Deadzone">Stick Deadzone</h2>
+                <div class="input-row"><label for="left-deadzone" data-i18n="Left Stick">Left Stick</label><input id="left-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="left-deadzone-value" for="left-deadzone">0.25</output></div>
+                <div class="input-row"><label for="right-deadzone" data-i18n="Right Stick">Right Stick</label><input id="right-deadzone" type="range" min="0" max="0.50" step="0.01" value="0.25"><output id="right-deadzone-value" for="right-deadzone">0.25</output></div>
             </fieldset>
-            <p class="footnote">変更はドラッグ終了時に保存されます。接続中の1台をプレイヤー1へ割り当てます。複数台を識別できない場合は一覧から選択してください。</p>
           </div>
           <div id="panel-graphics" role="tabpanel" aria-labelledby="tab-graphics" hidden>
-            <h2 class="settings-heading">Native Graphics</h2>
+            <h2 class="settings-heading" data-i18n="Native Graphics">Native Graphics</h2>
             <fieldset id="native-graphics" disabled>
-              <legend class="visually-hidden">ゲームの描画設定</legend>
-              <div class="setting-row"><div><label for="native-fps">FPS上限</label><p>実際のFPSは、場面や描画負荷によって変わります。</p></div>
+              <legend class="visually-hidden" data-i18n="Game graphics settings">Game graphics settings</legend>
+              <div class="setting-row"><div><label for="native-fps" data-i18n="FPS limit">FPS limit</label><p data-i18n="Actual FPS varies by scene and rendering load.">Actual FPS varies by scene and rendering load.</p></div>
                 <div class="fps-control">
-                  <div class="fps-values"><input id="native-fps-slider" type="range" min="30" max="1000" step="1" value="1000" aria-label="FPS上限スライダー"><input id="native-fps" type="text" inputmode="numeric" pattern="[0-9]{2,4}" maxlength="4" value="1000" aria-label="FPS上限（30〜1000の整数）" aria-describedby="fps-error"></div>
-                  <label class="checkbox-row"><input id="native-fps-original" type="checkbox">Original</label>
+                  <div class="fps-values"><input id="native-fps-slider" type="range" min="30" max="1000" step="1" value="1000" aria-label="FPS limit slider" data-i18n-aria-label="FPS limit slider"><input id="native-fps" type="text" inputmode="numeric" pattern="[0-9]{2,4}" maxlength="4" value="1000" aria-label="FPS limit (integer from 30 to 1000)" aria-describedby="fps-error" data-i18n-aria-label="FPS limit (integer from 30 to 1000)"></div>
+                  <label class="checkbox-row"><input id="native-fps-original" type="checkbox"><span data-i18n="Original">Original</span></label>
                   <p id="fps-error" role="alert"></p>
                 </div>
               </div>
-              <div class="setting-row"><div><label for="native-resolution">内部解像度</label><p>ゲーム内の描画解像度です。ウィンドウの大きさは変わりません。</p></div>
-                <select id="native-resolution"><option value="0x0">Original</option><option value="640x360">640×360</option><option value="960x540">960×540</option><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option><option value="3200x1800">3200×1800</option><option value="3840x2160">3840×2160</option></select>
+              <div class="setting-row"><div><label for="native-resolution" data-i18n="Internal resolution">Internal resolution</label><p data-i18n="Game rendering resolution. Window size is unchanged.">Game rendering resolution. Window size is unchanged.</p></div>
+                <select id="native-resolution"><option value="0x0" data-i18n="Original">Original</option><option value="640x360">640×360</option><option value="960x540">960×540</option><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="2560x1440">2560×1440</option><option value="3200x1800">3200×1800</option><option value="3840x2160">3840×2160</option></select>
               </div>
             </fieldset>
-            <p id="native-settings-note" class="footnote" role="status">ゲームの起動準備を待っています。</p>
-            <fieldset id="av-graphics" disabled><legend class="visually-hidden">Graphics Settings</legend>
-            <h2 class="settings-heading">General Graphics</h2>
-              <div class="setting-row"><div><label for="av-graphicsApi">Graphics API</label></div><select id="av-graphicsApi"><option value="1">Vulkan</option><option value="0">OpenGL</option></select></div>
-              <div class="setting-row"><div><label for="av-gpu">Graphics Device</label></div><select id="av-gpu"></select></div>
-              <div class="setting-row"><div><label for="av-vsync">VSync</label><p>画面への出力同期です。FPS上限とは別に適用されます。</p></div><select id="av-vsync"></select></div>
-            <h2 class="settings-heading">Performance</h2>
-              <div class="setting-row"><div><label for="av-async">Async Shader Compile</label></div><input id="av-async" type="checkbox"></div>
-              <div class="setting-row"><div><label for="av-fullSync">GX2DrawDone Full Sync</label></div><input id="av-fullSync" type="checkbox"></div>
-            <h2 class="settings-heading">Image Scaling</h2>
-              <div class="setting-row"><div><label for="av-upscale">Upscale Filter</label></div><select id="av-upscale"><option value="0">Bilinear</option><option value="1">Bicubic</option><option value="2">Hermite</option><option value="3">Nearest Neighbor</option></select></div>
-              <div class="setting-row"><div><label for="av-downscale">Downscale Filter</label></div><select id="av-downscale"><option value="0">Bilinear</option><option value="1">Bicubic</option><option value="2">Hermite</option><option value="3">Nearest Neighbor</option></select></div>
-              <div class="setting-row"><div><label for="av-scaling">Fullscreen Scaling</label></div><select id="av-scaling"><option value="0">Keep Aspect Ratio</option><option value="1">Stretch</option></select></div>
+            <p id="native-settings-note" class="footnote" role="status" data-i18n="Preparing…">Preparing…</p>
+            <fieldset id="av-graphics" disabled><legend class="visually-hidden" data-i18n="Graphics Settings">Graphics Settings</legend>
+            <h2 class="settings-heading" data-i18n="General Graphics">General Graphics</h2>
+              <div class="setting-row"><div><label for="av-graphicsApi" data-i18n="Graphics API">Graphics API</label></div><select id="av-graphicsApi"><option value="1">Vulkan</option><option value="0">OpenGL</option></select></div>
+              <div class="setting-row"><div><label for="av-gpu" data-i18n="Graphics Device">Graphics Device</label></div><select id="av-gpu"></select></div>
+              <div class="setting-row"><div><label for="av-vsync" data-i18n="VSync">VSync</label><p data-i18n="Display synchronization, applied separately from the FPS limit.">Display synchronization, applied separately from the FPS limit.</p></div><select id="av-vsync"></select></div>
+            <h2 class="settings-heading" data-i18n="Performance">Performance</h2>
+              <div class="setting-row"><div><label for="av-async" data-i18n="Async Shader Compile">Async Shader Compile</label></div><input id="av-async" type="checkbox"></div>
+              <div class="setting-row"><div><label for="av-fullSync" data-i18n="GX2DrawDone Full Sync">GX2DrawDone Full Sync</label></div><input id="av-fullSync" type="checkbox"></div>
+            <h2 class="settings-heading" data-i18n="Image Scaling">Image Scaling</h2>
+              <div class="setting-row"><div><label for="av-upscale" data-i18n="Upscale Filter">Upscale Filter</label></div><select id="av-upscale"><option value="0" data-i18n="Bilinear">Bilinear</option><option value="1" data-i18n="Bicubic">Bicubic</option><option value="2" data-i18n="Hermite">Hermite</option><option value="3" data-i18n="Nearest Neighbor">Nearest Neighbor</option></select></div>
+              <div class="setting-row"><div><label for="av-downscale" data-i18n="Downscale Filter">Downscale Filter</label></div><select id="av-downscale"><option value="0" data-i18n="Bilinear">Bilinear</option><option value="1" data-i18n="Bicubic">Bicubic</option><option value="2" data-i18n="Hermite">Hermite</option><option value="3" data-i18n="Nearest Neighbor">Nearest Neighbor</option></select></div>
+              <div class="setting-row"><div><label for="av-scaling" data-i18n="Fullscreen Scaling">Fullscreen Scaling</label></div><select id="av-scaling"><option value="0" data-i18n="Keep Aspect Ratio">Keep Aspect Ratio</option><option value="1" data-i18n="Stretch">Stretch</option></select></div>
             </fieldset>
-            <p id="graphics-settings-note" class="footnote" role="status">ゲーム停止後に変更できます。</p>
+            <p id="graphics-settings-note" class="footnote" role="status" data-i18n="Available after the game stops.">Available after the game stops.</p>
             <p id="renderer-info" class="footnote"></p>
           </div>
           <div id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden>
-            <dl id="audio-info" class="settings-info"><dt>現在の設定</dt><dd>取得待ち</dd></dl>
-            <fieldset id="av-audio" disabled><legend class="visually-hidden">Audio Settings</legend>
-            <h2 class="settings-heading">General</h2>
-              <div class="setting-row"><div><label for="av-audioApi">Audio API</label></div><select id="av-audioApi"></select></div>
-              <div class="setting-row"><div><label for="av-latency">Audio Latency</label></div><div class="av-slider"><input id="av-latency" type="range" min="0" max="23" step="1"><output id="av-latency-value"></output></div></div>
-            <h2 class="settings-heading">TV Output</h2>
-              <div class="setting-row"><div><label for="av-tvDevice">Output Device</label></div><select id="av-tvDevice"></select></div>
-              <div class="setting-row"><div><label for="av-tvChannels">Channels</label></div><select id="av-tvChannels"><option value="0">Mono</option><option value="1">Stereo</option><option value="2">Surround</option></select></div>
-              <div class="setting-row"><div><label for="av-tvVolume">Volume</label></div><div class="av-slider"><input id="av-tvVolume" type="range" min="0" max="100" step="1"><output id="av-tvVolume-value"></output></div></div>
-            <h2 class="settings-heading">GamePad Output</h2>
-              <div class="setting-row"><div><label for="av-padDevice">Output Device</label></div><select id="av-padDevice"></select></div>
-              <div class="setting-row"><div><label for="av-padChannels">Channels</label></div><span>Stereo</span></div>
-              <div class="setting-row"><div><label for="av-padVolume">Volume</label></div><div class="av-slider"><input id="av-padVolume" type="range" min="0" max="100" step="1"><output id="av-padVolume-value"></output></div></div>
-            <h2 class="settings-heading">Microphone</h2>
-              <div class="setting-row"><div><label for="av-micDevice">Input Device</label></div><select id="av-micDevice"></select></div>
-              <div class="setting-row"><div><label for="av-micChannels">Channels</label></div><span>Mono</span></div>
-              <div class="setting-row"><div><label for="av-micVolume">Input Volume</label></div><div class="av-slider"><input id="av-micVolume" type="range" min="0" max="100" step="1"><output id="av-micVolume-value"></output></div></div>
+            <dl id="audio-info" class="settings-info"><dt data-i18n="Current settings">Current settings</dt><dd data-i18n="Pending">Pending</dd></dl>
+            <fieldset id="av-audio" disabled><legend class="visually-hidden" data-i18n="Audio Settings">Audio Settings</legend>
+            <h2 class="settings-heading" data-i18n="General">General</h2>
+              <div class="setting-row"><div><label for="av-audioApi" data-i18n="Audio API">Audio API</label></div><select id="av-audioApi"></select></div>
+              <div class="setting-row"><div><label for="av-latency" data-i18n="Audio Latency">Audio Latency</label></div><div class="av-slider"><input id="av-latency" type="range" min="0" max="23" step="1"><output id="av-latency-value"></output></div></div>
+            <h2 class="settings-heading" data-i18n="TV Output">TV Output</h2>
+              <div class="setting-row"><div><label for="av-tvDevice" data-i18n="Output Device">Output Device</label></div><select id="av-tvDevice"></select></div>
+              <div class="setting-row"><div><label for="av-tvChannels" data-i18n="Channels">Channels</label></div><select id="av-tvChannels"><option value="0" data-i18n="Mono">Mono</option><option value="1" data-i18n="Stereo">Stereo</option><option value="2" data-i18n="Surround">Surround</option></select></div>
+              <div class="setting-row"><div><label for="av-tvVolume" data-i18n="Volume">Volume</label></div><div class="av-slider"><input id="av-tvVolume" type="range" min="0" max="100" step="1"><output id="av-tvVolume-value"></output></div></div>
+            <h2 class="settings-heading" data-i18n="GamePad Output">GamePad Output</h2>
+              <div class="setting-row"><div><label for="av-padDevice" data-i18n="Output Device">Output Device</label></div><select id="av-padDevice"></select></div>
+              <div class="setting-row"><div><label for="av-padChannels" data-i18n="Channels">Channels</label></div><span data-i18n="Stereo">Stereo</span></div>
+              <div class="setting-row"><div><label for="av-padVolume" data-i18n="Volume">Volume</label></div><div class="av-slider"><input id="av-padVolume" type="range" min="0" max="100" step="1"><output id="av-padVolume-value"></output></div></div>
+            <h2 class="settings-heading" data-i18n="Microphone">Microphone</h2>
+              <div class="setting-row"><div><label for="av-micDevice" data-i18n="Input Device">Input Device</label></div><select id="av-micDevice"></select></div>
+              <div class="setting-row"><div><label for="av-micChannels" data-i18n="Channels">Channels</label></div><span data-i18n="Mono">Mono</span></div>
+              <div class="setting-row"><div><label for="av-micVolume" data-i18n="Input Volume">Input Volume</label></div><div class="av-slider"><input id="av-micVolume" type="range" min="0" max="100" step="1"><output id="av-micVolume-value"></output></div></div>
             </fieldset>
-            <p id="audio-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
+            <p id="audio-settings-note" class="footnote" role="status" data-i18n="Loading settings…">Loading settings…</p>
             <p id="audio-stream-note" class="footnote"></p>
-            <p class="footnote">音声設定は実行中にも反映されます。Intro Sound は次回Playから適用します。Microphoneはゲームが入力を要求したときに使用します。</p>
           </div>
           <div id="panel-overlay" role="tabpanel" aria-labelledby="tab-overlay" hidden>
-            <fieldset id="av-overlay" disabled><legend class="visually-hidden">Overlay Settings</legend>
-            <h2 class="settings-heading">Performance Overlay</h2>
-            <div class="setting-row"><label for="av-overlayPosition">Position</label><select id="av-overlayPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
-            <div class="setting-row"><label for="av-overlayColor">Text Color</label><div class="overlay-color"><input id="av-overlayColor" type="color" aria-label="Performance Overlay Color Picker"><input id="av-overlayColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Performance Overlay HEX" autocomplete="off" spellcheck="false"><label for="av-overlayColor-alpha">Alpha</label><input id="av-overlayColor-alpha" type="number" min="0" max="255" step="1"></div></div>
-            <div class="setting-row"><label for="av-overlayScale">Text Scale</label><div class="av-slider"><input id="av-overlayScale" type="range" min="50" max="300" step="25"><output id="av-overlayScale-value"></output></div></div>
+            <fieldset id="av-overlay" disabled><legend class="visually-hidden" data-i18n="Overlay Settings">Overlay Settings</legend>
+            <h2 class="settings-heading" data-i18n="Performance Overlay">Performance Overlay</h2>
+            <div class="setting-row"><label for="av-overlayPosition" data-i18n="Position">Position</label><select id="av-overlayPosition"><option value="0" data-i18n="Disabled">Disabled</option><option value="1" data-i18n="Top Left">Top Left</option><option value="2" data-i18n="Top Center">Top Center</option><option value="3" data-i18n="Top Right">Top Right</option><option value="4" data-i18n="Bottom Left">Bottom Left</option><option value="5" data-i18n="Bottom Center">Bottom Center</option><option value="6" data-i18n="Bottom Right">Bottom Right</option></select></div>
+            <div class="setting-row"><label for="av-overlayColor" data-i18n="Text Color">Text Color</label><div class="overlay-color"><input id="av-overlayColor" type="color" aria-label="Performance Overlay Color Picker" data-i18n-aria-label="Performance Overlay Color Picker"><input id="av-overlayColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Performance Overlay HEX" autocomplete="off" spellcheck="false" data-i18n-aria-label="Performance Overlay HEX"><label for="av-overlayColor-alpha" data-i18n="Alpha">Alpha</label><input id="av-overlayColor-alpha" type="number" min="0" max="255" step="1"></div></div>
+            <div class="setting-row"><label for="av-overlayScale" data-i18n="Text Scale">Text Scale</label><div class="av-slider"><input id="av-overlayScale" type="range" min="50" max="300" step="25"><output id="av-overlayScale-value"></output></div></div>
             <label class="setting-row toggle-row" for="av-overlayFps"><span>FPS</span><input id="av-overlayFps" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayDrawCalls"><span>Draw Calls</span><input id="av-overlayDrawCalls" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayCpu"><span>CPU Usage</span><input id="av-overlayCpu" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayCpuPerCore"><span>CPU per Core Usage</span><input id="av-overlayCpuPerCore" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayRam"><span>RAM Usage</span><input id="av-overlayRam" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayVram"><span>VRAM Usage</span><input id="av-overlayVram" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-overlayDebug"><span>Debug Information</span><input id="av-overlayDebug" class="toggle" type="checkbox" role="switch"></label>
-            <h2 class="settings-heading">Notifications</h2>
-            <div class="setting-row"><label for="av-notificationPosition">Position</label><select id="av-notificationPosition"><option value="0">Disabled</option><option value="1">Top Left</option><option value="2">Top Center</option><option value="3">Top Right</option><option value="4">Bottom Left</option><option value="5">Bottom Center</option><option value="6">Bottom Right</option></select></div>
-            <div class="setting-row"><label for="av-notificationColor">Text Color</label><div class="overlay-color"><input id="av-notificationColor" type="color" aria-label="Notifications Color Picker"><input id="av-notificationColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Notifications HEX" autocomplete="off" spellcheck="false"><label for="av-notificationColor-alpha">Alpha</label><input id="av-notificationColor-alpha" type="number" min="0" max="255" step="1"></div></div>
-            <div class="setting-row"><label for="av-notificationScale">Text Scale</label><div class="av-slider"><input id="av-notificationScale" type="range" min="50" max="300" step="25"><output id="av-notificationScale-value"></output></div></div>
-            <label class="setting-row toggle-row" for="av-notificationProfiles"><span>Controller Profile</span><input id="av-notificationProfiles" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-notificationBattery"><span>Controller Battery</span><input id="av-notificationBattery" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-notificationShaders"><span>Shader Compiling</span><input id="av-notificationShaders" class="toggle" type="checkbox" role="switch"></label>
-            <label class="setting-row toggle-row" for="av-notificationFriends"><span>Friends</span><input id="av-notificationFriends" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayDrawCalls"><span data-i18n="Draw Calls">Draw Calls</span><input id="av-overlayDrawCalls" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayCpu"><span data-i18n="CPU Usage">CPU Usage</span><input id="av-overlayCpu" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayCpuPerCore"><span data-i18n="CPU per Core Usage">CPU per Core Usage</span><input id="av-overlayCpuPerCore" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayRam"><span data-i18n="RAM Usage">RAM Usage</span><input id="av-overlayRam" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayVram"><span data-i18n="VRAM Usage">VRAM Usage</span><input id="av-overlayVram" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-overlayDebug"><span data-i18n="Debug Information">Debug Information</span><input id="av-overlayDebug" class="toggle" type="checkbox" role="switch"></label>
+            <h2 class="settings-heading" data-i18n="Notifications">Notifications</h2>
+            <div class="setting-row"><label for="av-notificationPosition" data-i18n="Position">Position</label><select id="av-notificationPosition"><option value="0" data-i18n="Disabled">Disabled</option><option value="1" data-i18n="Top Left">Top Left</option><option value="2" data-i18n="Top Center">Top Center</option><option value="3" data-i18n="Top Right">Top Right</option><option value="4" data-i18n="Bottom Left">Bottom Left</option><option value="5" data-i18n="Bottom Center">Bottom Center</option><option value="6" data-i18n="Bottom Right">Bottom Right</option></select></div>
+            <div class="setting-row"><label for="av-notificationColor" data-i18n="Text Color">Text Color</label><div class="overlay-color"><input id="av-notificationColor" type="color" aria-label="Notifications Color Picker" data-i18n-aria-label="Notifications Color Picker"><input id="av-notificationColor-hex" type="text" maxlength="7" pattern="#[0-9A-Fa-f]{6}" aria-label="Notifications HEX" autocomplete="off" spellcheck="false" data-i18n-aria-label="Notifications HEX"><label for="av-notificationColor-alpha" data-i18n="Alpha">Alpha</label><input id="av-notificationColor-alpha" type="number" min="0" max="255" step="1"></div></div>
+            <div class="setting-row"><label for="av-notificationScale" data-i18n="Text Scale">Text Scale</label><div class="av-slider"><input id="av-notificationScale" type="range" min="50" max="300" step="25"><output id="av-notificationScale-value"></output></div></div>
+            <label class="setting-row toggle-row" for="av-notificationProfiles"><span data-i18n="Controller Profile">Controller Profile</span><input id="av-notificationProfiles" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationBattery"><span data-i18n="Controller Battery">Controller Battery</span><input id="av-notificationBattery" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationShaders"><span data-i18n="Shader Compiling">Shader Compiling</span><input id="av-notificationShaders" class="toggle" type="checkbox" role="switch"></label>
+            <label class="setting-row toggle-row" for="av-notificationFriends"><span data-i18n="Friends">Friends</span><input id="av-notificationFriends" class="toggle" type="checkbox" role="switch"></label>
             </fieldset>
-            <p id="overlay-settings-note" class="footnote" role="status">設定を読み込んでいます。</p>
-            <p class="footnote">変更はゲーム実行中にも反映され、自動保存されます。Debug Information は描画APIが提供する情報を表示します。Friends は通知の表示設定で、オンライン接続を開始しません。</p>
+            <p id="overlay-settings-note" class="footnote" role="status" data-i18n="Loading settings…">Loading settings…</p>
           </div>
           <div id="panel-game-data" role="tabpanel" aria-labelledby="tab-game-data" hidden>
             <h2 class="settings-heading">Minecraft: Wii U Edition</h2>
             <dl id="game-data-summary" class="settings-info game-data-review"></dl>
             <p id="game-data-region-note" class="footnote"></p>
-            <p id="game-data-notice" class="footnote game-data-error" role="status" aria-live="polite">状態を取得中…</p>
-            <div class="game-data-actions"><button type="button" data-game-operation="Setup" disabled>Install Game</button><button type="button" data-game-operation="InstallUpdate" disabled>Install Update</button><button type="button" data-game-operation="InstallDLC" disabled>Install DLC</button><button type="button" data-game-operation="ReinstallBase" disabled>Reinstall BASE</button><button type="button" data-game-operation="ReinstallUpdate" disabled>Reinstall Update</button></div>
-            <div class="game-data-card"><label for="game-data-region">New Region</label><div class="game-data-actions"><select id="game-data-region" disabled><option>JPN</option><option>USA</option><option>EUR</option></select><button type="button" data-game-operation="ChangeRegion" disabled>Change Region</button></div><p class="footnote">BASEと対応するUpdate v560を選択します。旧地域のセーブ・DLC・パック設定は保持します。JPN / USA / EURのBASEとUpdate v560に対応します。</p></div>
-            <div class="game-data-card"><label for="game-data-dlc">Installed DLC</label><div class="game-data-actions"><select id="game-data-dlc" aria-label="削除対象のDLCタイトルID" disabled></select><button type="button" data-game-operation="RemoveDLC" disabled>Remove DLC</button></div><p class="footnote">選択したタイトルIDのDLCだけを削除します。</p></div>
-            <div class="game-data-card"><button type="button" data-game-operation="Uninstall" class="world-danger" disabled>Uninstall Game Data</button><p class="footnote">BASE・Update・DLCのみを削除します。ワールド・セーブ・Account・Mii・Controller Profiles・Graphic Packs・Textures・各種設定・WebView2データは保持します。</p></div>
+            <p id="game-data-notice" class="footnote game-data-error" role="status" aria-live="polite" data-i18n="Loading status…">Loading status…</p>
+            <div class="game-data-actions"><button type="button" data-game-operation="Setup" disabled data-i18n="Install Game">Install Game</button><button type="button" data-game-operation="InstallUpdate" disabled data-i18n="Install Update">Install Update</button><button type="button" data-game-operation="InstallDLC" disabled data-i18n="Install DLC">Install DLC</button><button type="button" data-game-operation="ReinstallBase" disabled data-i18n="Reinstall BASE">Reinstall BASE</button><button type="button" data-game-operation="ReinstallUpdate" disabled data-i18n="Reinstall Update">Reinstall Update</button></div>
+            <div class="game-data-card"><label for="game-data-region" data-i18n="New Region">New Region</label><div class="game-data-actions"><select id="game-data-region" disabled><option>JPN</option><option>USA</option><option>EUR</option></select><button type="button" data-game-operation="ChangeRegion" disabled data-i18n="Change Region">Change Region</button></div><p class="footnote" data-i18n="Select BASE and matching Update v560. Previous region saves, DLC and pack settings are preserved. JPN / USA / EUR supported.">Select BASE and matching Update v560. Previous region saves, DLC and pack settings are preserved. JPN / USA / EUR supported.</p></div>
+            <div class="game-data-card"><label for="game-data-dlc" data-i18n="Installed DLC">Installed DLC</label><div class="game-data-actions"><select id="game-data-dlc" aria-label="DLC title ID to remove" disabled data-i18n-aria-label="DLC title ID to remove"></select><button type="button" data-game-operation="RemoveDLC" disabled data-i18n="Remove DLC">Remove DLC</button></div><p class="footnote" data-i18n="Only DLC for the selected title ID will be deleted.">Only DLC for the selected title ID will be deleted.</p></div>
+            <div class="game-data-card"><button type="button" data-game-operation="Uninstall" class="world-danger" disabled data-i18n="Uninstall Game Data">Uninstall Game Data</button><p class="footnote" data-i18n="Only BASE, Update and DLC are deleted. Worlds, saves, accounts, Mii, controller profiles, graphic packs, textures, settings and WebView2 data are preserved.">Only BASE, Update and DLC are deleted. Worlds, saves, accounts, Mii, controller profiles, graphic packs, textures, settings and WebView2 data are preserved.</p></div>
           </div>
           <div id="panel-account" role="tabpanel" aria-labelledby="tab-account" hidden>
-            <h2 class="settings-heading">Active Account</h2>
+            <h2 class="settings-heading" data-i18n="Active Account">Active Account</h2>
             <fieldset id="account-management" disabled>
-              <div class="setting-row"><div class="account-identity"><span class="account-avatar" aria-hidden="true">●</span><div><label for="account-active">Active Account</label><p id="account-count">読み込み待ち</p></div></div><select id="account-active" aria-label="Active Account"></select></div>
+              <div class="setting-row"><div class="account-identity"><span class="account-avatar" aria-hidden="true">●</span><div><label for="account-active" data-i18n="Active Account">Active Account</label><p id="account-count" data-i18n="Loading…">Loading…</p></div></div><select id="account-active" aria-label="Active Account" data-i18n-aria-label="Active Account"></select></div>
             </fieldset>
             <section id="account-network-section">
-              <h2 class="settings-heading">Network Service</h2>
-              <div class="setting-row"><label for="account-network">Network Service</label><select id="account-network" disabled><option>Offline</option><option>Pretendo</option><option>Custom</option></select></div>
+              <h2 class="settings-heading" data-i18n="Network Service">Network Service</h2>
+              <div class="setting-row"><label for="account-network" data-i18n="Network Service">Network Service</label><select id="account-network" disabled><option value="Offline" data-i18n="Offline">Offline</option><option value="Pretendo" data-i18n="Pretendo">Pretendo</option><option value="Custom" data-i18n="Custom">Custom</option></select></div>
               <p id="account-network-status" class="footnote" role="status"></p>
-              <div id="account-custom" hidden><button id="account-custom-select" type="button" disabled>Select network_services.xml</button><label class="footnote"><input id="account-custom-replace" type="checkbox"> 既存のCustom設定をバックアップして置換する</label></div>
-              <p class="footnote">ゲーム通信はPlay後に選択したサービスで開始します。</p>
+              <div id="account-custom" hidden><button id="account-custom-select" type="button" disabled data-i18n="Select network_services.xml">Select network_services.xml</button><label class="footnote"><input id="account-custom-replace" type="checkbox"> <span data-i18n="Back up and replace existing custom settings">Back up and replace existing custom settings</span></label></div>
             </section>
             <fieldset id="account-management-actions" disabled>
-              <h2 class="settings-heading">Account Management</h2>
-              <div class="account-actions"><button id="account-add" type="button">Add Account</button><button id="account-edit" type="button">Edit Account</button><button id="account-delete" type="button">Delete Account</button></div>
+              <h2 class="settings-heading" data-i18n="Account Management">Account Management</h2>
+              <div class="account-actions"><button id="account-add" type="button" data-i18n="Add Account">Add Account</button><button id="account-edit" type="button" data-i18n="Edit Account">Edit Account</button><button id="account-delete" type="button" data-i18n="Delete Account">Delete Account</button></div>
             </fieldset>
-            <p id="account-lock-note" class="footnote">Coreの準備を待っています。</p>
-            <h2 class="settings-heading">Account Information</h2>
-            <button id="account-details-toggle" type="button" aria-expanded="false" aria-controls="account-details" disabled>Show Details</button>
+            <p id="account-lock-note" class="footnote" data-i18n="Waiting for Core…">Waiting for Core…</p>
+            <h2 class="settings-heading" data-i18n="Account Information">Account Information</h2>
+            <button id="account-details-toggle" type="button" aria-expanded="false" aria-controls="account-details" disabled data-i18n="Show Details">Show Details</button>
             <dl id="account-details" class="settings-info" hidden></dl>
             <p id="account-notice" class="footnote" role="status" aria-live="polite"></p>
           </div>
         </div>
       </section>
-      <footer>MCWiiU Launcher <span>Minecraft: Wii U Edition · v560</span></footer>
+      <footer><span data-i18n="MCWiiU Launcher">MCWiiU Launcher</span> <span data-i18n="Minecraft: Wii U Edition · v560">Minecraft: Wii U Edition · v560</span></footer>
     </main>
   </div>
-  <div id="friend-menu" popover="auto" role="menu"><button id="friend-menu-remove" type="button" role="menuitem">Remove Friend</button></div>
-  <div id="texture-menu" popover="auto" role="menu" aria-label="テクスチャパック"><button id="texture-menu-confirm" type="button" role="menuitem">✓ 問題なく動作することを確認</button></div>
+  <div id="friend-menu" popover="auto" role="menu"><button id="friend-menu-remove" type="button" role="menuitem" data-i18n="Remove Friend">Remove Friend</button></div>
+  <div id="texture-menu" popover="auto" role="menu" aria-label="Texture pack" data-i18n-aria-label="Texture pack"><button id="texture-menu-confirm" type="button" role="menuitem" data-i18n="✓ Confirm working correctly">✓ Confirm working correctly</button></div>
   <dialog id="world-dialog" aria-labelledby="world-dialog-title" aria-describedby="world-dialog-description">
     <form id="world-form" novalidate>
       <h2 id="world-dialog-title"></h2>
       <p id="world-dialog-description" class="footnote"></p>
       <p id="world-dialog-target"></p>
       <div id="world-confirm-details" hidden><img id="world-confirm-icon" width="64" height="64" alt=""><p id="world-confirm-location"></p></div>
-      <div id="world-name-row" class="account-form-row"><label for="world-name">World Name</label><input id="world-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-dialog-notice"><p class="footnote">32 UTF-16単位まで。日本語も使用できます。</p></div>
-      <div id="world-icon-row"><img id="world-icon-preview" width="128" height="128" alt="新しいワールドアイコンのプレビュー"><button id="world-select-image" type="button">画像を選択</button><p class="footnote">PNG / JPEG を64×64へ変換します。ゲーム内で保存すると、ゲームが撮影したアイコンに更新されます。</p></div>
-      <div id="world-move-row" class="account-form-row"><label for="world-destination">移動先 Account</label><select id="world-destination"></select><p class="footnote">ワールド本体とアイコンを移動します。プレイヤーの所持品や位置はアカウントに紐づく場合があり、移動先で引き継がれる保証はありません。</p></div>
+      <div id="world-name-row" class="account-form-row"><label for="world-name" data-i18n="World Name">World Name</label><input id="world-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-dialog-notice"><p class="footnote">32 UTF-16単位まで。日本語も使用できます。</p></div>
+      <div id="world-icon-row"><img id="world-icon-preview" width="128" height="128" alt="New world icon preview" data-i18n-alt="New world icon preview"><button id="world-select-image" type="button" data-i18n="Select Image">Select Image</button><p class="footnote" data-i18n="PNG / JPEG is converted to 64×64. Saving in the game replaces it with the game&#x27;s screenshot.">PNG / JPEG is converted to 64×64. Saving in the game replaces it with the game&#x27;s screenshot.</p></div>
+      <div id="world-move-row" class="account-form-row"><label for="world-destination" data-i18n="Destination account">Destination account</label><select id="world-destination"></select><p class="footnote" data-i18n="Moves the world and icon. Player inventory and position may be tied to the account and may not transfer.">Moves the world and icon. Player inventory and position may be tied to the account and may not transfer.</p></div>
       <div id="world-purge-issues" class="footnote" role="status" hidden></div>
       <p id="world-dialog-notice" class="footnote" role="status" aria-live="polite"></p>
-      <div class="dialog-actions"><button id="world-cancel" type="button">Cancel</button><button id="world-confirm" type="submit">Save</button></div>
+      <div class="dialog-actions"><button id="world-cancel" type="button" data-i18n="Cancel">Cancel</button><button id="world-confirm" type="submit" data-i18n="Save">Save</button></div>
     </form>
   </dialog>
   <dialog id="world-import-dialog" aria-labelledby="world-import-title" aria-describedby="world-import-destination">
     <form id="world-import-form" novalidate>
       <header class="world-import-header">
-        <h2 id="world-import-title">Import World</h2>
+        <h2 id="world-import-title" data-i18n="Import World">Import World</h2>
         <p id="world-import-destination" class="footnote"></p>
       </header>
       <div class="world-import-content">
@@ -329,100 +327,99 @@
           <section class="world-import-card" aria-labelledby="world-import-body-label">
             <div class="world-import-file">
               <svg class="world-import-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h5"/></svg>
-              <div class="world-import-file-details"><div class="world-import-file-label"><h3 id="world-import-body-label">World File</h3><span>Required</span></div><span id="world-import-body-file" class="world-import-filename">No file selected</span></div>
-              <div class="world-import-file-actions"><button id="world-import-body" type="button" aria-label="Browse World File" aria-describedby="world-import-body-error">Browse</button></div>
+              <div class="world-import-file-details"><div class="world-import-file-label"><h3 id="world-import-body-label" data-i18n="World File">World File</h3><span data-i18n="Required">Required</span></div><span id="world-import-body-file" class="world-import-filename" data-i18n="No file selected">No file selected</span></div>
+              <div class="world-import-file-actions"><button id="world-import-body" type="button" aria-label="Browse World File" aria-describedby="world-import-body-error" data-i18n-aria-label="Browse World File" data-i18n="Browse">Browse</button></div>
             </div>
             <p id="world-import-body-error" class="world-import-error" hidden></p>
           </section>
           <section class="world-import-card" aria-labelledby="world-import-metadata-label">
             <div class="world-import-file">
               <svg class="world-import-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 12h8M8 16h5"/></svg>
-              <div class="world-import-file-details"><div class="world-import-file-label"><h3 id="world-import-metadata-label">Metadata File</h3><span>Optional (.ext)</span></div><span id="world-import-metadata-file" class="world-import-filename">Not selected</span></div>
-              <div class="world-import-file-actions"><button id="world-import-clear-metadata" type="button" hidden disabled>Clear</button><button id="world-import-metadata" type="button" aria-label="Browse Metadata File" aria-describedby="world-import-metadata-error">Browse</button></div>
+              <div class="world-import-file-details"><div class="world-import-file-label"><h3 id="world-import-metadata-label" data-i18n="Metadata File">Metadata File</h3><span data-i18n="Optional (.ext)">Optional (.ext)</span></div><span id="world-import-metadata-file" class="world-import-filename" data-i18n="Not selected">Not selected</span></div>
+              <div class="world-import-file-actions"><button id="world-import-clear-metadata" type="button" hidden disabled data-i18n="Clear">Clear</button><button id="world-import-metadata" type="button" aria-label="Browse Metadata File" aria-describedby="world-import-metadata-error" data-i18n-aria-label="Browse Metadata File" data-i18n="Browse">Browse</button></div>
             </div>
             <p id="world-import-metadata-error" class="world-import-error" hidden></p>
           </section>
         </div>
-        <section id="world-import-generated" hidden aria-label="World details">
+        <section id="world-import-generated" hidden aria-label="World details" data-i18n-aria-label="World details">
           <div class="world-import-editor">
-            <div class="world-import-name-field"><label for="world-import-name">World Name</label><input id="world-import-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-import-name-error"><p id="world-import-name-error" class="world-import-error" hidden></p></div>
-            <div class="world-import-icon-field"><label>World Icon</label><div class="world-import-icon-row"><div class="world-import-icon"><img id="world-import-icon-image" width="64" height="64" alt="World Icon" hidden><span id="world-import-icon-empty" aria-label="No icon selected">+</span></div><div class="world-import-file-details"><span id="world-import-image-file" class="world-import-filename">PNG / JPEG</span><button id="world-import-image" type="button" aria-label="Browse World Icon" aria-describedby="world-import-icon-error">Browse</button></div></div><p id="world-import-icon-error" class="world-import-error" hidden></p></div>
+            <div class="world-import-name-field"><label for="world-import-name" data-i18n="World Name">World Name</label><input id="world-import-name" type="text" autocomplete="off" spellcheck="false" aria-describedby="world-import-name-error"><p id="world-import-name-error" class="world-import-error" hidden></p></div>
+            <div class="world-import-icon-field"><label data-i18n="World Icon">World Icon</label><div class="world-import-icon-row"><div class="world-import-icon"><img id="world-import-icon-image" width="64" height="64" alt="World Icon" hidden data-i18n-alt="World Icon"><span id="world-import-icon-empty" aria-label="No icon selected" data-i18n-aria-label="No icon selected">+</span></div><div class="world-import-file-details"><span id="world-import-image-file" class="world-import-filename">PNG / JPEG</span><button id="world-import-image" type="button" aria-label="Browse World Icon" aria-describedby="world-import-icon-error" data-i18n-aria-label="Browse World Icon" data-i18n="Browse">Browse</button></div></div><p id="world-import-icon-error" class="world-import-error" hidden></p></div>
           </div>
-          <p class="world-import-hint">.ext未指定の場合、ゲーム設定が既定値になることがあります。</p>
+          <p class="world-import-hint" data-i18n="Without .ext metadata, game settings may use defaults.">Without .ext metadata, game settings may use defaults.</p>
         </section>
-        <section class="world-import-preview-section" aria-labelledby="world-import-preview-title"><h3 id="world-import-preview-title">World Preview</h3><div id="world-import-preview"></div></section>
-        <p id="world-import-account-hint" class="world-import-hint" hidden>別Account由来の場合、位置・所持品を引き継げないことがあります。</p>
+        <section class="world-import-preview-section" aria-labelledby="world-import-preview-title"><h3 id="world-import-preview-title" data-i18n="World Preview">World Preview</h3><div id="world-import-preview"></div></section>
+        <p id="world-import-account-hint" class="world-import-hint" hidden data-i18n="Position and inventory may not transfer from another account.">Position and inventory may not transfer from another account.</p>
       </div>
-      <footer class="world-import-footer"><p id="world-import-notice" class="footnote" role="status" aria-live="polite" hidden></p><div class="dialog-actions"><button id="world-import-cancel" type="button">Cancel</button><button id="world-import-confirm" type="submit" disabled>Import World</button></div></footer>
+      <footer class="world-import-footer"><p id="world-import-notice" class="footnote" role="status" aria-live="polite" hidden></p><div class="dialog-actions"><button id="world-import-cancel" type="button" data-i18n="Cancel">Cancel</button><button id="world-import-confirm" type="submit" disabled data-i18n="Import World">Import World</button></div></footer>
     </form>
   </dialog>
   <dialog id="friend-dialog" aria-labelledby="friend-dialog-title" aria-describedby="friend-dialog-description">
     <form id="friend-form" novalidate>
-      <h2 id="friend-dialog-title">Add Friend</h2>
+      <h2 id="friend-dialog-title" data-i18n="Add Friend">Add Friend</h2>
       <p id="friend-dialog-description"></p>
       <p id="friend-dialog-target"></p>
       <div id="friend-pnid-row" class="account-form-row"><label for="friend-pnid">Pretendo Network ID (PNID)</label><input id="friend-pnid" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="ExamplePlayer" aria-describedby="friend-dialog-notice"></div>
       <p id="friend-dialog-notice" class="footnote" role="status" aria-live="polite"></p>
-      <div class="dialog-actions"><button id="friend-dialog-cancel" type="button">Cancel</button><button id="friend-dialog-confirm" type="submit">Send Request</button></div>
+      <div class="dialog-actions"><button id="friend-dialog-cancel" type="button" data-i18n="Cancel">Cancel</button><button id="friend-dialog-confirm" type="submit" data-i18n="Send Request">Send Request</button></div>
     </form>
   </dialog>
   <dialog id="account-add-dialog" aria-labelledby="account-add-title" aria-describedby="account-add-description">
-    <h2 id="account-add-title">Add Account</h2>
-    <p id="account-add-description" class="footnote">Dumpling ZIPを選択してアカウントを追加します。</p>
+    <h2 id="account-add-title" data-i18n="Add Account">Add Account</h2>
+    <p id="account-add-description" class="footnote" data-i18n="Select a Dumpling ZIP to add accounts.">Select a Dumpling ZIP to add accounts.</p>
     <fieldset id="account-import-controls" disabled>
-      <div id="account-drop" class="account-drop" role="region" aria-label="Dumpling ZIP import">
-        <p>Import from Dumpling</p><p class="footnote">Drag and drop a Dumpling ZIP file</p>
-        <button id="account-select-zip" type="button" disabled>Select ZIP File</button>
+      <div id="account-drop" class="account-drop" role="region" aria-label="Dumpling ZIP import" data-i18n-aria-label="Dumpling ZIP import">
+        <p data-i18n="Import from Dumpling">Import from Dumpling</p><p class="footnote" data-i18n="Drag and drop a Dumpling ZIP file">Drag and drop a Dumpling ZIP file</p>
+        <button id="account-select-zip" type="button" disabled data-i18n="Select ZIP File">Select ZIP File</button>
       </div>
-      <div id="account-preview" hidden><label class="footnote" for="account-import-mode">Import Mode</label><select id="account-import-mode"><option value="account">Account Only</option><option value="online">Account + Online Files</option></select><label class="footnote"><input id="account-online-replace" type="checkbox"> 表示された異なるOnline Filesをバックアップして置換する</label><details><summary>Online Files</summary><ul id="account-online-files"></ul></details><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled>Import Selected Accounts</button></div>
+      <div id="account-preview" hidden><label class="footnote" for="account-import-mode" data-i18n="Import Mode">Import Mode</label><select id="account-import-mode"><option value="account" data-i18n="Account Only">Account Only</option><option value="online" data-i18n="Account + Online Files">Account + Online Files</option></select><label class="footnote"><input id="account-online-replace" type="checkbox"> <span data-i18n="Back up and replace the listed different Online Files">Back up and replace the listed different Online Files</span></label><details><summary data-i18n="Online Files">Online Files</summary><ul id="account-online-files"></ul></details><p id="account-preview-note" class="footnote"></p><div id="account-candidates"></div><p id="account-console-note" class="footnote"></p><button id="account-import" type="button" disabled data-i18n="Import Selected Accounts">Import Selected Accounts</button></div>
     </fieldset>
     <p id="account-add-notice" class="footnote" role="status" aria-live="polite"></p>
-    <div class="dialog-actions"><button id="account-add-cancel" type="button">Cancel</button></div>
+    <div class="dialog-actions"><button id="account-add-cancel" type="button" data-i18n="Cancel">Cancel</button></div>
   </dialog>
   <dialog id="account-editor" aria-labelledby="account-editor-title">
     <form id="account-editor-form">
-      <h2 id="account-editor-title">Edit Account</h2>
-      <div class="account-form-row"><label for="account-name">Mii Name</label><input id="account-name" type="text" maxlength="10" required autocomplete="off"></div>
+      <h2 id="account-editor-title" data-i18n="Edit Account">Edit Account</h2>
+      <div class="account-form-row"><label for="account-name" data-i18n="Mii Name">Mii Name</label><input id="account-name" type="text" maxlength="10" required autocomplete="off"></div>
       <div id="account-edit-fields">
-        <div class="account-form-row"><label for="account-birthday">Birthday</label><input id="account-birthday" type="date" min="1900-01-01" max="9999-12-31"></div>
-        <div class="account-form-row"><label for="account-gender">Gender</label><select id="account-gender"><option value="0">Male</option><option value="1">Female</option></select></div>
-        <div class="account-form-row"><label for="account-country">Country / Region Code</label><input id="account-country" type="number" min="0" max="255" step="1"></div>
-        <div class="account-form-row"><label for="account-email">Email</label><input id="account-email" type="email" maxlength="254" autocomplete="off"></div>
-        <p class="footnote">入力確定時に自動保存されます。</p>
+        <div class="account-form-row"><label for="account-birthday" data-i18n="Birthday">Birthday</label><input id="account-birthday" type="date" min="1900-01-01" max="9999-12-31"></div>
+        <div class="account-form-row"><label for="account-gender" data-i18n="Gender">Gender</label><select id="account-gender"><option value="0" data-i18n="Male">Male</option><option value="1" data-i18n="Female">Female</option></select></div>
+        <div class="account-form-row"><label for="account-country" data-i18n="Country / Region Code">Country / Region Code</label><input id="account-country" type="number" min="0" max="255" step="1"></div>
+        <div class="account-form-row"><label for="account-email" data-i18n="Email">Email</label><input id="account-email" type="email" maxlength="254" autocomplete="off"></div>
       </div>
       <p id="account-editor-note" class="footnote" role="status"></p>
-      <div class="dialog-actions"><button id="account-editor-cancel" type="button">Close</button></div>
+      <div class="dialog-actions"><button id="account-editor-cancel" type="button" data-i18n="Close">Close</button></div>
     </form>
   </dialog>
   <dialog id="account-confirmation" aria-labelledby="account-confirmation-title">
     <h2 id="account-confirmation-title"></h2><p id="account-confirmation-text"></p>
-    <div class="dialog-actions"><button id="account-confirmation-cancel" type="button" autofocus>キャンセル</button><button id="account-confirmation-accept" type="button">続行</button></div>
+    <div class="dialog-actions"><button id="account-confirmation-cancel" type="button" autofocus data-i18n="Cancel">Cancel</button><button id="account-confirmation-accept" type="button" data-i18n="Continue">Continue</button></div>
   </dialog>
   <dialog id="texture-confirmation" aria-labelledby="texture-confirmation-title">
-    <h2 id="texture-confirmation-title">Texture を適用</h2>
+    <h2 id="texture-confirmation-title" data-i18n="Apply texture">Apply texture</h2>
     <div id="texture-preview"></div>
     <p id="texture-confirmation-count" class="footnote"></p>
     <p id="texture-confirmation-notice" class="footnote" role="status"></p>
-    <div class="dialog-actions"><button id="texture-cancel" type="button" autofocus>Cancel</button><button id="texture-apply" type="button">Apply</button></div>
+    <div class="dialog-actions"><button id="texture-cancel" type="button" autofocus data-i18n="Cancel">Cancel</button><button id="texture-apply" type="button" data-i18n="Apply">Apply</button></div>
   </dialog>
   <dialog id="game-data-confirmation" aria-labelledby="game-data-confirm-title" aria-describedby="game-data-confirm-text">
     <h2 id="game-data-confirm-title"></h2><p id="game-data-confirm-text" class="footnote"></p>
-    <div class="dialog-actions"><button id="game-data-confirm-cancel" type="button" autofocus>キャンセル</button><button id="game-data-confirm-accept" type="button">実行する</button></div>
+    <div class="dialog-actions"><button id="game-data-confirm-cancel" type="button" autofocus data-i18n="Cancel">Cancel</button><button id="game-data-confirm-accept" type="button" data-i18n="Continue">Continue</button></div>
   </dialog>
   <dialog id="stop-confirmation" aria-labelledby="stop-confirmation-title" aria-describedby="stop-confirmation-description">
-    <h2 id="stop-confirmation-title">Minecraftを終了しますか？</h2>
-    <p id="stop-confirmation-description">この操作ではゲームの進行状況を保存しません。<br>保存していない変更は失われる可能性があります。<br>先に Minecraft 内で「Exit and save」を実行してください。</p>
+    <h2 id="stop-confirmation-title" data-i18n="Exit Minecraft?">Exit Minecraft?</h2>
+    <p id="stop-confirmation-description"><span data-i18n="This action does not save game progress.">This action does not save game progress.</span><br><span data-i18n="Unsaved changes may be lost.">Unsaved changes may be lost.</span><br><span data-i18n="Use “Exit and save” in Minecraft first.">Use “Exit and save” in Minecraft first.</span></p>
     <div class="dialog-actions">
-      <button id="stop-cancel" type="button" autofocus>キャンセル</button>
-      <button id="stop-confirm" type="button">ゲームを終了</button>
+      <button id="stop-cancel" type="button" autofocus data-i18n="Cancel">Cancel</button>
+      <button id="stop-confirm" type="button" data-i18n="Exit game">Exit game</button>
     </div>
   </dialog>
 <dialog id="update-dialog" aria-labelledby="update-title">
-    <h2 id="update-title">Update Available</h2>
-    <dl class="settings-info"><dt>Current Version</dt><dd id="update-current"></dd><dt>New Version</dt><dd id="update-version"></dd><dt>Download Size</dt><dd id="update-size"></dd></dl>
-    <h3>What's New</h3><pre id="update-notes"></pre>
+    <h2 id="update-title" data-i18n="Update Available">Update Available</h2>
+    <dl class="settings-info"><dt data-i18n="Current Version">Current Version</dt><dd id="update-current"></dd><dt data-i18n="New Version">New Version</dt><dd id="update-version"></dd><dt data-i18n="Download Size">Download Size</dt><dd id="update-size"></dd></dl>
+    <h3 data-i18n="What&#x27;s New">What&#x27;s New</h3><pre id="update-notes"></pre>
     <p id="update-progress-text" role="status" aria-live="polite"></p><progress id="update-progress" hidden></progress>
-    <div class="game-data-actions"><button id="update-now" type="button">Update Now</button><button id="update-cancel" type="button">Later</button></div>
+    <div class="game-data-actions"><button id="update-now" type="button" data-i18n="Update Now">Update Now</button><button id="update-cancel" type="button" data-i18n="Later">Later</button></div>
   </dialog>
 </body>
 </html>

@@ -6,16 +6,16 @@ window.SessionHistoryUI = (() => {
   const year = document.getElementById("history-year"), month = document.getElementById("history-month");
   const modes = [...document.querySelectorAll("[data-history-mode]")];
   const messages = {
-    "history-unavailable":"Session History を読み込めません。既存の履歴は保護されています。記録は保存されません。",
-    "backup-read-only":"履歴の検証に失敗しました。保護されたバックアップを表示しています。記録は保存されません。",
-    "save-failed":"プレイ履歴を保存できません。ゲームは継続できますが、未保存の時間は終了時に失われる可能性があります。",
-    "tracking-failed":"プレイ時間の計測を継続できません。これまでの保存済み履歴は保持されています。"
+    get "history-unavailable"() { return LauncherI18n.t("Cannot read session history. Existing history is preserved; new sessions cannot be saved."); },
+    get "backup-read-only"() { return LauncherI18n.t("History validation failed. Showing a protected backup; new sessions cannot be saved."); },
+    get "save-failed"() { return LauncherI18n.t("Cannot save session history. You may continue playing, but unsaved time may be lost on exit."); },
+    get "tracking-failed"() { return LauncherI18n.t("Cannot continue tracking playtime. Saved history is preserved."); }
   };
   let mode = "daily", anchor = "", selectedYear = 0, selectedMonth = 0;
   let state = null, sequence = 0, pending = null, timer = 0, bars = [], chartKey = "", datesKey = "", cardsKey = "";
   const namespace = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(namespace,"svg");
-  svg.setAttribute("viewBox","0 0 900 240"); svg.setAttribute("aria-label","期間ごとのプレイ時間");
+  svg.setAttribute("viewBox","0 0 900 240"); LauncherI18n.bind(svg, "aria-label", () => LauncherI18n.t("Playtime by period"), true);
   chart.append(svg);
   const tooltip = document.createElement("div"); tooltip.className = "history-tooltip"; tooltip.id = "history-tooltip"; tooltip.setAttribute("role","tooltip"); tooltip.hidden = true; chart.append(tooltip);
   for (let i = 0; i <= 4; i++) {
@@ -25,10 +25,10 @@ window.SessionHistoryUI = (() => {
   }
   function iso(date) { return date.toISOString().slice(0,10); }
   function date(text) { return new Date(text + "T12:00:00Z"); }
-  function fullDate(text) { const [y,m,d] = text.split("-").map(Number); return `${y}年${m}月${d}日`; }
+  function fullDate(text) { return new Intl.DateTimeFormat(LauncherI18n.language, {year:"numeric",month:"short",day:"numeric",timeZone:"UTC"}).format(date(text)); }
   function duration(seconds, precise = true) {
     const h = Math.floor(seconds/3600), m = Math.floor(seconds/60)%60, s = seconds%60;
-    return `${h.toLocaleString("ja-JP")}時間${String(m).padStart(2,"0")}分${precise ? String(s).padStart(2,"0")+"秒" : ""}`;
+    return LauncherI18n.t("{0}h {1}m {2}", [h.toLocaleString(LauncherI18n.language), String(m).padStart(2,"0"), precise ? String(s).padStart(2,"0")+LauncherI18n.t("s") : ""]);
   }
   function period(bucket) { return bucket.start === bucket.end ? fullDate(bucket.start) : `${fullDate(bucket.start)} ～ ${fullDate(bucket.end)}`; }
   function visible() { return selectedPage === "session-history" && !page.hidden && !page.inert && !document.hidden; }
@@ -43,16 +43,16 @@ window.SessionHistoryUI = (() => {
   function notice(value) {
     const banner = document.getElementById("history-global-notice");
     const text = messages[value] || "";
-    if (banner.textContent !== text) banner.textContent = text;
+    if (banner.textContent !== text) LauncherI18n.bind(banner, "textContent", () => messages[value] || "");
     banner.hidden = !text;
     const badge = document.getElementById("history-badge");
-    badge.hidden = !text; badge.title = text;
+    badge.hidden = !text; LauncherI18n.bind(badge, "title", () => messages[value] || "");
   }
   function showTooltip(index) {
     if (!state?.buckets[index]) return;
     const bucket = state.buckets[index];
-    tooltip.textContent = `${period(bucket)} · ${duration(bucket.seconds)}`; tooltip.hidden = false;
-    document.getElementById("history-chart-detail").textContent = tooltip.textContent;
+    LauncherI18n.bind(tooltip, "textContent", () => `${period(bucket)} · ${duration(bucket.seconds)}`); tooltip.hidden = false;
+    LauncherI18n.bind(document.getElementById("history-chart-detail"), "textContent", () => tooltip.textContent);
   }
   function drill(index) {
     const bucket = state?.buckets[index]; if (!bucket) return;
@@ -66,14 +66,14 @@ window.SessionHistoryUI = (() => {
   }
   function graph() {
     const graphWidth = Math.max(260,chart.clientWidth);
-    const key = mode + graphWidth + JSON.stringify(state.buckets); if (key === chartKey) return;
+    const key = LauncherI18n.language + mode + graphWidth + JSON.stringify(state.buckets); if (key === chartKey) return;
     chartKey = key; tooltip.hidden = true;
     svg.setAttribute("viewBox",`0 0 ${graphWidth} 240`);
     svg.querySelectorAll("line").forEach(line => line.setAttribute("x2",graphWidth));
     const buckets = state.buckets, width = graphWidth/buckets.length;
     const maximum = Math.max(3600,...buckets.map(item => item.seconds));
     const axis = document.getElementById("history-axis");
-    axis.replaceChildren(...[4,3,2,1,0].map(i => { const value = document.createElement("span"); value.textContent = `${Number((maximum/3600*i/4).toFixed(1))}h`; return value; }));
+    axis.replaceChildren(...[4,3,2,1,0].map(i => { const value = document.createElement("span"); LauncherI18n.bind(value, "textContent", () => `${Number((maximum/3600*i/4).toFixed(1))}h`); return value; }));
     if (bars.length !== buckets.length) {
       for (const bar of bars) bar.group.remove();
       bars = buckets.map((_,index) => {
@@ -105,24 +105,24 @@ window.SessionHistoryUI = (() => {
       bar.rect.classList.toggle("history-zero",!bucket.seconds);
       const [y,m,d] = bucket.start.split("-").map(Number);
       bar.label.setAttribute("x",index*width+width/2);
-      bar.label.textContent = mode === "yearly" ? y : mode === "monthly" ? `${m}月` : index%Math.ceil(buckets.length/6) === 0 || index === buckets.length-1 ? `${m}/${d}` : "";
-      bar.group.setAttribute("aria-label",`${period(bucket)}、${duration(bucket.seconds)}`);
-      bar.title.textContent = `${period(bucket)}\nプレイ時間：${duration(bucket.seconds)}`;
+      LauncherI18n.bind(bar.label, "textContent", () => mode === "yearly" ? y : mode === "monthly" ? LauncherI18n.t("Month {0}", [m]) : index%Math.ceil(buckets.length/6) === 0 || index === buckets.length-1 ? `${m}/${d}` : "");
+      LauncherI18n.bind(bar.group, "aria-label", () => `${period(bucket)}、${duration(bucket.seconds)}`, true);
+      LauncherI18n.bind(bar.title, "textContent", () => LauncherI18n.t("{0}\nPlaytime: {1}", [period(bucket), duration(bucket.seconds)]));
     });
     const selected = bars.findIndex(bar => bar.group === document.activeElement || bar.group.matches(":hover"));
     if (selected >= 0) showTooltip(selected);
-    document.getElementById("history-range").textContent = `${buckets[0].start} ～ ${buckets.at(-1).end}`;
+    LauncherI18n.bind(document.getElementById("history-range"), "textContent", () => `${buckets[0].start} ～ ${buckets.at(-1).end}`);
   }
   function render() {
     notice(state.notice);
-    document.getElementById("history-status").textContent = state.readOnly ? "保存先を確認してください。既存の履歴は変更しません。" : state.active ? `計測中 · 今回 ${duration(state.sessionSeconds)} · 保存済み合計 ${duration(state.savedSeconds)}` : state.recovered ? "最後に正常保存されたチェックポイントまで復旧しました。" : "Minecraft の実行時間を、アカウント・リージョン共通で記録します。";
-    const values = [["Today",state.todaySeconds],["This Week",state.weekSeconds],["This Month",state.monthSeconds],["This Year",state.yearSeconds],["Total Playtime",state.totalSeconds]];
-    const key = JSON.stringify(values);
+    LauncherI18n.bind(document.getElementById("history-status"), "textContent", () => state.readOnly ? LauncherI18n.t("Check the storage location. Existing history is preserved.") : state.active ? LauncherI18n.t("Tracking · Session {0} · Saved total {1}", [duration(state.sessionSeconds), duration(state.savedSeconds)]) : state.recovered ? LauncherI18n.t("Recovered to the last saved checkpoint.") : "");
+    const values = [[LauncherI18n.t("Today"),state.todaySeconds],[LauncherI18n.t("This Week"),state.weekSeconds],[LauncherI18n.t("This Month"),state.monthSeconds],[LauncherI18n.t("This Year"),state.yearSeconds],[LauncherI18n.t("Total Playtime"),state.totalSeconds]];
+    const key = LauncherI18n.language + JSON.stringify(values);
     if (key !== cardsKey) {
       cardsKey = key;
       const cards = document.getElementById("history-cards");
-      if (!cards.children.length) for (const [name] of values) { const card = document.createElement("div"); card.className = "history-card"; const label = document.createElement("span"); label.textContent = name; const value = document.createElement("strong"); card.append(label,value); cards.append(card); }
-      values.forEach(([,seconds],index) => { const card = cards.children[index]; card.lastElementChild.textContent = duration(seconds,false); card.title = duration(seconds); });
+      if (!cards.children.length) for (const [name] of values) { const card = document.createElement("div"); card.className = "history-card"; const label = document.createElement("span"); LauncherI18n.bind(label, "textContent", () => name); const value = document.createElement("strong"); card.append(label,value); cards.append(card); }
+      values.forEach(([,seconds],index) => { const card = cards.children[index]; LauncherI18n.bind(card.lastElementChild, "textContent", () => duration(seconds,false)); LauncherI18n.bind(card, "title", () => duration(seconds)); });
     }
     graph();
     document.getElementById("history-empty").hidden = state.totalSeconds > 0 || state.active || state.readOnly;
@@ -133,17 +133,23 @@ window.SessionHistoryUI = (() => {
       while (rows.children.length > state.dates.length) rows.lastChild.remove();
       state.dates.forEach((bucket,index) => {
         let row = rows.children[index]; if (!row) { row = document.createElement("tr"); row.append(document.createElement("th"),document.createElement("td")); row.firstChild.scope = "row"; rows.append(row); }
-        row.firstChild.textContent = fullDate(bucket.start); row.lastChild.textContent = duration(bucket.seconds);
+        LauncherI18n.bind(row.firstChild, "textContent", () => fullDate(bucket.start)); LauncherI18n.bind(row.lastChild, "textContent", () => duration(bucket.seconds));
       });
-      document.getElementById("history-detail-range").textContent = `${state.year}年${state.month}月 · ${state.dates.length}日`;
+      LauncherI18n.bind(document.getElementById("history-detail-range"), "textContent", () => LauncherI18n.t("{0}-{1} · {2} days", [state.year, state.month, state.dates.length]));
     }
   }
+  window.addEventListener("launcher-language-changed", () => {
+    chartKey = datesKey = cardsKey = "";
+    document.getElementById("history-cards").replaceChildren();
+    for (let i = 1; i <= 12; i++) month.options[i - 1].textContent = LauncherI18n.t("Month {0}", [i]);
+    if (state) render();
+  });
   function syncModes() { modes.forEach(button => { const selected = button.dataset.historyMode === mode; button.setAttribute("aria-selected",String(selected)); button.tabIndex = selected ? 0 : -1; }); }
   modes.forEach((button,index) => {
     button.addEventListener("click",() => { mode = button.dataset.historyMode; syncModes(); pending = null; request(); });
     button.addEventListener("keydown",event => { let next; if (event.key === "ArrowRight") next = (index+1)%4; else if (event.key === "ArrowLeft") next = (index+3)%4; else if (event.key === "Home") next = 0; else if (event.key === "End") next = 3; if (next === undefined) return; event.preventDefault(); modes[next].click(); modes[next].focus(); });
   });
-  for (let i = 1; i <= 12; i++) month.add(new Option(`${i}月`,i));
+  for (let i = 1; i <= 12; i++) month.add(new Option(LauncherI18n.t("Month {0}", [i]),i));
   function detailsChanged() { if (!year.checkValidity() || !year.value) return; selectedYear = Number(year.value); selectedMonth = Number(month.value); pending = null; request(); }
   year.addEventListener("change",detailsChanged); month.addEventListener("change",detailsChanged);
   function move(direction) {
@@ -163,7 +169,7 @@ window.SessionHistoryUI = (() => {
     const reply = event.detail; if (!pending || reply.requestId !== pending.id) return;
     const accepted = pending.query === JSON.stringify(requestData()); pending = null;
     if (!accepted) { request(); return; }
-    if (!reply.state.buckets) { document.getElementById("history-status").textContent = "履歴の取得に失敗しました。"; return; }
+    if (!reply.state.buckets) { LauncherI18n.bind(document.getElementById("history-status"), "textContent", () => LauncherI18n.t("Could not load history.")); return; }
     state = reply.state;
     if (!selectedYear) { selectedYear = state.year; selectedMonth = state.month; year.value = selectedYear; month.value = selectedMonth; }
     if (visible()) render();

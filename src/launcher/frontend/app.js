@@ -13,7 +13,7 @@ const pageMotion = new LauncherMotion.PanelTransition(mainContent, pages.map(nam
     LauncherMotion.effect(document.querySelector(".home-art"), [{opacity:.4,transform:"scale(1.01)"},{opacity:1,transform:"scale(1)"}], "slow");
     LauncherMotion.effect(document.querySelector(".home-play"), [{opacity:0},{opacity:1}], "normal", 40);
   }
-  document.getElementById("page-label").textContent = page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : page === "graphic-packs" ? "Graphic Packs" : page === "session-history" ? "Session History" : page === "setup" ? "Setup" : "Settings";
+  LauncherI18n.bind(document.getElementById("page-label"), "textContent", () => page === "friends" ? "Friends" : page === "world" ? "World" : page === "texture" ? "Texture" : page === "graphic-packs" ? "Graphic Packs" : page === "session-history" ? "Session History" : page === "setup" ? "Setup" : "Settings");
   updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); window.updateSessionHistoryView?.();
 }, () => { updateInputView(); updateAccountView(); window.updateFriendsView?.(); window.updateWorldView?.(); window.updateSessionHistoryView?.(); });
 const navigationIndicator = new LauncherMotion.SlidingIndicator(document.querySelector("nav"), document.getElementById("navigation-indicator"), [...navigation], () => document.querySelector("nav [aria-current=page]"), true);
@@ -118,23 +118,23 @@ stopConfirm.addEventListener("click", () => {
   windowCommand(`game:stop-confirm:${stopConfirmation.sessionId}:${stopConfirmation.confirmationId}`);
 });
 const coreLabels = {
-  idle: ["準備中"], validating: ["準備中"], initializing: ["初期化中"], ready: ["準備完了"],
-  preparing: ["起動中"], opengl: ["描画準備中"], vulkan: ["描画準備中"], running: ["プレイ中"],
-  "title-stopping": ["終了中"], "title-stopped": ["終了"], stopping: ["終了中"], stopped: ["終了"],
-  failed: ["起動失敗"], "relaunch-failed": ["再起動失敗"], unavailable: ["起動機能なし"],
+  idle: ["Preparing"], validating: ["Preparing"], initializing: ["Initializing"], ready: ["Ready"],
+  preparing: ["Launching"], opengl: ["Preparing renderer"], vulkan: ["Preparing renderer"], running: ["Playing"],
+  "title-stopping": ["Stopping"], "title-stopped": ["Stopped"], stopping: ["Stopping"], stopped: ["Stopped"],
+  failed: ["Launch failed"], "relaunch-failed": ["Relaunch failed"], unavailable: ["Launch unavailable"],
 };
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
   const coreError = document.getElementById("core-error");
-  coreError.textContent = typeof state.error === "string" && state.error ? "ゲーム起動エラー: " + state.error : "";
+  LauncherI18n.bind(coreError, "textContent", () => typeof state.error === "string" && state.error ? LauncherI18n.t("Game launch error: ") + state.error : "");
   coreError.hidden = !coreError.textContent;
   if (state.phase !== "ready" || state.sessionId !== launchRequestSession || !state.canLaunch) launchPending = false;
   if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});
   const phase = state.failed ? (state.sessionId > 1 ? "relaunch-failed" : "failed") : state.stopRequested && !state.stopped ? "stopping" : state.phase;
   const [status] = coreLabels[phase] || coreLabels.idle;
   updatePlay();
-  play.title = state.launchUnavailableReason === "game-not-installed" ? "Minecraft BASE と Update v560 がインストールされていません。" : state.launchUnavailableReason === "native-settings-invalid" ? "ゲーム設定ファイルを読み込めません。元のファイルは保持されています。" : "";
+  LauncherI18n.bind(play, "title", () => state.launchUnavailableReason === "game-not-installed" ? LauncherI18n.t("Minecraft BASE and Update v560 are not installed.") : state.launchUnavailableReason === "native-settings-invalid" ? LauncherI18n.t("Cannot read game settings. The original file is preserved.") : "");
   const hasConfirmation = state.canStopGame === true && validId(state.stopConfirmationId) &&
     state.stopConfirmationSessionId === state.sessionId;
   if (hasConfirmation) {
@@ -154,9 +154,9 @@ window.addEventListener("launcher-core-state", (event) => {
   const closing = state.stopRequested === true || phase === "stopping" || phase === "stopped";
   const titleStopping = phase === "title-stopping" || phase === "title-stopped";
   navigation.forEach((button) => { button.disabled = closing || titleStopping || hasConfirmation; });
-  document.getElementById("update-preferences").disabled = !confirmed.preferences || !preferencesReadable || closing || titleStopping || hasConfirmation || closeAfterSaves;
+  document.getElementById("update-preferences").disabled = languageSelect.disabled = !confirmed.preferences || !preferencesReadable || closing || titleStopping || hasConfirmation || closeAfterSaves;
   document.querySelectorAll("[data-tab]").forEach((tab) => { tab.disabled = closing || titleStopping || hasConfirmation || closeAfterSaves; });
-  document.getElementById("core-information").textContent = status;
+  LauncherI18n.bind(document.getElementById("core-information"), "textContent", () => LauncherI18n.t(status));
   updateNativeSettings(state);
   renderAccount();
   updateAccountView();
@@ -205,6 +205,7 @@ const fpsSlider = document.getElementById("native-fps-slider");
 const fpsOriginal = document.getElementById("native-fps-original");
 const fpsError = document.getElementById("fps-error");
 const nativeResolution = document.getElementById("native-resolution");
+const languageSelect = document.getElementById("launcher-language");
 const preferenceInputs = ["check-on-startup"].map((id) => document.getElementById(id));
 const confirmed = { native: null, preferences: null };
 let preferencesReadable = false;
@@ -222,8 +223,8 @@ function draft(scope) { return desired[scope] || confirmed[scope]; }
 function updatePlay() {
   play.disabled = (window.launcherCoreState?.canLaunch !== true && !window.GameDataUI?.canSetup()) || window.GameDataUI?.busy() || launchPending || settingsBusy() || closeAfterSaves || window.launcherUpdateState?.blocksPlay === true;
 }
-function note(scope, text) {
-  document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note").textContent = text;
+function note(scope, render) {
+  LauncherI18n.bind(document.getElementById(scope === "native" ? "native-settings-note" : "preferences-note"), "textContent", render);
 }
 function enqueueSave(scope, values) {
   if (!confirmed[scope]) return;
@@ -238,7 +239,7 @@ function drainSaves() {
     const values = desired[scope];
     if (same(values, confirmed[scope])) { desired[scope] = null; continue; }
     pendingSave = { scope, values, requestId: ++saveSequence };
-    note(scope, "保存しています。保存完了まで Play は利用できません。");
+    note(scope, () => (LauncherI18n.t("Saving…")));
     updatePlay();
     windowCommand((scope === "native" ? "settings:save:" : "preferences:save:") + pendingSave.requestId + ":" + JSON.stringify(values));
     return;
@@ -264,10 +265,13 @@ function renderPreferences() {
   const values = draft("preferences");
   if (!values) return;
   preferenceInputs.forEach((input, index) => { input.checked = values[["check_on_startup"][index]]; });
+  languageSelect.value = LauncherI18n.normalize(values.language ?? "auto");
+  languageSelect.disabled = !preferencesReadable || closeAfterSaves;
+  LauncherI18n.setLanguage(languageSelect.value);
 }
 function saveFps(value) {
   if (nativeGraphics.disabled || !confirmed.native) return;
-  fpsError.textContent = "";
+  LauncherI18n.bind(fpsError, "textContent", () => "");
   editingFps = false;
   const values = { ...draft("native"), native_vsync_frequency: value };
   enqueueSave("native", values);
@@ -279,7 +283,7 @@ function commitFps() {
   if (validFps(nativeFps.value)) saveFps(Number(nativeFps.value));
   else {
     editingFps = false;
-    fpsError.textContent = "30〜1000の整数を入力してください。最後に保存された有効値へ戻しました。";
+    LauncherI18n.bind(fpsError, "textContent", () => LauncherI18n.t("Enter an integer from 30 to 1000. Restored the last saved value."));
     const saved = confirmed.native?.native_vsync_frequency || lastFps;
     nativeFps.value = fpsSlider.value = String(saved);
   }
@@ -292,14 +296,14 @@ nativeFps.addEventListener("paste", (event) => {
   const text = event.clipboardData?.getData("text") || "";
   if (!/^[0-9]{1,4}$/.test(text)) {
     event.preventDefault();
-    fpsError.textContent = "4桁以内の整数を入力してください。";
+    LauncherI18n.bind(fpsError, "textContent", () => LauncherI18n.t("Enter an integer of up to four digits."));
   }
 });
 nativeFps.addEventListener("keydown", (event) => {
   if (event.key === "Enter") { event.preventDefault(); commitFps(); }
 });
 nativeFps.addEventListener("blur", commitFps);
-fpsSlider.addEventListener("input", () => { editingFps = true; nativeFps.value = fpsSlider.value; fpsError.textContent = ""; });
+fpsSlider.addEventListener("input", () => { editingFps = true; nativeFps.value = fpsSlider.value; LauncherI18n.bind(fpsError, "textContent", () => ""); });
 fpsSlider.addEventListener("change", () => saveFps(Number(fpsSlider.value)));
 fpsOriginal.addEventListener("change", () => saveFps(fpsOriginal.checked ? 0 : lastFps));
 nativeResolution.addEventListener("change", () => {
@@ -308,16 +312,22 @@ nativeResolution.addEventListener("change", () => {
   enqueueSave("native", { ...draft("native"), native_internal_width: width, native_internal_height: height });
 });
 preferenceInputs.forEach((input) => input.addEventListener("change", () => {
-  enqueueSave("preferences", { config_version: 2, check_on_startup: preferenceInputs[0].checked });
+  enqueueSave("preferences", { ...draft("preferences"), config_version: 3, check_on_startup: preferenceInputs[0].checked });
 }));
+languageSelect.addEventListener("change", () => {
+  if (!preferencesReadable || closeAfterSaves) return;
+  LauncherI18n.setLanguage(languageSelect.value);
+  enqueueSave("preferences", { ...draft("preferences"), config_version: 3, language: languageSelect.value });
+});
 window.addEventListener("launcher-preferences", (event) => {
+  LauncherI18n.setSystemLanguage(event.detail.systemLanguage);
   confirmed.preferences = event.detail.values;
-  document.getElementById("launcher-version").textContent = event.detail.version;
+  LauncherI18n.bind(document.getElementById("launcher-version"), "textContent", () => event.detail.version);
   document.getElementById("update-preferences").disabled = false;
-  renderPreferences();
   const healthy = preferencesReadable = ["loaded", "default"].includes(event.detail.notice);
+  renderPreferences();
   document.getElementById("update-preferences").disabled = !healthy;
-  note("preferences", healthy ? "更新の確認だけを自動で行います。ダウンロードと適用には承認が必要です。" : "設定を読み込めません (" + event.detail.notice + ")。既存ファイルを保持し、自動確認を停止しています。");
+  note("preferences", () => (healthy ? "" : LauncherI18n.t("Cannot read preferences (") + event.detail.notice + LauncherI18n.t("). Existing files are preserved; automatic checks are paused.")));
 });
 window.addEventListener("launcher-settings-result", (event) => {
   const result = event.detail;
@@ -330,7 +340,7 @@ window.addEventListener("launcher-settings-result", (event) => {
   const newer = saveQueue.includes(scope);
   if (!newer) desired[scope] = null;
   pendingSave = null;
-  note(scope, notice === "saved" ? (scope === "native" ? "設定を保存しました。次回Playで適用されます。" : "更新設定を保存しました。") : "設定を保存できませんでした。保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  note(scope, () => (notice === "saved" ? (scope === "native" ? LauncherI18n.t("Saved.") : LauncherI18n.t("Saved.")) : LauncherI18n.t("Could not save. Restored the saved values. Try again.")));
   if (scope === "native") renderNative(); else renderPreferences();
   drainSaves();
 });
@@ -349,23 +359,23 @@ window.addEventListener("launcher-close-request", (event) => {
 });
 function setInfo(id, entries) {
   const list = document.getElementById(id);
-  const key = JSON.stringify(entries);
+  const key = LauncherI18n.language + JSON.stringify(entries);
   if (list.dataset.snapshot === key) return;
   list.dataset.snapshot = key;
   list.replaceChildren();
   entries.forEach(([label, value]) => {
     const term = document.createElement("dt"), detail = document.createElement("dd");
-    term.textContent = label;
-    detail.textContent = String(value);
+    LauncherI18n.bind(term, "textContent", () => label);
+    LauncherI18n.bind(detail, "textContent", () => String(value));
     list.append(term, detail);
   });
 }
 function updateNativeSettings(state) {
   nativeGraphics.disabled = state.canEditNativeSettings !== true || closeAfterSaves;
   if (!state.nativeSettings) {
-    note("native", state.phase === "unavailable" ? "Core がないためゲーム設定は利用できません。" : "ゲームの起動準備を待っています。");
-    setInfo("audio-info", [["現在の設定", "Core の情報は利用できません。"]]);
-    setInfo("controller-info", [["接続状態", "Core の情報は利用できません。"]]);
+    note("native", () => (state.phase === "unavailable" ? LauncherI18n.t("Game settings require Cemu Core.") : LauncherI18n.t("Preparing…")));
+    setInfo("audio-info", [[LauncherI18n.t("Current settings"), LauncherI18n.t("Core information unavailable.")]]);
+    setInfo("controller-info", [[LauncherI18n.t("Connection"), LauncherI18n.t("Core information unavailable.")]]);
     return;
   }
   confirmed.native = state.nativeSettings;
@@ -373,8 +383,8 @@ function updateNativeSettings(state) {
   if (state.canEditNativeSettings !== true) editingFps = false;
   renderNative();
   if (!pendingSave && !saveQueue.includes("native")) {
-    const notices = { default: "FPS 1000・内部1920×1080を初期値として使用します。変更時に自動保存します。", loaded: "保存済みの設定です。変更は次回Playで適用されます。", saved: "設定を保存しました。次回Playで適用されます。", "load-failed": "設定を読み込めなかったため、FPS 1000・内部1920×1080を使用します。", "save-failed": "設定を保存できませんでした。保存済みの値を表示しています。", invalid: "設定値が無効なため、保存しませんでした。", "not-ready": "ゲーム停止後、準備完了になると変更できます。" };
-    note("native", (notices[state.settingsNotice] || "ゲームの起動準備を待っています。") + (state.canEditNativeSettings === true ? "" : " ゲームの実行中・起動中・停止中は変更できません。"));
+    const notices = { get default() { return ""; }, get loaded() { return ""; }, get saved() { return LauncherI18n.t("Saved."); }, get "load-failed"() { return LauncherI18n.t("Could not load settings. Using 1000 FPS and 1920×1080."); }, get "save-failed"() { return LauncherI18n.t("Could not save. Showing saved values."); }, get invalid() { return LauncherI18n.t("Invalid settings were not saved."); }, get "not-ready"() { return LauncherI18n.t("Available after the game stops."); } };
+    note("native", () => ((notices[state.settingsNotice] ?? LauncherI18n.t("Preparing…")) + (state.canEditNativeSettings === true ? "" : LauncherI18n.t(" Available after the game stops."))));
   }
   renderInput(state.settingsInfo?.input, state);
   renderAv(state.settingsInfo?.av, state);
@@ -384,9 +394,14 @@ function updateNativeSettings(state) {
     windowCommand("settings:get");
   }
   if (info?.audioBackend) {
-    setInfo("audio-info", [["Audio Backend", info.audioBackend], ["TV Output Device", info.tvDevice], ["TV Volume", info.tvVolume], ["GamePad Output Device", info.padDevice], ["GamePad Volume", info.padVolume]]);
+    const outputName = (key, fallback) => {
+      const token = info.av?.values[key];
+      const device = info.av?.outputs.find(device => device.token === token);
+      return token === 0 ? LauncherI18n.t("Disabled") : device?.name === "Default" ? LauncherI18n.t("Default") : device?.name || fallback;
+    };
+    setInfo("audio-info", [[LauncherI18n.t("Audio Backend"), info.audioBackend], [LauncherI18n.t("TV Output Device"), outputName("tvDevice", info.tvDevice)], [LauncherI18n.t("TV Volume"), info.tvVolume], [LauncherI18n.t("GamePad Output Device"), outputName("padDevice", info.padDevice)], [LauncherI18n.t("GamePad Volume"), info.padVolume]]);
     const connected = (info.controllers || []).filter((device) => device.connected && device.api === "SDLController");
-    if (!info.input?.mapping) setInfo("controller-info", [["接続状態", connected.length ? "接続中" : "未接続"], ["接続中のコントローラー", connected.map((device) => device.name).join(" / ") || "なし"], ["VPAD割当", info.vpadAssigned ? "割当済み" : "未割当"], ["Controller Profile", info.profile]]);
+    if (!info.input?.mapping) setInfo("controller-info", [[LauncherI18n.t("Connection"), connected.length ? LauncherI18n.t("Connected") : LauncherI18n.t("Disconnected")], [LauncherI18n.t("Connected controller"), connected.map((device) => device.name).join(" / ") || LauncherI18n.t("None")], [LauncherI18n.t("VPAD assignment"), info.vpadAssigned ? LauncherI18n.t("Assigned") : LauncherI18n.t("Unassigned")], [LauncherI18n.t("Controller Profile"), info.profile]]);
   }
 }
 
@@ -404,9 +419,9 @@ window.addEventListener("launcher-window-state", (event) => {
   const maximized = event.detail === true;
   document.documentElement.dataset.maximized = String(maximized);
   const button = document.getElementById("window-maximize");
-  const label = maximized ? "元に戻す" : "最大化";
-  button.setAttribute("aria-label", label);
-  button.title = label;
+  const label = maximized ? LauncherI18n.t("Restore") : LauncherI18n.t("Maximize");
+  LauncherI18n.bind(button, "aria-label", () => label, true);
+  LauncherI18n.bind(button, "title", () => label);
 });
 
 const dragRegion = document.getElementById("titlebar-drag");
@@ -438,24 +453,24 @@ let inputSnapshot = null, pendingInput = null;
 let inputSequence = Date.now() * 1000, inputViewId = 1;
 let settingsTimer = null, inputTimer = null, inputPollPending = false, inputPollDeadline = 0, lastCaptureId = 0;
 const inputMessages = {
-  ready:"変更は自動保存されます。ゲームに戻ると新しい割当を使用します。",
-  saved:"Profile を保存し、再読込を確認しました。",
-  "saved-duplicate":"保存しました。同じ物理入力が複数の割当に設定されています。",
-  "save-failed":"保存できませんでした。保存前の設定へ戻しました。もう一度操作すると再試行できます。",
-  "recovery-required":"Profile の復旧が必要です。バックアップを保護してランチャーを終了してください。",
-  "stale-request":"古い操作は反映しませんでした。画面の最新の設定を確認してください。",
-  rejected:"操作を反映できませんでした。Profile 名・重複する名前・機器の接続状態を確認してください。",
-  "not-ready":"起動・終了処理中は変更できません。",
-  "release-inputs":"すべてのボタンとスティックを離してください（10秒以内）。",
-  "press-input":"ボタンを押してください。スティック・トリガーは大きく動かしてください。",
-  "capture-timeout":"入力待機を終了しました。もう一度割当を選択してください。",
-  "capture-cancelled":"入力待機をキャンセルしました。",
-  disconnected:"Disconnected · 接続を確認し、一覧から選択してください。",
-  reconnected:"コントローラーへ自動接続しました。保存済みの割当を復元しました。",
-  "connected-new-model":"新しい機器へ接続しました。機器別の割当を使用し、元の Profile は保持しました。",
-  "duplicate-input":"この入力は連続割当で使用済みです。入力を離し、別のボタンを押してください。",
-  "select-controller":"接続中のコントローラーを一覧から選択してください。",
-  "unsupported-profile":"現在の Profile は編集対象外です。物理コントローラーを選択すると SDLController の割当を作成します。",
+  get ready() { return ""; },
+  get saved() { return LauncherI18n.t("Profile saved and verified."); },
+  get "saved-duplicate"() { return LauncherI18n.t("Saved. Some mappings share the same physical input."); },
+  get "save-failed"() { return LauncherI18n.t("Could not save. Restored the previous settings. Try again."); },
+  get "recovery-required"() { return LauncherI18n.t("Profile recovery required. Preserve backups and close the launcher."); },
+  get "stale-request"() { return LauncherI18n.t("Stale action ignored. Check the latest settings."); },
+  get rejected() { return LauncherI18n.t("Could not apply. Check the profile name, duplicate names and controller connection."); },
+  get "not-ready"() { return LauncherI18n.t("Unavailable during startup or shutdown."); },
+  get "release-inputs"() { return LauncherI18n.t("Release all buttons and sticks within 10 seconds."); },
+  get "press-input"() { return LauncherI18n.t("Press a button, or move a stick or trigger fully."); },
+  get "capture-timeout"() { return LauncherI18n.t("Input capture timed out. Select a mapping to try again."); },
+  get "capture-cancelled"() { return LauncherI18n.t("Input capture cancelled."); },
+  get disconnected() { return LauncherI18n.t("Disconnected. Check the connection and select a controller."); },
+  get reconnected() { return LauncherI18n.t("Controller reconnected. Saved mappings restored."); },
+  get "connected-new-model"() { return LauncherI18n.t("New controller connected. Using its mappings; the previous profile is preserved."); },
+  get "duplicate-input"() { return LauncherI18n.t("This input is already mapped. Release it and press another button."); },
+  get "select-controller"() { return LauncherI18n.t("Select a connected controller."); },
+  get "unsupported-profile"() { return LauncherI18n.t("Select a physical controller to create SDLController mappings. The current profile is preserved."); },
 };
 function inputActive() { return selectedPage === "settings" && !document.getElementById("settings").hidden && !document.getElementById("settings").inert && selectedTab === "input" && tabMotion.current === "input" && !document.getElementById("panel-input").inert && !document.hidden && !closeAfterSaves; }
 function inputCommand(values) {
@@ -481,11 +496,11 @@ function renderInput(info, state = window.launcherCoreState) {
   inputEdit.disabled = !current?.connected;
   document.getElementById("deadzone-controls").disabled = !editable || !current?.connected;
   if (!current) return;
-  if (!pendingInput) inputNote.textContent = editable ? (inputMessages[current.notice] || inputMessages.ready) : inputMessages["not-ready"];
-  options(physicalController, [["", "コントローラーを選択"], ...current.devices.map((d) => [String(d.token), d.name + (current.devices.filter(other => other.name === d.name).length > 1 ? ` (${current.devices.filter(other => other.name === d.name).indexOf(d) + 1})` : "")])], String(current.devices.find((d) => d.selected)?.token || ""));
+  if (!pendingInput) LauncherI18n.bind(inputNote, "textContent", () => editable ? (inputMessages[current.notice] || inputMessages.ready) : inputMessages["not-ready"]);
+  options(physicalController, [["", LauncherI18n.t("Select controller")], ...current.devices.map((d) => [String(d.token), d.name + (current.devices.filter(other => other.name === d.name).length > 1 ? ` (${current.devices.filter(other => other.name === d.name).indexOf(d) + 1})` : "")])], String(current.devices.find((d) => d.selected)?.token || ""));
   const chosenProfile = profileSelect.value;
-  options(profileSelect, [["", "Profile を選択"], ...current.profiles.map((name) => [name, name])], current.profiles.includes(chosenProfile) ? chosenProfile : current.profiles.includes(current.profile) ? current.profile : "");
-  setInfo("controller-info", [["Controller Status", current.connected ? "Connected" : "Disconnected"], ["Controller Profile", current.profile], ["Player", "1 · Wii U GamePad"]]);
+  options(profileSelect, [["", LauncherI18n.t("Select profile")], ...current.profiles.map((name) => [name, name])], current.profiles.includes(chosenProfile) ? chosenProfile : current.profiles.includes(current.profile) ? current.profile : "");
+  setInfo("controller-info", [[LauncherI18n.t("Controller Status"), current.connected ? LauncherI18n.t("Connected") : LauncherI18n.t("Disconnected")], [LauncherI18n.t("Controller Profile"), current.profile], [LauncherI18n.t("Player"), "1 · Wii U GamePad"]]);
   for (const [side, value] of [["left", current.leftDeadzone], ["right", current.rightDeadzone]]) {
     const slider = document.getElementById(side + "-deadzone");
     if (document.activeElement !== slider || !editable || ["save-failed","rejected"].includes(current.notice)) {
@@ -494,14 +509,14 @@ function renderInput(info, state = window.launcherCoreState) {
     }
   }
   updateDeadzonePreview();
-  const key = JSON.stringify(current.mapping);
+  const key = LauncherI18n.language + JSON.stringify(current.mapping);
   if (mappingGrid.dataset.snapshot !== key) {
     mappingGrid.dataset.snapshot = key;
     mappingGrid.replaceChildren(...current.mapping.map((m) => {
       const row = document.createElement("div"), label = document.createElement("span"), button = document.createElement("button");
       row.className = "mapping-row"; row.dataset.mapping = m.id; row.dataset.button = m.button ?? "";
-      label.textContent = m.label; button.textContent = (m.name || "未割当") + (m.duplicate ? "（重複）" : "");
-      button.type = "button"; button.setAttribute("aria-label", m.label + "の割当 " + (m.name || "未割当"));
+      LauncherI18n.bind(label, "textContent", () => LauncherI18n.t(m.label)); LauncherI18n.bind(button, "textContent", () => (m.name || LauncherI18n.t("Unassigned")) + (m.duplicate ? LauncherI18n.t(" (duplicate)") : ""));
+      button.type = "button"; LauncherI18n.bind(button, "aria-label", () => LauncherI18n.t(m.label) + LauncherI18n.t(" mapping: ") + (m.name || LauncherI18n.t("Unassigned")), true);
       button.addEventListener("click", () => inputCommand({ op:"capture", mapping:m.id, continuous:document.getElementById("mapping-continuous").checked }));
       row.append(label, button); return row;
     }));
@@ -518,7 +533,7 @@ for (const side of ["left", "right"]) {
 document.getElementById("input-reset").addEventListener("click", () => { resetConfirmation.hidden = false; document.getElementById("input-reset-cancel").focus(); });
 document.getElementById("input-reset-cancel").addEventListener("click", () => { resetConfirmation.hidden = true; document.getElementById("input-reset").focus(); });
 document.getElementById("input-reset-confirm").addEventListener("click", () => { resetConfirmation.hidden = true; inputCommand({ op:"reset" }); });
-captureCancel.addEventListener("click", () => { windowCommand("input:cancel"); lastCaptureId = 0; document.getElementById("capture-actions").hidden = true; inputNote.textContent = inputMessages["capture-cancelled"]; });
+captureCancel.addEventListener("click", () => { windowCommand("input:cancel"); lastCaptureId = 0; document.getElementById("capture-actions").hidden = true; LauncherI18n.bind(inputNote, "textContent", () => inputMessages["capture-cancelled"]); });
 document.getElementById("input-capture-skip").addEventListener("click", () => inputCommand({op:"skip"}));
 document.getElementById("input-capture-finish").addEventListener("click", () => inputCommand({op:"finish"}));
 function updateDeadzonePreview() {
@@ -532,17 +547,17 @@ window.addEventListener("launcher-input-result", (event) => {
   if (event.detail.requestId !== pendingInput) return;
   pendingInput = null;
   renderInput(event.detail.input);
-  if (event.detail.input.notice) inputNote.textContent = inputMessages[event.detail.input.notice] || inputMessages.ready;
+  if (event.detail.input.notice) LauncherI18n.bind(inputNote, "textContent", () => inputMessages[event.detail.input.notice] || inputMessages.ready);
   drainSaves(); updatePlay();
 });
 function clearLiveInput() {
   for (const side of ["left", "right"]) {
     document.querySelectorAll("#" + side + "-stick-test span").forEach(point => point.style.transform = "translate(-50%,-50%)");
-    document.getElementById(side + "-stick-value").value = "Raw 0.00 / 0.00 · Output 0.00 / 0.00";
+    document.getElementById(side + "-stick-value").value = LauncherI18n.t("Raw 0.00 / 0.00 · Output 0.00 / 0.00");
   }
   mappingGrid.querySelectorAll(".mapping-row").forEach((row) => { row.dataset.pressed = "false"; });
-  document.getElementById("trigger-test").textContent = "ZL 0.00 / ZR 0.00";
-  document.getElementById("button-test").textContent = "未接続";
+  LauncherI18n.bind(document.getElementById("trigger-test"), "textContent", () => LauncherI18n.t("ZL 0.00 / ZR 0.00"));
+  LauncherI18n.bind(document.getElementById("button-test"), "textContent", () => LauncherI18n.t("Disconnected"));
 }
 window.addEventListener("launcher-input-live", (event) => {
   if (!inputActive() || event.detail.viewId !== inputViewId) return;
@@ -555,10 +570,10 @@ window.addEventListener("launcher-input-live", (event) => {
       const test = document.getElementById(side + "-stick-test"), radius = test.clientWidth / 2 - 5;
       for (const [selector, values] of [[".raw-point",raw],[".processed-point",[x,y]]])
         test.querySelector(selector).style.transform = `translate(calc(-50% + ${values[0] * radius}px),calc(-50% + ${values[1] * radius}px))`;
-      document.getElementById(side + "-stick-value").value = `Raw ${raw[0].toFixed(2)} / ${raw[1].toFixed(2)} · Output ${x.toFixed(2)} / ${y.toFixed(2)}`;
+      document.getElementById(side + "-stick-value").value = LauncherI18n.t("Raw {0} / {1} · Output {2} / {3}", [raw[0].toFixed(2), raw[1].toFixed(2), x.toFixed(2), y.toFixed(2)]);
     }
-    document.getElementById("trigger-test").textContent = `ZL ${state.triggers[0].toFixed(2)} / ZR ${state.triggers[1].toFixed(2)}`;
-    document.getElementById("button-test").textContent = state.buttons.map((id) => inputSnapshot?.buttons?.find((b) => b.id === id)?.name || `Button ${id}`).join(" · ") || "ボタン解放";
+    LauncherI18n.bind(document.getElementById("trigger-test"), "textContent", () => LauncherI18n.t("ZL {0} / ZR {1}", [state.triggers[0].toFixed(2), state.triggers[1].toFixed(2)]));
+    LauncherI18n.bind(document.getElementById("button-test"), "textContent", () => state.buttons.map((id) => inputSnapshot?.buttons?.find((b) => b.id === id)?.name || LauncherI18n.t("Button {0}", [id])).join(" · ") || LauncherI18n.t("Buttons released"));
   }
   mappingGrid.querySelectorAll(".mapping-row").forEach((row) => { row.dataset.pressed = String(state.connected === true && row.dataset.button !== "" && state.buttons.includes(Number(row.dataset.button))); });
   document.getElementById("capture-actions").hidden = !state.captureId;
@@ -570,7 +585,7 @@ window.addEventListener("launcher-input-live", (event) => {
     row.dataset.complete = String(state.completed?.includes(id) === true);
     row.dataset.next = String(!!state.captureId && state.continuous && id === state.captureMapping + 1);
   });
-  if (state.captureId || lastCaptureId) inputNote.textContent = (state.captureId ? (inputSnapshot?.mapping.find(m => m.id === state.captureMapping)?.label || "") + " · " : "") + (inputMessages[state.notice] || inputMessages.ready);
+  if (state.captureId || lastCaptureId) LauncherI18n.bind(inputNote, "textContent", () => (state.captureId ? (inputSnapshot?.mapping.find(m => m.id === state.captureMapping)?.label || "") + " · " : "") + (inputMessages[state.notice] || inputMessages.ready));
   if (lastCaptureId && !state.captureId) windowCommand("settings:get");
   lastCaptureId = state.captureId || 0;
 });
@@ -609,8 +624,8 @@ function colorRgba(hex, alpha) { return (parseInt(hex.slice(1,3),16) | parseInt(
 
 const avQueue = [];
 let avSnapshot = null, pendingAv = null, avSequence = Date.now() * 1000;
-const avLabels = ["DirectSound","XAudio2 2.7","XAudio2","Cubeb"];
-function avNote(key,text) { document.getElementById(avCategory(key) + "-settings-note").textContent = text; }
+const avLabels = ["DirectSound",LauncherI18n.t("XAudio2 2.7"),"XAudio2","Cubeb"];
+function avNote(key,render) { LauncherI18n.bind(document.getElementById(avCategory(key) + "-settings-note"), "textContent", render); }
 function renderAv(info, state = window.launcherCoreState) {
   if (info?.values) avSnapshot = info;
   const current = avSnapshot;
@@ -619,17 +634,17 @@ function renderAv(info, state = window.launcherCoreState) {
   const values = current.values;
   const select = (key, items) => {
     const value = String(values[key]);
-    if (!items.some(item => String(item[0]) === value)) items.push([value,"保存したデバイス（利用できません）"]);
+    if (!items.some(item => String(item[0]) === value)) items.push([value,LauncherI18n.t("Saved device (unavailable)")]);
     options(document.getElementById("av-" + key),items,value);
     for (const option of document.getElementById("av-" + key).options) option.disabled = Number(option.value) < 0;
   };
-  if (values.graphicsApi === 0) options(document.getElementById("av-gpu"),[[0,"System Default"]],"0");
-  else select("gpu", [[0,"Default"], ...current.gpus.map(d => [d.token,d.name])]);
-  select("vsync", values.graphicsApi === 0 ? [[0,"Off"],[1,"On"]] : [[0,"Off"],[1,"Double Buffering"],[2,"Triple Buffering"],[3,"Match Emulated Display (Experimental)"]]);
+  if (values.graphicsApi === 0) options(document.getElementById("av-gpu"),[[0,LauncherI18n.t("System Default")]],"0");
+  else select("gpu", [[0,LauncherI18n.t("Default")], ...current.gpus.map(d => [d.token,d.name === "Default" ? LauncherI18n.t("Default") : d.name])]);
+  select("vsync", values.graphicsApi === 0 ? [[0,LauncherI18n.t("Off")],[1,LauncherI18n.t("On")]] : [[0,LauncherI18n.t("Off")],[1,LauncherI18n.t("Double Buffering")],[2,LauncherI18n.t("Triple Buffering")],[3,LauncherI18n.t("Match Emulated Display (Experimental)")]]);
   select("audioApi",current.audioApis.map(api => [api,avLabels[api]]));
   for (const key of ["tvDevice","padDevice","micDevice"])
-    select(key,[[0,"Disabled"], ...(key === "micDevice" ? current.inputs : current.outputs).map(d => [d.token,d.name])]);
-  select("tvChannels",current.tvChannels.map(channel => [channel,["Mono","Stereo","Surround"][channel]]));
+    select(key,[[0,LauncherI18n.t("Disabled")], ...(key === "micDevice" ? current.inputs : current.outputs).map(d => [d.token,d.name === "Default" ? LauncherI18n.t("Default") : d.name])]);
+  select("tvChannels",current.tvChannels.map(channel => [channel,[LauncherI18n.t("Mono"),LauncherI18n.t("Stereo"),LauncherI18n.t("Surround")][channel]]));
   for (const key of avKeys) {
     if (key === "gpu" && values.graphicsApi === 0) continue;
     if (pendingAv?.key === key || avQueue.some(item => item.key === key)) continue;
@@ -645,14 +660,14 @@ function renderAv(info, state = window.launcherCoreState) {
     if (control.type === "range") document.getElementById("av-" + key + "-value").value = Number(control.value) * (key === "latency" ? 12 : 1) + (key === "latency" ? " ms" : "%");
   }
   document.getElementById("av-gpu").disabled = document.getElementById("av-async").disabled = values.graphicsApi === 0;
-  document.getElementById("renderer-info").textContent = state?.rendererDevice ? `現在の描画: ${state.activeRenderer} · ${state.rendererDevice}` : "";
+  LauncherI18n.bind(document.getElementById("renderer-info"), "textContent", () => state?.rendererDevice ? LauncherI18n.t("Current renderer: {0} · {1}", [state.activeRenderer, state.rendererDevice]) : "");
   const missing = ["gpu","tvDevice","padDevice","micDevice"].filter(key => values[key] === -1);
   if (!pendingAv && current.notice !== "save-failed" && current.notice !== "rejected") {
-    document.getElementById("graphics-settings-note").textContent = missing.includes("gpu") ? "保存したGPUが見つかりません。設定を保持し、起動時は既定GPUを使用します。" : "自動保存 · Applies on Next Play";
-    document.getElementById("audio-settings-note").textContent = missing.some(key => key !== "gpu") ? "保存した音声デバイスが見つかりません。設定を保持しています。接続または選択を確認してください。" : current.enumerationNotice ? "デバイス一覧を取得できませんでした。再接続を確認してください。" : state?.phase === "running" ? "自動保存 · 実行中の音声へ反映します。" : "自動保存";
-    document.getElementById("overlay-settings-note").textContent = "自動保存 · ゲーム実行中にも反映されます。";
+    LauncherI18n.bind(document.getElementById("graphics-settings-note"), "textContent", () => missing.includes("gpu") ? LauncherI18n.t("Saved GPU unavailable. The selection is preserved; launch uses the default GPU.") : "");
+    LauncherI18n.bind(document.getElementById("audio-settings-note"), "textContent", () => missing.some(key => key !== "gpu") ? LauncherI18n.t("Saved audio device unavailable. The selection is preserved. Reconnect or choose a device.") : current.enumerationNotice ? LauncherI18n.t("Could not list devices. Check the connection.") : "");
+    LauncherI18n.bind(document.getElementById("overlay-settings-note"), "textContent", () => "");
   }
-  document.getElementById("audio-stream-note").textContent = state?.phase === "running" ? `TV Stream: ${current.tvStream ? "作成済み" : values.tvDevice === 0 ? "Disabled" : "未初期化・出力を確認してください"} · GamePad Stream: ${current.padStream ? "作成済み" : values.padDevice === 0 ? "Disabled" : "未初期化"}` : "";
+  LauncherI18n.bind(document.getElementById("audio-stream-note"), "textContent", () => state?.phase === "running" ? LauncherI18n.t("TV Stream: {0} · GamePad Stream: {1}", [current.tvStream ? LauncherI18n.t("Created") : values.tvDevice === 0 ? LauncherI18n.t("Disabled") : LauncherI18n.t("Not initialized; check output"), current.padStream ? LauncherI18n.t("Created") : values.padDevice === 0 ? LauncherI18n.t("Disabled") : LauncherI18n.t("Not initialized")]) : "");
 }
 function avCommand(key,value) {
   if (!avSnapshot || closeAfterSaves || !canEditAv(key)) return;
@@ -663,7 +678,7 @@ function avCommand(key,value) {
 function drainAv() {
   if (pendingAv || pendingSave || pendingInput || pendingAccount || !avQueue.length) return;
   pendingAv = {...avQueue.shift(),requestId:++avSequence};
-  avNote(pendingAv.key,"適用・保存しています…");
+  avNote(pendingAv.key,() => (LauncherI18n.t("Applying and saving…")));
   windowCommand("av:command:" + pendingAv.requestId + ":" + JSON.stringify({key:pendingAv.key,value:pendingAv.value,revision:avSnapshot.revision}));
   renderAv(); updatePlay();
 }
@@ -673,12 +688,12 @@ for (const key of avKeys) {
     const hex = document.getElementById(control.id + "-hex"), alpha = document.getElementById(control.id + "-alpha");
     const commit = value => {
       const opacity = Number(alpha.value);
-      if (alpha.value === "" || !/^#[0-9A-Fa-f]{6}$/.test(value) || !Number.isInteger(opacity) || opacity < 0 || opacity > 255) { avNote(key,"#RRGGBB と Alpha 0〜255 を入力してください。無効な値は保存しません。"); return; }
+      if (alpha.value === "" || !/^#[0-9A-Fa-f]{6}$/.test(value) || !Number.isInteger(opacity) || opacity < 0 || opacity > 255) { avNote(key,() => (LauncherI18n.t("Enter #RRGGBB and alpha from 0 to 255. Invalid values are not saved."))); return; }
       hex.setCustomValidity(""); control.value = hex.value = value.toUpperCase(); avCommand(key,colorRgba(value,opacity));
     };
     control.addEventListener("change", () => commit(control.value));
     hex.addEventListener("change", () => commit(hex.value));
-    hex.addEventListener("input", () => hex.setCustomValidity(/^#[0-9A-Fa-f]{6}$/.test(hex.value) ? "" : "#RRGGBB を入力してください。"));
+    hex.addEventListener("input", () => hex.setCustomValidity(/^#[0-9A-Fa-f]{6}$/.test(hex.value) ? "" : LauncherI18n.t("Enter #RRGGBB.")));
     alpha.addEventListener("change", () => commit(control.value));
   } else control.addEventListener("change", () => avCommand(key,control.type === "checkbox" ? control.checked : Number(control.value)));
   if (control.type === "range") control.addEventListener("input", () => {
@@ -691,7 +706,7 @@ window.addEventListener("launcher-av-result", event => {
   if (result.values) avSnapshot = result;
   pendingAv = null;
   renderAv();
-  avNote(key,result.notice === "saved" ? (avCategory(key) === "graphics" ? "Saved · 次回Playで適用されます。" : "Applied · Saved") : result.notice === "recovery-required" ? "Failed · 設定の復旧が必要です。ランチャーを終了してください。" : "Failed · 保存済みの値へ戻しました。もう一度操作すると再試行できます。");
+  avNote(key,() => (result.notice === "saved" ? (avCategory(key) === "graphics" ? LauncherI18n.t("Saved.") : LauncherI18n.t("Applied · Saved")) : result.notice === "recovery-required" ? LauncherI18n.t("Settings recovery required. Close the launcher.") : LauncherI18n.t("Could not save. Restored saved values. Try again.")));
   drainSaves(); updatePlay();
 });
 
@@ -704,7 +719,7 @@ let accountFocusTarget = null, accountConfirmationOpener = null;
 function importInProgress() { return pendingAccount?.command.op === "import" || accountQueue.some(c => c.op === "import"); }
 function clearAccountPreview() {
   delete document.getElementById("account-drop").dataset.drag;
-  document.getElementById("account-add-notice").textContent = "";
+  LauncherI18n.bind(document.getElementById("account-add-notice"), "textContent", () => "");
   document.getElementById("account-online-replace").checked = false;
   document.querySelector("#account-preview details").open = false;
   if (accountSnapshot) Object.assign(accountSnapshot, {candidates:[],onlineFiles:[],previewId:0,previewNotice:"",hasOtp:false,hasSeeprom:false,onlineComplete:false});
@@ -745,14 +760,14 @@ function restoreAccountFocus() {
 const accountEditor = document.getElementById("account-editor");
 const accountConfirmationDialog = document.getElementById("account-confirmation");
 const accountNotices = {
-  saved: "Saved · 自動保存しました。", ready: "", "preview-ready": "ZIPを検証しました。対象を確認してからインポートしてください。",
-  "preview-failed": "ZIPを取り込めません。構造・サイズ・整合性を確認してください。", "not-ready": "アカウントの変更はMinecraft終了後に行えます。",
-  "last-account": "最後の1アカウントは削除できません。", "account-limit": "アカウントは最大12件です。", "invalid-name": "Mii名は空白だけを避け、10文字以内で入力してください。",
-  "invalid-birthday": "有効な生年月日を入力してください。", "invalid-email": "有効なメールアドレスを入力してください。", "invalid-value": "値の範囲を確認してください。",
-  "stale-revision": "設定が更新されました。表示された状態を確認して再試行してください。", "stale-preview": "プレビューを再取得してください。",
-  "persistent-id-exists": "同じPersistent IDが存在します。上書きせず中止しました。", "id-unavailable": "新しいアカウントIDを確保できませんでした。",
-  "save-failed": "保存できませんでした。元のデータへ戻しました。", "recovery-required": "復旧が必要です。ランチャーを終了し、バックアップを確認してください。",
-  "preferences-invalid": "Network Serviceの設定を読み込めません。Offlineを使用します。"
+  get saved() { return LauncherI18n.t("Saved."); }, ready: "", get "preview-ready"() { return LauncherI18n.t("ZIP verified. Review the selected accounts before importing."); },
+  get "preview-failed"() { return LauncherI18n.t("Could not import ZIP. Check its structure, size and integrity."); }, get "not-ready"() { return LauncherI18n.t("Account changes are available after Minecraft stops."); },
+  get "last-account"() { return LauncherI18n.t("The last account cannot be deleted."); }, get "account-limit"() { return LauncherI18n.t("Up to 12 accounts are allowed."); }, get "invalid-name"() { return LauncherI18n.t("Enter a nonblank Mii name of up to 10 characters."); },
+  get "invalid-birthday"() { return LauncherI18n.t("Enter a valid birthday."); }, get "invalid-email"() { return LauncherI18n.t("Enter a valid email address."); }, get "invalid-value"() { return LauncherI18n.t("Check the value range."); },
+  get "stale-revision"() { return LauncherI18n.t("Settings changed. Review the latest values and retry."); }, get "stale-preview"() { return LauncherI18n.t("Refresh the preview."); },
+  get "persistent-id-exists"() { return LauncherI18n.t("Persistent ID already exists. Nothing was overwritten."); }, get "id-unavailable"() { return LauncherI18n.t("Could not allocate an account ID."); },
+  get "save-failed"() { return LauncherI18n.t("Could not save. Restored the original data."); }, get "recovery-required"() { return LauncherI18n.t("Recovery required. Close the launcher and check the backup."); },
+  get "preferences-invalid"() { return LauncherI18n.t("Cannot read network service settings. Using Offline."); }
 };
 function hideAccountDetails() {
   accountDetailsVisible = accountEditRequested = false;
@@ -760,7 +775,7 @@ function hideAccountDetails() {
   const details = document.getElementById("account-details");
   details.hidden = true; details.replaceChildren(); delete details.dataset.snapshot;
   const button = document.getElementById("account-details-toggle");
-  button.textContent = "Show Details"; button.setAttribute("aria-expanded", "false");
+  LauncherI18n.bind(button, "textContent", () => LauncherI18n.t("Show Details")); button.setAttribute("aria-expanded", "false");
   if (accountEditor.open) accountEditor.close();
   if (accountAddDialog.open && !importInProgress()) accountAddDialog.close();
   if (accountConfirmationDialog.open) accountConfirmationDialog.close();
@@ -790,7 +805,7 @@ function drainAccount() {
       window.chrome.webview.postMessageWithAdditionalObjects("account:drop:" + pendingAccount.requestId, [command.file]);
     } catch {
       pendingAccount = null;
-      document.getElementById("account-notice").textContent = "この環境ではドロップできません。Select ZIP Fileを使用してください。";
+      LauncherI18n.bind(document.getElementById("account-notice"), "textContent", () => LauncherI18n.t("Drag and drop unavailable. Use Select ZIP File."));
       renderAccount(); drainSaves();
     }
   } else windowCommand("account:command:" + pendingAccount.requestId + ":" + JSON.stringify(command));
@@ -812,23 +827,23 @@ function renderAccount() {
     list.forEach((account,index) => {
       const option = document.createElement("option"); option.value = String(account.id);
       const duplicate = list.filter(a => a.name === account.name).length > 1;
-      option.textContent = account.name + (duplicate ? ` (${index + 1})` : ""); select.append(option);
+      LauncherI18n.bind(option, "textContent", () => account.name + (duplicate ? ` (${index + 1})` : "")); select.append(option);
     });
     select.dataset.accounts = signature;
   }
   if (active) select.value = String(active.id);
-  document.getElementById("account-count").textContent = active ? `Account ${list.indexOf(active) + 1} of ${list.length}` : "アカウントを読み込んでいます。";
-  document.getElementById("account-lock-note").textContent = state?.phase === "unavailable" ? "Coreがないためアカウント操作は利用できません。" : state?.phase === "running" ? "アカウントの変更はMinecraft終了後に行えます。" : canEdit ? "変更は自動保存されます。アカウントを切り替えてもセーブは移動しません。" : "Coreの準備と保存の完了を待っています。";
+  LauncherI18n.bind(document.getElementById("account-count"), "textContent", () => active ? LauncherI18n.t("Account {0} of {1}", [list.indexOf(active) + 1, list.length]) : LauncherI18n.t("Loading accounts…"));
+  LauncherI18n.bind(document.getElementById("account-lock-note"), "textContent", () => state?.phase === "unavailable" ? LauncherI18n.t("Account management requires Cemu Core.") : state?.phase === "running" ? LauncherI18n.t("Account changes are available after Minecraft stops.") : canEdit ? LauncherI18n.t("Switching accounts does not move saves.") : LauncherI18n.t("Waiting for Core and pending saves…"));
   if (accountSnapshot) document.getElementById("account-network").value = accountSnapshot.network;
-  const onlineLabels = {ready:"Online Files Ready", "account-credentials-missing":"Account認証情報が不足しています", "online-files-missing":"Online Filesが不足しています", "crypto-not-ready":"Crypto初期化を確認できません", "restart-required":"Online Files Installed · Restart Launcher Required", "custom-missing":"network_services.xmlを選択してください", "online-files-invalid":"Online FilesまたはCustom設定を確認してください"};
-  document.getElementById("account-network-status").textContent = `${onlineLabels[accountSnapshot?.onlineStatus] || "確認待ち"} · Runtime Network: ${accountSnapshot?.effectiveNetwork || "Offline"}`;
+  const onlineLabels = {get ready() { return LauncherI18n.t("Online Files Ready"); }, get "account-credentials-missing"() { return LauncherI18n.t("Account credentials missing"); }, get "online-files-missing"() { return LauncherI18n.t("Online Files missing"); }, get "crypto-not-ready"() { return LauncherI18n.t("Crypto initialization unconfirmed"); }, get "restart-required"() { return LauncherI18n.t("Online Files Installed · Restart Launcher Required"); }, get "custom-missing"() { return LauncherI18n.t("Select network_services.xml"); }, get "online-files-invalid"() { return LauncherI18n.t("Check Online Files and custom settings"); }};
+  LauncherI18n.bind(document.getElementById("account-network-status"), "textContent", () => `${onlineLabels[accountSnapshot?.onlineStatus] || LauncherI18n.t("Pending")} · ${LauncherI18n.t("Network Service")}: ${LauncherI18n.t(accountSnapshot?.effectiveNetwork || "Offline")}`);
   document.getElementById("account-custom").hidden = accountSnapshot?.network !== "Custom";
   document.getElementById("account-custom-select").disabled = !canEdit;
   const files = document.getElementById("account-online-files");
   const fileSignature = JSON.stringify(accountSnapshot?.onlineFiles || []);
   if (files.dataset.snapshot !== fileSignature) {
     files.replaceChildren(); files.dataset.snapshot = fileSignature;
-    for (const file of accountSnapshot?.onlineFiles || []) { const row = document.createElement("li"); row.textContent = `${file.path} · ${file.state}`; files.append(row); }
+    for (const file of accountSnapshot?.onlineFiles || []) { const row = document.createElement("li"); LauncherI18n.bind(row, "textContent", () => `${file.path} · ${file.state}`); files.append(row); }
     document.getElementById("account-import-mode").value = accountSnapshot?.onlineComplete ? "online" : "account";
     document.getElementById("account-online-replace").checked = false;
   }
@@ -836,25 +851,25 @@ function renderAccount() {
   const details = accountSnapshot?.details;
   if (accountDetailsVisible && details && active) {
     document.getElementById("account-details").hidden = false;
-    setInfo("account-details", [["Persistent ID",active.id.toString(16).padStart(8,"0")],["Mii Name",active.name],["Account ID",details.accountId || "未設定"],["Birthday",details.birthday || "未設定"],["Gender",details.gender === 0 ? "Male" : details.gender === 1 ? "Female" : "未設定"],["Country / Region Code",details.country || "未設定"],["Email",details.email || "未設定"],["Online Requirements",details.onlineRequirements === "available" ? "必要ファイルあり" : "必要ファイルが不足"]]);
+    setInfo("account-details", [[LauncherI18n.t("Persistent ID"),active.id.toString(16).padStart(8,"0")],[LauncherI18n.t("Mii Name"),active.name],[LauncherI18n.t("Account ID"),details.accountId || LauncherI18n.t("Not set")],[LauncherI18n.t("Birthday"),details.birthday || LauncherI18n.t("Not set")],[LauncherI18n.t("Gender"),details.gender === 0 ? LauncherI18n.t("Male") : details.gender === 1 ? LauncherI18n.t("Female") : LauncherI18n.t("Not set")],[LauncherI18n.t("Country / Region Code"),details.country || LauncherI18n.t("Not set")],[LauncherI18n.t("Email"),details.email || LauncherI18n.t("Not set")],[LauncherI18n.t("Online Requirements"),details.onlineRequirements === "available" ? LauncherI18n.t("Required files available") : LauncherI18n.t("Required files missing")]]);
   }
   const candidates = accountSnapshot?.candidates || [];
   const preview = document.getElementById("account-preview");
   preview.hidden = !accountAddDialog.open || !(accountSnapshot?.candidates?.length || accountSnapshot?.previewNotice);
   const container = document.getElementById("account-candidates");
-  const previewSignature = JSON.stringify([accountSnapshot?.previewId,candidates]);
+  const previewSignature = LauncherI18n.language + JSON.stringify([accountSnapshot?.previewId,candidates]);
   if (container.dataset.snapshot !== previewSignature) {
     container.replaceChildren(); container.dataset.snapshot = previewSignature;
-    const labels = {new:"新規 · インポート可能",existing:"既存Account · 対象外",collision:"Persistent ID衝突 · 取込不可",invalid:"不完全または不正 · 取込不可"};
+    const labels = {get new() { return LauncherI18n.t("New · Ready to import"); },get existing() { return LauncherI18n.t("Existing account · Excluded"); },get collision() { return LauncherI18n.t("Persistent ID conflict · Cannot import"); },get invalid() { return LauncherI18n.t("Invalid or incomplete · Cannot import"); }};
     candidates.forEach(candidate => {
       const row = document.createElement("label"); row.className = "account-candidate";
       const check = document.createElement("input"); check.type = "checkbox"; check.value = String(candidate.id); check.disabled = candidate.state !== "new"; check.checked = !check.disabled;
-      const text = document.createElement("span"); text.textContent = `${candidate.name || "未設定"} · Source: ${(candidate.sourceId || candidate.id).toString(16).padStart(8,"0")} · Internal: ${(candidate.internalId || candidate.id).toString(16).padStart(8,"0")} → Destination: ${candidate.id.toString(16).padStart(8,"0")} · ${labels[candidate.state] || "対象外"}`;
+      const text = document.createElement("span"); LauncherI18n.bind(text, "textContent", () => `${candidate.name || LauncherI18n.t("Not set")} · Source: ${(candidate.sourceId || candidate.id).toString(16).padStart(8,"0")} · Internal: ${(candidate.internalId || candidate.id).toString(16).padStart(8,"0")} → Destination: ${candidate.id.toString(16).padStart(8,"0")} · ${labels[candidate.state] || LauncherI18n.t("Excluded")}`);
       row.append(check,text); container.append(row);
     });
   }
-  document.getElementById("account-preview-note").textContent = accountSnapshot?.previewNotice === "preview-ready" ? `${candidates.length} Account検出` : accountSnapshot?.previewNotice === "imported" ? "インポートが完了しました。Active Accountから選択できます。" : accountSnapshot?.previewNotice ? "検証結果: " + accountSnapshot.previewNotice : "";
-  document.getElementById("account-console-note").textContent = accountSnapshot?.hasOtp || accountSnapshot?.hasSeeprom ? "本体共通ファイルを検出しました。Account + Online Filesでは表示された認証・System Filesを取り込みます。既存Accountは上書きしません。" : "";
+  LauncherI18n.bind(document.getElementById("account-preview-note"), "textContent", () => accountSnapshot?.previewNotice === "preview-ready" ? LauncherI18n.t("{0} accounts found", [candidates.length]) : accountSnapshot?.previewNotice === "imported" ? LauncherI18n.t("Accounts imported.") : accountSnapshot?.previewNotice ? LauncherI18n.t("Validation result: ") + accountSnapshot.previewNotice : "");
+  LauncherI18n.bind(document.getElementById("account-console-note"), "textContent", () => accountSnapshot?.hasOtp || accountSnapshot?.hasSeeprom ? LauncherI18n.t("Console files found. Account + Online Files imports the listed authentication and system files. Existing accounts are not overwritten.") : "");
   document.getElementById("account-import").disabled = !canEdit || !candidates.some(c => c.state === "new");
   document.getElementById("account-import-controls").disabled = !canEdit;
   document.getElementById("account-add-cancel").disabled = importInProgress();
@@ -869,12 +884,12 @@ window.addEventListener("launcher-account-result", event => {
     if (!accountDetailsVisible && !accountEditRequested && !accountEditor.open) delete result.details;
     accountSnapshot = result;
   }
-  const message = accountNotices[result.notice] ?? "操作できませんでした。入力と保存先を確認してください。";
-  document.getElementById("account-notice").textContent = message;
-  document.getElementById("account-editor-note").textContent = message;
-  document.getElementById("account-add-notice").textContent = result.previewNotice === "imported"
-    ? "インポートが完了しました。Active Accountから選択できます。" + (result.restartRequired ? " Online Files Installed · Restart Launcher Required" : "")
-    : message;
+  const message = () => accountNotices[result.notice] ?? LauncherI18n.t("Could not complete the action. Check the input and storage location.");
+  if (!["clear-preview","list","details"].includes(command.op) || (result.notice !== "saved" && message())) LauncherI18n.bind(document.getElementById("account-notice"), "textContent", () => message());
+  LauncherI18n.bind(document.getElementById("account-editor-note"), "textContent", () => message());
+  LauncherI18n.bind(document.getElementById("account-add-notice"), "textContent", () => result.previewNotice === "imported"
+    ? LauncherI18n.t("Accounts imported.") + (result.restartRequired ? " " + LauncherI18n.t("Online Files Installed · Restart Launcher Required") : "")
+    : message());
   if (command.op === "details" && accountEditRequested && result.details) {
     accountEditRequested = false;
     openAccountEditor();
@@ -884,6 +899,13 @@ window.addEventListener("launcher-account-result", event => {
     accountEditRequested = true;
     accountQueue.push({op:"details"});
   } else if (["edit","select"].includes(command.op) && accountDetailsVisible && !accountQueue.length) accountQueue.push({op:"details"});
+  if (command.op === "import" && result.notice === "saved" && result.previewNotice === "imported") {
+    LauncherI18n.bind(document.getElementById("account-notice"), "textContent", () => result.restartRequired
+      ? LauncherI18n.t("Accounts imported. Restart the launcher to use Online Files.")
+      : LauncherI18n.t("Accounts imported."));
+    if (accountAddDialog.open) accountAddDialog.close();
+    showPage("settings"); showTab("account");
+  }
   renderAccount(); drainSaves(); updatePlay(); restoreAccountFocus();
 });
 document.getElementById("account-active").addEventListener("change", event => {
@@ -892,7 +914,7 @@ document.getElementById("account-active").addEventListener("change", event => {
 document.getElementById("account-details-toggle").addEventListener("click", () => {
   if (accountDetailsVisible) { hideAccountDetails(); return; }
   accountDetailsVisible = true;
-  const button = document.getElementById("account-details-toggle"); button.textContent = "Hide Details"; button.setAttribute("aria-expanded","true");
+  const button = document.getElementById("account-details-toggle"); LauncherI18n.bind(button, "textContent", () => LauncherI18n.t("Hide Details")); button.setAttribute("aria-expanded","true");
   accountCommand({op:"details"});
 });
 function openAccountEditor() {
@@ -900,7 +922,7 @@ function openAccountEditor() {
   if (!active || !accountSnapshot.details || window.launcherCoreState?.canEditAccounts !== true) return;
   accountEditorId = active.id;
   document.getElementById("account-name").value = active.name;
-  document.getElementById("account-editor-note").textContent = "";
+  LauncherI18n.bind(document.getElementById("account-editor-note"), "textContent", () => "");
   for (const field of ["birthday","gender","country","email"]) document.getElementById("account-"+field).value = accountSnapshot.details[field];
   if (!accountEditor.open) accountEditor.showModal();
   document.getElementById("account-name").focus();
@@ -927,13 +949,13 @@ function confirmAccountAction(action,title,text) {
   if (settingsBusy() || accountConfirmationDialog.open) return;
   accountConfirmationOpener = document.activeElement;
   accountConfirmationAction = action;
-  document.getElementById("account-confirmation-title").textContent = title;
-  document.getElementById("account-confirmation-text").textContent = text;
+  LauncherI18n.bind(document.getElementById("account-confirmation-title"), "textContent", () => title);
+  LauncherI18n.bind(document.getElementById("account-confirmation-text"), "textContent", () => text);
   accountConfirmationDialog.showModal(); document.getElementById("account-confirmation-cancel").focus();
 }
 document.getElementById("account-delete").addEventListener("click", () => {
   const active = accountSnapshot?.accounts.find(a => a.id === accountSnapshot.activeId); if (!active) return;
-  confirmAccountAction({op:"delete",id:active.id},"このアカウントを削除しますか？",`${active.name}\nアカウントはバックアップへ退避します。ゲームのセーブは削除しません。`);
+  confirmAccountAction({op:"delete",id:active.id},LauncherI18n.t("Delete this account?"),LauncherI18n.t("{0}\nThe account will be backed up. Game saves will not be deleted.", [active.name]));
 });
 accountConfirmationDialog.addEventListener("cancel", () => { accountConfirmationAction = null; });
 accountConfirmationDialog.addEventListener("close", () => {
@@ -953,8 +975,8 @@ document.getElementById("account-import").addEventListener("click", () => {
   if (!accountAddDialog.open || settingsBusy() || !ids.length) return;
   const online = document.getElementById("account-import-mode").value === "online";
   const replaceOnline = document.getElementById("account-online-replace").checked;
-  if (online && accountSnapshot.onlineFiles.some(f => f.state === "different") && !replaceOnline) { document.getElementById("account-add-notice").textContent = "異なるファイルの置換を明示的に承認してください。"; return; }
-  confirmAccountAction({op:"import",preview:accountSnapshot.previewId,ids,online,replaceOnline},"選択したアカウントをインポートしますか？",`${ids.length} Account\n既存Accountとゲームのセーブは上書きしません。${online ? `\nOnline Files: ${accountSnapshot.onlineFiles.filter(f=>f.state !== "identical").length} files · 導入後はLauncherを再起動してください。` : ""}`);
+  if (online && accountSnapshot.onlineFiles.some(f => f.state === "different") && !replaceOnline) { LauncherI18n.bind(document.getElementById("account-add-notice"), "textContent", () => LauncherI18n.t("Approve replacement of the different files to continue.")); return; }
+  confirmAccountAction({op:"import",preview:accountSnapshot.previewId,ids,online,replaceOnline},LauncherI18n.t("Import selected accounts?"),LauncherI18n.t("{0} accounts\nExisting accounts and game saves will not be overwritten.{1}", [ids.length, online ? LauncherI18n.t("\nOnline Files: {0} files · Restart the launcher after importing.", [accountSnapshot.onlineFiles.filter(f=>f.state !== "identical").length]) : ""]));
 });
 const accountDrop = document.getElementById("account-drop");
 accountDrop.addEventListener("dragover", event => { event.preventDefault(); if (accountAddDialog.open && !settingsBusy() && window.launcherCoreState?.canEditAccounts === true) { event.dataTransfer.dropEffect = "copy"; accountDrop.dataset.drag = "true"; } });
@@ -963,7 +985,7 @@ accountDrop.addEventListener("drop", event => {
   event.preventDefault(); delete accountDrop.dataset.drag;
   if (!accountAddDialog.open || settingsBusy() || window.launcherCoreState?.canEditAccounts !== true) return;
   const files = event.dataTransfer.files;
-  if (files.length !== 1 || !files[0].name.toLowerCase().endsWith(".zip")) { document.getElementById("account-add-notice").textContent = "ZIPファイルを1つ選択してください。"; return; }
+  if (files.length !== 1 || !files[0].name.toLowerCase().endsWith(".zip")) { LauncherI18n.bind(document.getElementById("account-add-notice"), "textContent", () => LauncherI18n.t("Select one ZIP file.")); return; }
   accountCommand({op:"drop",file:files[0]});
 });
 document.addEventListener("dragover", event => event.preventDefault());
@@ -1013,3 +1035,14 @@ window.addEventListener("launcher-core-state", () => {
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) synchronizeLauncherUi(); });
 window.addEventListener("pagehide", () => { clearInterval(liveTimer); liveTimer = liveRequest = 0; });
+
+window.addEventListener("launcher-language-changed", () => {
+  if (window.launcherCoreState) updateNativeSettings(window.launcherCoreState);
+  renderAccount();
+  navigationIndicator.schedule(false); tabIndicator.schedule(false);
+  windowCommand("language:exit-labels:" + JSON.stringify([
+    LauncherI18n.t("Exit Minecraft?"),
+    LauncherI18n.t("Unsaved changes may be lost.") + "\n" + LauncherI18n.t("Use “Exit and save” in Minecraft first."),
+    LauncherI18n.t("Cancel"), LauncherI18n.t("Exit game")
+  ]));
+});
