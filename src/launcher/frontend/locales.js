@@ -5,6 +5,13 @@ window.LauncherLocales = {
   "ja": {
     "Preparing": "準備中",
     "Initializing": "初期化中",
+    "Initializing Mii Data...": "Miiデータを初期化しています...",
+    "Mii data is invalid or unreadable. Existing files were preserved.": "Miiデータを読み取れないか破損しています。既存ファイルは保持しました。",
+    "Mii data initialization failed. Existing data was preserved.": "Miiデータの初期化に失敗しました。既存データは保持しました。",
+    "Mii data initialization timed out. Please try again.": "Miiデータの初期化がタイムアウトしました。もう一度お試しください。",
+    "Mii data initialization could not stop. Restart Launcher.": "Miiデータの初期化を停止できません。Launcherを再起動してください。",
+    "This JPN RPX is not supported for Mii data initialization.": "このJPN版RPXはMiiデータの自動初期化に対応していません。",
+
     "Ready": "準備完了",
     "Launching": "起動中",
     "Preparing renderer": "描画準備中",

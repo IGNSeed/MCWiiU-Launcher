@@ -15,6 +15,7 @@
 #include "Common/cpu_features.h"
 #include "input/InputManager.h"
 #include "Cafe/CafeSystem.h"
+#include "Cafe/OS/MiiInitialization.h"
 #include "Cafe/TitleList/TitleList.h"
 #include "Cafe/TitleList/GameInfo.h"
 #include "Cafe/OS/libs/coreinit/coreinit_Alarm.h"
@@ -387,6 +388,7 @@ void cemu_initForGame()
 	PPCTimer_start();
 	// coreinit is bootstrapped first and then the main game executable is loaded
 	RPLLoader_LoadCoreinit();
+	MiiInitialization::ValidateRpx(_pathToExecutable);
 	LoadMainExecutable();
 	// log info for launched title
 	InfoLog_TitleLoaded();
@@ -407,6 +409,7 @@ void cemu_initForGame()
 	{
 		// replace any known function signatures with our HLE implementations and patch bugs in the games
 		GamePatch_scan();
+		MiiInitialization::ValidateLoadedImage();
 	}
 	LatteGPUState.isDRCPrimary = ActiveSettings::DisplayDRCEnabled();
 	InfoLog_PrintActiveSettings();
@@ -452,6 +455,7 @@ namespace CafeSystem
 	static bool s_titleStarted = false;
 	static bool s_coreShutdownRequested = false;
 	static void ShutdownTitleLocked();
+	void UnmountCurrentTitle();
 	std::atomic_bool sSystemRunning{false};
 	TitleId sForegroundTitleId = 0;
 
@@ -710,10 +714,20 @@ namespace CafeSystem
 		}
 	}
 
-	PREPARE_STATUS_CODE LoadAndMountForegroundTitle(TitleId titleId)
+	PREPARE_STATUS_CODE LoadAndMountForegroundTitle(TitleId titleId, const fs::path& isolatedMlc = {})
 	{
         cemuLog_log(LogType::Force, "Mounting title {:016x}", (uint64)titleId);
-		sGameInfo_ForegroundTitle = CafeTitleList::GetGameInfo(titleId);
+		if (isolatedMlc.empty()) sGameInfo_ForegroundTitle = CafeTitleList::GetGameInfo(titleId);
+		else
+		{
+			GameInfo2 isolated;
+			const auto titlePath = [&](uint64 id) { return isolatedMlc / fmt::format("usr/title/{:08x}/{:08x}", uint32(id >> 32), uint32(id)); };
+			isolated.SetBase(TitleInfo(titlePath(titleId)));
+			isolated.SetUpdate(TitleInfo(titlePath(titleId | 0x0000000e00000000ULL)));
+			const auto dlc = titlePath(titleId | 0x0000000c00000000ULL);
+			if (fs::exists(dlc)) isolated.AddAOC(TitleInfo(dlc));
+			sGameInfo_ForegroundTitle = isolated;
+		}
 		if (!sGameInfo_ForegroundTitle.IsValid())
 		{
 			cemuLog_log(LogType::Force, "Mounting failed: Game meta information is either missing, inaccessible or not valid (missing or invalid .xml files in code and meta folder)");
@@ -841,7 +855,7 @@ namespace CafeSystem
         memory_unmapForCurrentTitle();
     }
 
-	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId)
+	static PREPARE_STATUS_CODE PrepareForegroundTitleInternal(TitleId titleId, const fs::path& isolatedMlc)
 	{
 		std::unique_lock lock(s_titleLifecycleMutex);
 		if (s_coreShutdownRequested)
@@ -857,21 +871,36 @@ namespace CafeSystem
         // mount mlc storage
         MountBaseDirectories();
         // mount title folders
-		PREPARE_STATUS_CODE r = LoadAndMountForegroundTitle(titleId);
+		PREPARE_STATUS_CODE r = LoadAndMountForegroundTitle(titleId, isolatedMlc);
 		if (r != PREPARE_STATUS_CODE::SUCCESS)
-			return r;
+		{ UnmountCurrentTitle(); UnmountBaseDirectories(); return r; }
 		gameProfile_load();
 		// setup memory space and PPC recompiler
         SetupMemorySpace();
         PPCRecompiler_init();
 		r = PrepareExecutable(); // load RPX
 		if (r != PREPARE_STATUS_CODE::SUCCESS)
-			return r;
+		{ PPCRecompiler_Shutdown(); UnmountCurrentTitle(); UnmountBaseDirectories(); DestroyMemorySpace(); return r; }
 		InitVirtualMlcStorage();
 		MountExtras();
 		s_titlePrepared = true;
 		s_titleStarted = false;
 		return PREPARE_STATUS_CODE::SUCCESS;
+	}
+
+	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId)
+	{
+		return PrepareForegroundTitleInternal(titleId, {});
+	}
+
+	PREPARE_STATUS_CODE PrepareMiiInitializationTitle(const fs::path& mlc)
+	{
+		if (!MiiInitialization::IsRequested() || IsTitleRunning()) return PREPARE_STATUS_CODE::INVALID_RPX;
+		ActiveSettings::SetMlcPathOverride(mlc);
+		const auto status = PrepareForegroundTitleInternal(0x00050000101dbe00ULL, mlc);
+		if (status == PREPARE_STATUS_CODE::SUCCESS) MiiInitialization::BindTitle(GetTitleGeneration());
+		else { MiiInitialization::EndTitle(); ActiveSettings::SetMlcPathOverride(std::nullopt); }
+		return status;
 	}
 
 	PREPARE_STATUS_CODE PrepareForegroundTitleFromStandaloneRPX(const fs::path& path)
@@ -1145,6 +1174,8 @@ namespace CafeSystem
 		sSystemRunning = false;
 		s_titlePrepared = false;
 		s_titleStarted = false;
+		MiiInitialization::EndTitle();
+		ActiveSettings::SetMlcPathOverride(std::nullopt);
 	}
 
 	void ShutdownTitle()

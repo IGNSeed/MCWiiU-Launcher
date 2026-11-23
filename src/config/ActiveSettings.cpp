@@ -5,11 +5,19 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
 #endif
 #include "Cafe/CafeSystem.h"
+#include "Cafe/OS/MiiInitialization.h"
+
 #include "Cemu/Logging/CemuLogging.h"
 #include "config/ActiveSettings.h"
 #include "config/LaunchSettings.h"
 #include "Cafe/Account/Account.h"
 #include "util/helpers/helpers.h"
+
+namespace
+{
+	std::mutex s_mlcOverrideMutex;
+	std::optional<fs::path> s_mlcOverride;
+}
 
 void ActiveSettings::SetPaths(bool isPortableMode,
 		const fs::path& executablePath,
@@ -68,6 +76,7 @@ bool ActiveSettings::DisplayDRCEnabled()
 
 CPUMode ActiveSettings::GetCPUMode()
 {
+	if (MiiInitialization::IsRequested()) return CPUMode::SinglecoreInterpreter;
 	auto mode = g_current_game_profile->GetCPUMode().value_or(CPUMode::Auto);
 
 	if (mode == CPUMode::Auto)
@@ -163,6 +172,7 @@ uint32 ActiveSettings::GetPersistentId()
 
 bool ActiveSettings::IsOnlineEnabled()
 {
+	if (MiiInitialization::IsRequested()) return false;
 	if(!Account::GetAccount(GetPersistentId()).IsValidOnlineAccount())
 		return false;
 	if(!HasRequiredOnlineFiles())
@@ -275,8 +285,16 @@ bool ActiveSettings::ForceSamplerRoundToPrecision()
 	return false;
 }
 
+void ActiveSettings::SetMlcPathOverride(std::optional<fs::path> path)
+{
+	if (CafeSystem::IsTitleRunning()) throw std::runtime_error("Cannot change storage while a title is running");
+	std::lock_guard lock(s_mlcOverrideMutex);
+	s_mlcOverride = std::move(path);
+}
+
 fs::path ActiveSettings::GetMlcPath()
 {
+	{ std::lock_guard lock(s_mlcOverrideMutex); if (s_mlcOverride) return *s_mlcOverride; }
 	cemu_assert_debug(s_setPathsCalled);
 	if(const auto launch_mlc = LaunchSettings::GetMLCPath(); launch_mlc.has_value())
 		return launch_mlc.value();

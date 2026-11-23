@@ -1,4 +1,5 @@
 #include "Cafe/GraphicPack/GraphicPack2.h"
+#include "Cafe/OS/MiiInitialization.h"
 #include "Cafe/TitleList/MinecraftTitle.h"
 #include "Cafe/Filesystem/fsc.h"
 #include "config/CemuConfig.h"
@@ -210,6 +211,8 @@ void GraphicPack2::ActivateForCurrentTitle()
 {
 	uint64 titleId = CafeSystem::GetForegroundTitleId();
 	struct ReadyOnExit { ~ReadyOnExit() { s_isReady = true; } } readyOnExit;
+	// 初期化専用Titleではパックを適用しないが、GPUとの準備完了通知は維持する。
+	if (MiiInitialization::IsRequested()) return;
 	// activate graphic packs
 	for (const auto& gp : GraphicPack2::GetGraphicPacks())
 	{

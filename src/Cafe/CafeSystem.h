@@ -27,6 +27,8 @@ namespace CafeSystem
     void Shutdown();
 
 	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId);
+	// 初期化用の独立MLC内のタイトルのみを使用し、通常のtitle listには追加しない。
+	PREPARE_STATUS_CODE PrepareMiiInitializationTitle(const fs::path& mlc);
 	PREPARE_STATUS_CODE PrepareForegroundTitleFromStandaloneRPX(const fs::path& path);
 	void LaunchForegroundTitle();
 	bool IsTitleRunning();

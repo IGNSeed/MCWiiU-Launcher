@@ -563,7 +563,8 @@ namespace
 						return false;
 					},
 					.titleStopping = [&](uint64_t session) { gameHost.StopPresentation(session); },
-					.vulkanCanvas = [&] { return gameHost.GetVulkanHandle(); }
+					.vulkanCanvas = [&] { return gameHost.GetVulkanHandle(); },
+					.resetPresentation = [&](uint64_t session) { return gameHost.ResetPresentation(session); }
 				}, s_installation, history);
 				gameHost.stateChanged = [&] {
 					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
@@ -772,6 +773,17 @@ namespace
 						valid = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), wideLabels[i].data(), length) == length;
 					}
 					if (valid) gameHost.SetExitLabels(wideLabels);
+				}
+				else if (message.starts_with("language:startup-message:") && message.size() <= 2048)
+				{
+					std::string text;
+					if (!glz::read_json(text, message.substr(std::string_view("language:startup-message:").size())) && text.size() <= 1024 && text.find('\0') == std::string::npos)
+					{
+						const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+						std::wstring wide(length, L'\0');
+						if (text.empty() || (length && MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), wide.data(), length) == length))
+							gameHost.SetStartupMessage(std::move(wide));
+					}
 				}
 				else if (message == "window:toggle-maximize")
 					window->set_maximized(!window->maximized());

@@ -58,6 +58,8 @@ public:
 	[[nodiscard]] static fs::path GetLogPath(TArgs&&... args){ return GetPath(s_log_path, std::forward<TArgs>(args)...); };
 
 	[[nodiscard]] static fs::path GetMlcPath();
+	// guest停止中の専用セッションだけで使用する非永続の保存先。
+	static void SetMlcPathOverride(std::optional<fs::path> path);
 
 	template <typename ...TArgs>
 	[[nodiscard]] static fs::path GetMlcPath(TArgs&&... args){ return GetPath(GetMlcPath(), std::forward<TArgs>(args)...); };

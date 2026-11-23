@@ -27,6 +27,7 @@ public:
 		std::function<bool(uint64_t)> firstFrame;
 		std::function<void(uint64_t)> titleStopping;
 		std::function<HWND()> vulkanCanvas;
+		std::function<bool(uint64_t)> resetPresentation;
 	};
 
 	CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<GameInstallationService> installation, std::shared_ptr<SessionHistory> history = {});

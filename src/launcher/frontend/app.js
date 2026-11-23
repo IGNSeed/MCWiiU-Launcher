@@ -119,15 +119,24 @@ stopConfirm.addEventListener("click", () => {
 });
 const coreLabels = {
   idle: ["Preparing"], validating: ["Preparing"], initializing: ["Initializing"], ready: ["Ready"],
+  "mii-initializing": ["Initializing Mii Data..."], "mii-committing": ["Initializing Mii Data..."],
   preparing: ["Launching"], opengl: ["Preparing renderer"], vulkan: ["Preparing renderer"], running: ["Playing"],
   "title-stopping": ["Stopping"], "title-stopped": ["Stopped"], stopping: ["Stopping"], stopped: ["Stopped"],
   failed: ["Launch failed"], "relaunch-failed": ["Relaunch failed"], unavailable: ["Launch unavailable"],
 };
+let startupMessage = null;
+function updateStartupMessage() {
+  const state = window.launcherCoreState;
+  const text = state?.miiInitializing ? LauncherI18n.t(state.miiRestartRequired ? "Mii data initialization could not stop. Restart Launcher." : "Initializing Mii Data...") : "";
+  if (text !== startupMessage) { startupMessage = text; windowCommand("language:startup-message:" + JSON.stringify(text)); }
+}
+window.addEventListener("launcher-language-changed", updateStartupMessage);
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
+  updateStartupMessage();
   const coreError = document.getElementById("core-error");
-  LauncherI18n.bind(coreError, "textContent", () => typeof state.error === "string" && state.error ? LauncherI18n.t("Game launch error: ") + state.error : "");
+  LauncherI18n.bind(coreError, "textContent", () => typeof state.error === "string" && state.error ? LauncherI18n.t("Game launch error: ") + LauncherI18n.t(state.error) : "");
   coreError.hidden = !coreError.textContent;
   if (state.phase !== "ready" || state.sessionId !== launchRequestSession || !state.canLaunch) launchPending = false;
   if (state.phase === "running" && selectedPage === "home" && pageMotion.current !== null) showPage("home", {immediate:true});

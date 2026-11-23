@@ -176,6 +176,25 @@ void NativeGameHost::StopPresentation(uint64_t session)
 	UpdateLayout();
 }
 
+bool NativeGameHost::ResetPresentation(uint64_t session)
+{
+	if (!OnUiThread() || session != m_presentationSession || m_presentation == Presentation::Hidden) return false;
+	// Core/Rendererの解放後もcoverとゲーム配置を維持して、次の専用Canvasだけを再作成する。
+	if (!SetOpenGLComposition(false)) return false;
+	if (m_vulkanContainer && !DestroyWindow(m_vulkanContainer)) return false;
+	m_vulkanContainer = m_vulkanChild = nullptr;
+	m_presentation = Presentation::BlackPending;
+	UpdateLayout();
+	return !m_layoutFailed;
+}
+
+void NativeGameHost::SetStartupMessage(std::wstring message)
+{
+	if (!OnUiThread()) return;
+	m_startupMessage = std::move(message);
+	if (m_startupCover) InvalidateRect(m_startupCover, nullptr, FALSE);
+}
+
 bool NativeGameHost::EndPresentation(uint64_t session)
 {
 	if (!OnUiThread() || session != m_presentationSession) return false;
@@ -259,6 +278,14 @@ LRESULT CALLBACK NativeGameHost::CoverProc(HWND hwnd, UINT message, WPARAM wPara
 		PAINTSTRUCT paint;
 		const auto dc = BeginPaint(hwnd, &paint);
 		FillRect(dc, &paint.rcPaint, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+		if (self && !self->m_startupMessage.empty())
+		{
+			RECT bounds{}; GetClientRect(hwnd, &bounds);
+			SetTextColor(dc, RGB(230, 230, 230)); SetBkMode(dc, TRANSPARENT);
+			const auto font = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+			DrawTextW(dc, self->m_startupMessage.c_str(), -1, &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+			SelectObject(dc, font);
+		}
 		EndPaint(hwnd, &paint);
 		return 0;
 	}

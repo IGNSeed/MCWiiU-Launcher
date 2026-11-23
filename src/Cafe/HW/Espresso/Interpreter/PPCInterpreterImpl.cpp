@@ -1,4 +1,5 @@
 #include "PPCInterpreterInternal.h"
+#include "Cafe/OS/MiiInitialization.h"
 #include "PPCInterpreterHelper.h"
 #include "Cafe/HW/Espresso/Debugger/Debugger.h"
 #include "Cafe/HW/Espresso/Debugger/GDBStub.h"
@@ -439,6 +440,7 @@ public:
 
 	static void executeInstruction(PPCInterpreter_t* hCPU)
 	{
+		if (MiiInitialization::IsObserving()) MiiInitialization::BeforeInstruction(hCPU);
 		if constexpr(ppcItpCtrl::allowSupervisorMode)
 		{
 			hCPU->global->tb++;

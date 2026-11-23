@@ -26,6 +26,8 @@ public:
 	bool PresentFirstFrame(uint64_t session);
 	void StopPresentation(uint64_t session);
 	bool EndPresentation(uint64_t session);
+	bool ResetPresentation(uint64_t session);
+	void SetStartupMessage(std::wstring message);
 	SIZE GetClientSize() const;
 	bool IsRenderable() const;
 	bool HasLayoutFailed() const { return m_layoutFailed; }
@@ -84,6 +86,7 @@ private:
 	HWND m_vulkanChild = nullptr;
 	HWND m_vulkanContainer = nullptr;
 	HWND m_startupCover = nullptr;
+	std::wstring m_startupMessage;
 	ATOM m_coverClass = 0, m_vulkanClass = 0;
 	enum class Presentation { Hidden, BlackPending, AwaitingFirstFrame, Presenting, Stopping };
 	Presentation m_presentation = Presentation::Hidden;

@@ -1254,6 +1254,7 @@ namespace coreinit
 		__OSUnlockScheduler();
 		while (true)
 		{
+			if (!sSchedulerActive.load(std::memory_order_relaxed)) Fiber::Switch(*t_schedulerFiber);
 			if (!g_coreRunQueueThreadCount[coreIndex].isZero()) // avoid hammering the lock on the main core if there is no runable thread
 			{
 				__OSLockScheduler();

@@ -1,4 +1,7 @@
 #include "CemuHost.h"
+#include "MiiDatabase.h"
+#include "MiiInitializationStorage.h"
+#include "Cafe/OS/MiiInitialization.h"
 #include "NativeSettings.h"
 #include "LauncherPaths.h"
 #include "SessionHistory.h"
@@ -57,6 +60,11 @@ void requireConsole()
 
 namespace
 {
+#ifdef MCWIIU_JPN_MII_INITIALIZATION
+	constexpr bool s_enableMiiInitialization = true;
+#else
+	constexpr bool s_enableMiiInitialization = false;
+#endif
 	WindowSystem::WindowInfo s_windowInfo{};
 	std::atomic_bool s_inputRecoveryPending{false};
 	struct HostState;
@@ -75,7 +83,7 @@ namespace
 			throw std::runtime_error(message);
 	}
 
-	void ValidateMinecraftMiiData(const fs::path& mlc, uint64_t miiTitleId)
+	MiiDatabase::Inspection ValidateMinecraftMiiData(const fs::path& mlc, uint64_t miiTitleId, bool allowInitialization)
 	{
 		// v560 は FFL 初期化失敗後も Mii 一覧を参照する。欠落時は PPC 実行前に止め、原本は修復しない。
 		const auto check = [&](const fs::path& relative, std::string_view magic, uintmax_t minimumSize) {
@@ -97,8 +105,14 @@ namespace
 		check(resources / "FFLResMiddle.dat", "FFRA", 18944);
 		check(resources / "FFLResHigh.dat", "FFRA", 18944);
 		const fs::path database = fmt::format("usr/save/{:08x}/{:08x}/user/common/db", uint32_t(miiTitleId >> 32), uint32_t(miiTitleId));
-		check(database / "FFL_HDB.dat", "FFHA", 44032);
-		check(database / "FFL_ODB.dat", "FFOC", 276544);
+		const auto inspection = MiiDatabase::Inspect(mlc, miiTitleId);
+		if (inspection.HasBlockingError()) throw std::runtime_error("Mii data is invalid or unreadable. Existing files were preserved.");
+		if (!inspection.HasRequiredDatabases() && !(allowInitialization && inspection.NeedsInitialization()))
+		{
+			check(database / "FFL_HDB.dat", "FFHA", 44032);
+			check(database / "FFL_ODB.dat", "FFOC", 276544);
+		}
+		return inspection;
 	}
 
 	struct UiRequest
@@ -144,6 +158,9 @@ namespace
 		uint64 confirmationCounter = 0, confirmationId = 0, confirmationSession = 0, confirmationGeneration = 0;
 		std::atomic_bool alive{true}, stop{false}, launch{false}, stopped{true}, failed{false}, logReady{false};
 		std::atomic_bool titleStop{false}, titleRunning{false};
+		std::atomic_bool miiInitializing{false}, miiGuestExited{false}, miiRestartRequired{false};
+		std::atomic_uint64_t miiGeneration{0}, miiInitializationCount{0};
+		std::atomic_int32_t miiReturnStatus{0};
 		std::atomic_bool inputReady{false}, networkTest{false};
 		std::atomic_uint64_t sessionId{0}, commonInitCount{0}, titleShutdownCount{0};
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
@@ -204,7 +221,7 @@ namespace
 
 		bool CanPresent(uint64 session) const
 		{
-			return session && presentationSession == session && sessionId == session && alive && !stop && !titleStop;
+			return session && presentationSession == session && sessionId == session && alive && !stop && !titleStop && !miiInitializing;
 		}
 		void FirstFrame(uint64 session, uint64 binding)
 		{
@@ -303,7 +320,7 @@ namespace
 		bool launcherUpdate = false;
 		bool CanStopGameLocked() const
 		{
-			return corePhase == "ready" && phase == "running" && titlePhase == "running" && launch && !stop && !titleStop && !stopped && !failed;
+			return corePhase == "ready" && ((phase == "running" && titlePhase == "running") || miiInitializing) && launch && !stop && !titleStop && !stopped && !failed;
 		}
 		bool CanEditSettingsLocked() const
 		{
@@ -311,7 +328,7 @@ namespace
 		}
 		bool CanEditWorldsLocked() const
 		{
-			return !launcherUpdate && !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return !launcherUpdate && !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !miiRestartRequired && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
 		}
 		bool RegionManagersAvailable() const
 		{
@@ -446,6 +463,9 @@ namespace
 			writer.Key("presents"); writer.Uint64(presents);
 			writer.Key("presentationSession"); writer.Uint64(presentationSession);
 			writer.Key("firstFrameVisible"); writer.Bool(firstFrameVisible);
+			writer.Key("miiInitializing"); writer.Bool(miiInitializing);
+			writer.Key("miiInitializationCount"); writer.Uint64(miiInitializationCount);
+			writer.Key("miiRestartRequired"); writer.Bool(miiRestartRequired);
 			writer.Key("presentationSwapchain"); writer.Uint64(presentationChain);
 			writer.Key("acquires"); writer.Uint64(acquires);
 			writer.Key("swapchainCreates"); writer.Uint64(swapchainCreates);
@@ -585,6 +605,18 @@ namespace
 		}
 		void CafePPCProcessExit() override
 		{
+			if (miiInitializing)
+			{
+				const auto result = MiiInitialization::GetResult();
+				const auto status = CafeSystem::GetForegroundTitleReturnStatus();
+				if (result.generation == miiGeneration && status)
+				{
+					miiReturnStatus = *status;
+					miiGuestExited = true;
+					wake.notify_all();
+				}
+				return;
+			}
 			if (logReady) cemuLog_log(LogType::Force, "NativeHost PPC process exited; returnStatus={}", CafeSystem::GetForegroundTitleReturnStatus().value_or(-1));
 			if (!CafeSystem::GetForegroundTitleReturnStatus())
 				Fail("Guest process exit without a return status");
@@ -783,10 +815,31 @@ struct CemuHost::Impl
 		state->vulkanInstance = state->vulkanDevice = state->vulkanSurface = 0;
 		g_isGPUInitFinished = false;
 	}
+	void StopMiiTitle()
+	{
+		// joinをUIやguest自身で待たない。停止が遅れた場合も所有リソースを解放しない。
+		auto stopped = std::async(std::launch::async, [] { CafeSystem::ShutdownTitle(); });
+		if (stopped.wait_for(std::chrono::seconds(15)) != std::future_status::ready)
+		{
+			state->miiRestartRequired = true;
+			{ std::lock_guard lock(state->statusMutex); state->error = "Mii data initialization could not stop. Restart Launcher."; }
+			state->Phase("mii-restart-required");
+		}
+		stopped.get();
+	}
+
 	void Run()
 	{
 		const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 		bool commonStarted = false;
+		std::unique_ptr<MiiInitializationStorage> miiStorage;
+		bool miiAttempted = false, miiTimedOut = false;
+		std::chrono::steady_clock::time_point miiDeadline;
+		const auto cancelMii = [&] {
+			if (state->stop || state->titleStop) return true;
+			if (std::chrono::steady_clock::now() >= miiDeadline) { miiTimedOut = true; return true; }
+			return false;
+		};
 		try
 		{
 			Require(SUCCEEDED(apartment), "Core coordinator requires MTA");
@@ -795,6 +848,7 @@ struct CemuHost::Impl
 			state->dataRoot = paths.data;
 			const auto& data = paths.data;
 			ValidateStorageSettings();
+			MiiInitializationStorage::Recover(data);
 			const auto installed = state->installation->GetSnapshot();
 			Require(installed.state != GameInstallationService::State::RecoveryRequired, "Game installation recovery is required before starting Core");
 			{
@@ -932,6 +986,7 @@ struct CemuHost::Impl
 						}
 						if (!state->stop && !state->titleStop)
 						{
+							if (!miiAttempted) MiiInitializationStorage::Recover(state->dataRoot);
 							state->accounts->PrepareLaunch();
 							// Coreは同一プロセスに残るため、ACTだけ次の初期化で選択Accountを再読込する。
 							iosuAct_invalidateAccountCache();
@@ -952,9 +1007,37 @@ struct CemuHost::Impl
 							Require(CafeSystem::GetForegroundTitleVersion() == 560, "Prepared Minecraft title is not update v560");
 							Require(CafeTitleList::HasTitleAndVersion(installed.updateTitleId, 560), "Installed Minecraft update v560 is not in the Core title list");
 							// sysapp と同じ実効 platform region から Mii Maker の保存先を得る。
-							ValidateMinecraftMiiData(ActiveSettings::GetMlcPath(), _SYSGetSystemApplicationTitleId(4));
+							const auto mii = ValidateMinecraftMiiData(ActiveSettings::GetMlcPath(), _SYSGetSystemApplicationTitleId(4), s_enableMiiInitialization && installed.baseTitleId == 0x00050000101dbe00ULL);
+							if (mii.NeedsInitialization())
+							{
+								Require(!miiAttempted, "Mii data initialization may only run once per PLAY");
+								miiAttempted = true;
+								state->miiInitializing = true;
+								state->miiGuestExited = false;
+								state->miiReturnStatus = 0;
+								miiTimedOut = false;
+								miiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+								state->Phase("mii-initializing");
+								const auto rpx = fsc_extractFile((CafeSystem::GetInternalVirtualCodeFolder() + "Minecraft.Client.rpx").c_str());
+								Require(bool(rpx), "Mii initialization RPX is unavailable");
+								std::array<uint8_t, SHA256_DIGEST_LENGTH> digest{};
+								SHA256(rpx->data(), rpx->size(), digest.data());
+								std::string hash;
+								for (auto byte : digest) hash += fmt::format("{:02x}", byte);
+								Require(MiiInitialization::SupportsRpx(hash), "This JPN RPX is not supported for Mii data initialization.");
+								std::vector<fs::path> titles{installed.basePath, installed.updatePath};
+								if (installed.dlcTitleId) titles.push_back(GameInstallationService::TitlePath(state->dataRoot, installed.dlcTitleId));
+								miiStorage = std::make_unique<MiiInitializationStorage>(state->dataRoot, titles, cancelMii);
+								Require(!cancelMii(), "Mii initialization cancelled");
+								CafeSystem::ShutdownTitle();
+								Require(MiiInitialization::Request(hash), "Unable to register Mii initialization descriptor");
+								Require(CafeSystem::PrepareMiiInitializationTitle(miiStorage->WorkingMlc()) == CafeSystem::PREPARE_STATUS_CODE::SUCCESS, "Unable to prepare Mii initialization runtime");
+								state->miiGeneration = CafeSystem::GetTitleGeneration();
+								++state->miiInitializationCount;
+								iosuAct_invalidateAccountCache();
+							}
 							cemuLog_log(LogType::Force, "NativeHost Mii prerequisites verified; foreground title prepared");
-							const auto textureFiles = state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
+							const auto textureFiles = state->miiInitializing ? decltype(state->textures->BeginTitle(0, 0)){} : state->textures->BeginTitle(CafeSystem::GetForegroundTitleId(), CafeSystem::GetForegroundTitleVersion());
 							std::vector<std::string> texturePaths;
 							for (const auto& file : textureFiles) texturePaths.push_back(file.virtualPath);
 							state->graphicPacks->ValidateReplacements(texturePaths);
@@ -983,7 +1066,7 @@ struct CemuHost::Impl
 								const Vector2i size{s_windowInfo.phys_width, s_windowInfo.phys_height};
 								Require(size.x > 0 && size.y > 0, "Game canvas has no drawable size");
 								const bool useOpenGL = GetConfig().graphic_api == kOpenGL;
-								state->Phase(useOpenGL ? "opengl" : "vulkan");
+								state->Phase(state->miiInitializing ? "mii-initializing" : useOpenGL ? "opengl" : "vulkan");
 								{
 									std::lock_guard lock(state->statusMutex);
 									state->activeRenderer = useOpenGL ? "OpenGL" : "Vulkan";
@@ -1039,9 +1122,14 @@ struct CemuHost::Impl
 									{ std::lock_guard lock(state->statusMutex); state->rendererDevice = useOpenGL ? openGL->DeviceName() : g_renderer->GetDeviceName(); }
 									cemuLog_log(LogType::Force, "NativeHost verified LatteTiming after title initialization: custom={} frequency={}", custom, applied);
 								}
-								state->Phase("running");
+								if (!state->miiInitializing) state->Phase("running");
 								std::unique_lock lock(state->workMutex);
-								state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
+								if (state->miiInitializing)
+								{
+									if (!state->wake.wait_until(lock, miiDeadline, [&] { return state->stop || state->titleStop || state->miiGuestExited; }))
+									{ miiTimedOut = true; throw std::runtime_error("Mii initialization timed out"); }
+								}
+								else state->wake.wait(lock, [&] { return state->stop || state->titleStop; });
 							}
 						}
 					}
@@ -1050,11 +1138,12 @@ struct CemuHost::Impl
 						cemuLog_log(LogType::Force, "NativeHost title launch failed: {}", error.what());
 						std::lock_guard lock(state->statusMutex); state->error = error.what();
 					}
-					if (!state->stop) state->StopTitle("title-shutdown");
+					if (!state->stop && !state->miiInitializing) state->StopTitle("title-shutdown");
 					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
 					state->presentationSession = 0;
 					state->CancelTitleUi();
-					CafeSystem::ShutdownTitle();
+					if (state->miiInitializing) StopMiiTitle();
+					else CafeSystem::ShutdownTitle();
 					fscDeviceRedirect_removeOwned(state->textures.get());
 					Require(fscDeviceRedirect_ownedCount(state->textures.get()) == 0, "Texture overlay was not released");
 					state->textures->EndTitle();
@@ -1072,6 +1161,43 @@ struct CemuHost::Impl
 					state->fps = 0;
 					state->swapchainWidth = state->swapchainHeight = 0;
 					cemuLog_log(LogType::Force, "NativeHost title shutdown complete: session={} rendererPresent={} GPUStopped={}", state->sessionId.load(), bool(g_renderer), Latte_GetStopSignal());
+					if (state->miiInitializing)
+					{
+						try
+						{
+							Require(!state->miiRestartRequired && !cancelMii(), "Mii initialization cancelled, timed out or requires restart");
+							const auto result = MiiInitialization::GetResult();
+							Require(state->miiGuestExited && state->miiReturnStatus == MiiInitialization::BoundaryExitStatus &&
+								result.outcome == MiiInitialization::Outcome::Boundary && result.generation == state->miiGeneration && miiStorage, "Mii initialization boundary was not completed");
+							state->Phase("mii-committing");
+							miiStorage->Commit(cancelMii);
+							Require(!cancelMii(), "Mii initialization cancelled");
+							miiStorage.reset();
+							Require(state->Dispatch([state = state] { return state->callbacks.resetPresentation && state->callbacks.resetPresentation(state->sessionId); }, true, false), "Cannot retain startup cover");
+							{
+								std::lock_guard lock(state->workMutex);
+								Require(!state->stop && !state->titleStop, "Mii initialization cancelled");
+								std::lock_guard uiLock(state->uiMutex);
+								state->acceptingTitle = true;
+								++state->generation;
+								state->presentationSession = state->sessionId.load();
+								state->firstFrameQueued = state->firstFrameVisible = false;
+								state->miiInitializing = false;
+							}
+							state->Phase("preparing");
+							continue;
+						}
+						catch (const std::exception& error)
+						{
+							cemuLog_log(LogType::Force, "Mii initialization stopped without normal launch: {}", error.what());
+							std::lock_guard lock(state->statusMutex);
+							state->error = state->miiRestartRequired ? "Mii data initialization could not stop. Restart Launcher." : miiTimedOut ? "Mii data initialization timed out. Please try again." :
+								state->stop || state->titleStop ? "" : state->error == "This JPN RPX is not supported for Mii data initialization." ? state->error :
+								"Mii data initialization failed. Existing data was preserved.";
+						}
+						state->miiInitializing = false;
+						miiStorage.reset();
+					}
 					if (!state->stop)
 					{
 						state->Phase("title-stopped");
@@ -1080,6 +1206,7 @@ struct CemuHost::Impl
 							std::lock_guard workLock(state->workMutex);
 							std::lock_guard statusLock(state->statusMutex);
 							state->launch = false;
+							miiAttempted = false;
 							state->installation->EndPlay();
 							state->titleStop = false;
 							s_inputRecoveryPending = false;
