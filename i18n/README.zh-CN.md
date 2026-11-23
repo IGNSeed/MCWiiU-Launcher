@@ -7,7 +7,7 @@
 <p align="center">在一个启动器中畅玩 Minecraft: Wii U Edition。</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — 准备发布</strong><br>
+  <strong>0.4.0 Stable — 已发布</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -25,11 +25,13 @@
 
 MCWiiU Launcher 是一款基于 Cemu 的非官方启动器，用于在 Windows PC 上游玩 Minecraft: Wii U Edition **v560**。从安装游戏到管理账户、世界和资源包，再到启动与更新，都可以在同一个界面中完成。
 
-## 发布准备情况
+## 发布情况
 
-**首个版本正在准备中。目前没有正式的 GitHub Release，也没有公开的 Setup。** 首次发布计划为 **0.4.0 Stable**，Foundation 为 **1.0.2**，Updater Protocol 为 **2**。
+**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) 已发布。** Foundation 为 **1.0.2**，Updater Protocol 为 **2**。[下载 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe)。
 
-生产环境的 Ed25519 公钥尚未配置。发布前仍需确认图片再分发许可、许可证与对应源代码的最终核对、依赖库的剩余漏洞、干净构建与分发测试，以及在全新 Windows 10 / 11 环境中的验收。当前开发产物不可用于面向公众的分发。
+发布二进制文件对应的源代码 Commit：[52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c)。
+
+已内置生产环境 Ed25519 公钥，并验证了签名 Manifest、分发文件的完整性和公开下载。图片再分发许可、许可证与对应源代码的未确认事项、依赖库的剩余漏洞，以及全新 Windows 10 / 11 环境中的全面验收仍未完成。
 
 ## 主要功能
 
@@ -58,8 +60,8 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 
 ## 安装
 
-1. 阅读 [INSTALLATION](../docs/INSTALLATION.md)，了解环境要求和安全检查。**目前没有可下载的正式 Setup。**
-2. 发布后，请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
+1. 阅读 [INSTALLATION](../docs/INSTALLATION.md)，了解环境要求和安全检查。
+2. 请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
 3. 运行 `MCWiiU-Launcher.exe`（Bootstrapper），安装自有游戏数据，然后在 Home 中选择 `PLAY`。程序本体为 `MCWiiU Launcher.exe`，更新程序为 `MCWiiU-Updater.exe`。
 
 从旧开发版本自动迁移不在正式支持范围内。卸载和数据保留方式也请参阅安装指南。
@@ -72,7 +74,7 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 
 ## 更新
 
-常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。**由于尚未导入生产环境密钥，当前开发版本无法使用正式自动更新。**
+常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。**已内置生产环境公钥。0.4.0 不会更新到相同版本；尚未执行向后续版本的实际更新测试。**
 
 Foundation 采用**手动 Setup 更新**，与常规 Launcher 更新分开进行。详情和恢复方式见 [UPDATING](../docs/UPDATING.md)。
 

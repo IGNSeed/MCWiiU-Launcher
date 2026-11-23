@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition を、ひとつのランチャーから。</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — 公開準備中</strong><br>
+  <strong>0.4.0 Stable — 公開済み</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -25,11 +25,13 @@
 
 MCWiiU Launcher は、Minecraft: Wii U Edition **v560** を Windows PC で遊ぶための、Cemu を基盤とした非公式ランチャーです。ゲームの導入から、アカウント・ワールド・パックの管理、起動、更新までを一つの画面にまとめます。
 
-## リリース準備状況
+## リリース
 
-**初回リリース準備中です。現在、正式な GitHub Release と一般公開 Setup はありません。** 初回配布は **0.4.0 Stable**、Foundation は **1.0.2**、Updater Protocol は **2** を予定しています。
+**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) を公開しました。** Foundation は **1.0.2**、Updater Protocol は **2** です。[Setup をダウンロード](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe)できます。
 
-本番 Ed25519 公開鍵は未設定です。画像素材の再配布許諾、ライセンス・対応ソースの最終照合、依存ライブラリの残存脆弱性、クリーンビルドと配布試験、クリーン Windows 10 / 11 での受入が配布前の確認事項です。現時点の開発成果物は一般配布用ではありません。
+配布バイナリのソース Commit: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c)。
+
+本番 Ed25519 公開鍵を組み込み、署名済み Manifest と配布ファイルの整合性・公開ダウンロードを確認済みです。画像素材の再配布許諾、ライセンス・対応ソースの未確認事項、依存ライブラリの残存脆弱性、クリーン Windows 10 / 11 での全面受入は引き続き未完了です。
 
 ## 主な機能
 
@@ -58,8 +60,8 @@ Windows 10 の通常サポートは **2025-10-14 に終了**しています。�
 
 ## インストール
 
-1. [INSTALLATION](docs/INSTALLATION.md) で必要環境と安全確認を読みます。**現在、ダウンロードできる正式 Setup はありません。**
-2. 公開後は、正規の [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases) から Setup を取得し、導入先を選びます。Setup は **Authenticode 署名を使用しません**。ガイドの独立した配布元・整合性の確認を行ってください。
+1. [INSTALLATION](docs/INSTALLATION.md) で必要環境と安全確認を読みます。
+2. 正規の [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) から Setup を取得し、導入先を選びます。Setup は **Authenticode 署名を使用しません**。ガイドの独立した配布元・整合性の確認を行ってください。
 3. `MCWiiU-Launcher.exe`（Bootstrapper）から起動し、所有ゲームを導入して Home の `PLAY` を選びます。本体名は `MCWiiU Launcher.exe`、Updater は `MCWiiU-Updater.exe` です。
 
 旧開発版からの自動移行は正式サポート対象外です。アンインストールとデータ保持についても導入ガイドを参照してください。
@@ -72,7 +74,7 @@ BASE と同じ地域の Update **v560** を使用してください。DLC は任
 
 ## 更新
 
-通常の Launcher 更新は、利用者の承認後に署名付き ZIP を適用する方式です。Ed25519、SHA-256、GitHub Asset の対応、ファイル一覧を検証し、30秒の Readiness 確認に失敗した場合は検証可能な以前の版へ Rollback します。**本番鍵が未導入のため、現在の開発版で本番自動更新は利用できません。**
+通常の Launcher 更新は、利用者の承認後に署名付き ZIP を適用する方式です。Ed25519、SHA-256、GitHub Asset の対応、ファイル一覧を検証し、30秒の Readiness 確認に失敗した場合は検証可能な以前の版へ Rollback します。**本番公開鍵を組込み済みです。0.4.0 同士の更新は発生せず、次版への実更新試験は未実施です。**
 
 Foundation は **手動 Setup 更新**です。通常の Launcher 更新とは別の工程になります。詳細と復旧方法は [UPDATING](docs/UPDATING.md) を参照してください。
 

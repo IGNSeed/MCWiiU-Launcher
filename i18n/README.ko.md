@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition을 하나의 런처에서.</p>
 
 <p align="center">
-  <strong>0.4.0 Stable — 공개 준비 중</strong><br>
+  <strong>0.4.0 Stable — 공개됨</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -25,11 +25,13 @@
 
 MCWiiU Launcher는 Windows PC에서 Minecraft: Wii U Edition **v560**을 플레이하기 위한 Cemu 기반 비공식 런처입니다. 게임 설치부터 계정·월드·팩 관리, 실행과 업데이트까지 한 화면에서 이용할 수 있습니다.
 
-## 출시 준비 현황
+## 출시 현황
 
-**첫 출시를 준비하고 있습니다. 현재 정식 GitHub Release와 공개 Setup은 없습니다.** 첫 배포는 **0.4.0 Stable**, Foundation **1.0.2**, Updater Protocol **2**로 예정되어 있습니다.
+**[0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0)이 공개되었습니다.** Foundation **1.0.2**, Updater Protocol **2**입니다. [Setup 다운로드](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe).
 
-실서비스용 Ed25519 공개 키는 아직 설정되지 않았습니다. 이미지 재배포 허가, 라이선스와 대응 소스의 최종 대조, 의존 라이브러리의 잔여 취약점, 클린 빌드와 배포 시험, 깨끗한 Windows 10 / 11 환경에서의 검증이 배포 전에 남아 있습니다. 현재 개발 산출물은 일반 배포용이 아닙니다.
+배포 바이너리의 소스 Commit: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c).
+
+실서비스용 Ed25519 공개 키가 포함되어 있으며, 서명된 Manifest와 배포 파일의 무결성 및 공개 다운로드를 확인했습니다. 이미지 재배포 허가, 라이선스와 대응 소스의 미확인 사항, 의존 라이브러리의 잔여 취약점, 깨끗한 Windows 10 / 11 환경에서의 전체 검증은 아직 완료되지 않았습니다.
 
 ## 주요 기능
 
@@ -58,8 +60,8 @@ Windows 10의 일반 지원은 **2025-10-14에 종료**되었습니다. 대상 O
 
 ## 설치
 
-1. [INSTALLATION](../docs/INSTALLATION.md)에서 요구 사항과 안전 확인 절차를 읽으세요. **현재 다운로드할 수 있는 정식 Setup은 없습니다.**
-2. 출시 후 공식 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)에서 Setup을 받고 설치 경로를 선택하세요. Setup은 **Authenticode 서명을 사용하지 않습니다**. 가이드에 따라 배포 출처와 무결성을 독립적으로 확인하세요.
+1. [INSTALLATION](../docs/INSTALLATION.md)에서 요구 사항과 안전 확인 절차를 읽으세요.
+2. 공식 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0)에서 Setup을 받고 설치 경로를 선택하세요. Setup은 **Authenticode 서명을 사용하지 않습니다**. 가이드에 따라 배포 출처와 무결성을 독립적으로 확인하세요.
 3. `MCWiiU-Launcher.exe`(Bootstrapper)를 실행하고, 소유한 게임 데이터를 설치한 뒤 Home의 `PLAY`를 선택하세요. 본체 이름은 `MCWiiU Launcher.exe`, 업데이터는 `MCWiiU-Updater.exe`입니다.
 
 이전 개발 빌드에서의 자동 이전은 공식 지원 대상이 아닙니다. 제거 및 데이터 유지에 대해서도 설치 가이드를 참조하세요.
@@ -72,7 +74,7 @@ BASE와 같은 지역의 Update **v560**을 사용하세요. DLC는 선택 사�
 
 ## 업데이트
 
-일반 Launcher 업데이트는 사용자 승인 후 서명된 ZIP을 적용합니다. Ed25519, SHA-256, GitHub Asset의 대응 관계와 파일 목록을 검증합니다. 30초 Readiness 확인에 실패하면 검증 가능한 이전 버전으로 Rollback합니다. **실서비스용 키가 도입되지 않아 현재 개발 빌드에서는 정식 자동 업데이트를 이용할 수 없습니다.**
+일반 Launcher 업데이트는 사용자 승인 후 서명된 ZIP을 적용합니다. Ed25519, SHA-256, GitHub Asset의 대응 관계와 파일 목록을 검증합니다. 30초 Readiness 확인에 실패하면 검증 가능한 이전 버전으로 Rollback합니다. **실서비스용 공개 키가 포함되어 있습니다. 0.4.0에서 같은 버전으로의 업데이트는 발생하지 않으며, 이후 버전으로의 실제 업데이트 시험은 아직 수행하지 않았습니다.**
 
 Foundation은 **수동 Setup 업데이트**를 사용하며 일반 Launcher 업데이트와 별도입니다. 자세한 내용과 복구 방법은 [UPDATING](../docs/UPDATING.md)을 참조하세요.
 

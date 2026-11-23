@@ -1,10 +1,12 @@
 # MCWiiU Launcher 変更履歴
 
-正式 Release はまだありません。以下は Launcher 固有の開発履歴で、上流 Cemu のリリース履歴ではありません。
+以下は Launcher 固有の変更履歴で、上流 Cemu のリリース履歴ではありません。
 
-## 0.4.0 Stable — 未公開・初回配布予定
+## [0.4.0 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.0) — 2026-11-23
 
-現行ソースの Launcher Version は 0.4.0、Foundation Version は 1.0.2、Updater Protocol は2です。日付や Tag を正式公開済みとして扱いません。
+初回 Stable Release。Launcher Version 0.4.0、Foundation Version 1.0.2、Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.0/MCWiiU-Launcher-0.4.0-Setup-x64.exe) を公開し、本番 Ed25519 署名・配布ファイルの整合性・匿名ダウンロードを確認済みです。
+
+配布バイナリのソース Commit: [52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c](https://github.com/IGNSeed/MCWiiU-Launcher/commit/52d4fbbaddc9edac0eb7d0eb6242ca91a8bc8b7c)。Tag はこの Commit に固定しています。
 
 - Windows x64 の saucer / WebView2 UI と同一ウィンドウの Native Cemu 描画。Minecraft v560 の PLAY、正常停止、F10 終了確認、F11 全画面切替。
 - Phase 1〜4 の起動基盤・LocalAppData 管理・初回セットアップ・Game Data 管理、JPN/USA/EUR のタイトル認識と同地域 Update v560 の検証。
@@ -17,4 +19,4 @@
 - Launcher 0.4.0、通常 ZIP 更新の維持と Foundation 手動 Setup 案内、署名ツール、Asset binding、125原文通知の採取、依存物の限定更新、旧 Cemu 公開 workflow の無効化（Phase 13、開発 Commit `d073f23d1f098cf6eb70e9f96a6285267d37ac48`）。
 - 日本語の導入・機能・更新・復旧・プライバシー・開発ガイドを整備（Phase 14）。製品コードと既存ユーザーデータは変更しません。
 
-本番鍵、素材許諾、全依存/CVE 評価、クリーンな対応ソースと再現ビルド、実 GitHub 配信、クリーン PC と追加 OS/GPU/入力/音声の受入は未完了です。[更新の現状](docs/UPDATING.md)と[第三者通知](docs/THIRD_PARTY_NOTICES.md)を参照してください。過去の開発版を正式な配布履歴や移行保証として扱いません。
+素材許諾、ライセンス・対応ソースの未確認事項、全依存/CVE 評価、クリーン PC と追加 OS/GPU/入力/音声の全面受入、次版への実更新試験は引き続き未完了です。[更新の現状](docs/UPDATING.md)と[第三者通知](docs/THIRD_PARTY_NOTICES.md)を参照してください。過去の開発版を正式な配布履歴や移行保証として扱いません。
