@@ -324,7 +324,7 @@ window.addEventListener("launcher-preferences", (event) => {
   confirmed.preferences = event.detail.values;
   LauncherI18n.bind(document.getElementById("launcher-version"), "textContent", () => event.detail.version);
   document.getElementById("update-preferences").disabled = false;
-  const healthy = preferencesReadable = ["loaded", "default"].includes(event.detail.notice);
+  const healthy = preferencesReadable = ["loaded", "legacy-loaded", "default"].includes(event.detail.notice);
   renderPreferences();
   document.getElementById("update-preferences").disabled = !healthy;
   note("preferences", () => (healthy ? "" : LauncherI18n.t("Cannot read preferences (") + event.detail.notice + LauncherI18n.t("). Existing files are preserved; automatic checks are paused.")));

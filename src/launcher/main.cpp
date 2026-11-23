@@ -1171,7 +1171,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR commandLine, int)
 		s_installation = std::make_shared<GameInstallationService>(paths);
 		const auto installation = s_installation->Initialize();
 		if (!installation) throw std::runtime_error(installation.message + "\nGame data recovery is required. Existing files were preserved. Do not delete transaction files; retain a backup and inspect the installation journal before retrying.");
-		paths.CreateDefault(paths.data / "launcher-preferences.json", LauncherPreferences{}.Json());
+		paths.CreateDefault(paths.data / "launcher-preferences.json", LauncherPreferences{}.StorageJson());
 		int result;
 		{
 			auto application = saucer::application::create({.id = "MCWiiU-Launcher"}).value();
