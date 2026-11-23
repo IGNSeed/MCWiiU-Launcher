@@ -38,7 +38,7 @@ if(TARGET CemuCafe)
     target_compile_options(saucer PRIVATE /UWIN32_LEAN_AND_MEAN)
 endif()
 
-add_library(LauncherStorage STATIC LauncherPaths.cpp LauncherPaths.h SingleInstance.cpp SingleInstance.h)
+add_library(LauncherStorage STATIC LauncherPaths.cpp LauncherPaths.h SingleInstance.cpp SingleInstance.h MiiDatabase.cpp MiiDatabase.h)
 target_compile_features(LauncherStorage PRIVATE cxx_std_20)
 target_compile_options(LauncherStorage PRIVATE /utf-8 /W4)
 target_compile_definitions(LauncherStorage PRIVATE NOMINMAX)
