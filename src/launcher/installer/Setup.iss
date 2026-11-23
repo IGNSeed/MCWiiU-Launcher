@@ -17,10 +17,11 @@
 [Setup]
 AppId={#"{" + StableAppId}
 AppName={#ProductName}
-AppVersion={#FoundationVersion}
+AppVersion={#LauncherVersion}
 AppPublisher=IGNSeed
 VersionInfoProductName={#ProductName}
-VersionInfoProductVersion={#FoundationVersion}
+VersionInfoProductVersion={#LauncherVersion}
+VersionInfoVersion={#LauncherVersion}
 DefaultDirName={localappdata}\Programs\{#ProductId}
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
