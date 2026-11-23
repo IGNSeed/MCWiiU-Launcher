@@ -11,6 +11,9 @@ class FileStream
 	static FileStream* createFile(const wchar_t* path);
 	static FileStream* createFile(std::string_view path);
 	static FileStream* createFile2(const fs::path& path);
+	// 初期化用コピー内で、新規作成したオブジェクトの所有情報を記録する。
+	using CreationObserver = std::function<void(const fs::path&, HANDLE)>;
+	static void SetCreationObserver(CreationObserver observer);
 
 	// helper function to load a file into memory
 	static std::optional<std::vector<uint8>> LoadIntoMemory(const fs::path& path);

@@ -2,6 +2,7 @@
 #include "MiiDatabase.h"
 #include "MiiInitializationStorage.h"
 #include "Cafe/OS/MiiInitialization.h"
+#include "Common/FileStream.h"
 #include "NativeSettings.h"
 #include "LauncherPaths.h"
 #include "SessionHistory.h"
@@ -65,6 +66,11 @@ namespace
 #else
 	constexpr bool s_enableMiiInitialization = false;
 #endif
+	void LogMiiCleanup(const MiiInitializationStorage::CleanupResult& result)
+	{
+		if (result.bytes || result.pending)
+			cemuLog_log(LogType::Force, "Mii initialization cleanup: reclaimedBytes={} pendingSessions={} detail={}", result.bytes, result.pending, result.reason);
+	}
 	WindowSystem::WindowInfo s_windowInfo{};
 	std::atomic_bool s_inputRecoveryPending{false};
 	struct HostState;
@@ -848,7 +854,7 @@ struct CemuHost::Impl
 			state->dataRoot = paths.data;
 			const auto& data = paths.data;
 			ValidateStorageSettings();
-			MiiInitializationStorage::Recover(data);
+			LogMiiCleanup(MiiInitializationStorage::Recover(data));
 			const auto installed = state->installation->GetSnapshot();
 			Require(installed.state != GameInstallationService::State::RecoveryRequired, "Game installation recovery is required before starting Core");
 			{
@@ -986,7 +992,7 @@ struct CemuHost::Impl
 						}
 						if (!state->stop && !state->titleStop)
 						{
-							if (!miiAttempted) MiiInitializationStorage::Recover(state->dataRoot);
+							if (!miiAttempted) LogMiiCleanup(MiiInitializationStorage::Recover(state->dataRoot));
 							state->accounts->PrepareLaunch();
 							// Coreは同一プロセスに残るため、ACTだけ次の初期化で選択Accountを再読込する。
 							iosuAct_invalidateAccountCache();
@@ -1028,8 +1034,10 @@ struct CemuHost::Impl
 								std::vector<fs::path> titles{installed.basePath, installed.updatePath};
 								if (installed.dlcTitleId) titles.push_back(GameInstallationService::TitlePath(state->dataRoot, installed.dlcTitleId));
 								miiStorage = std::make_unique<MiiInitializationStorage>(state->dataRoot, titles, cancelMii);
+								miiStorage->PrepareGuestDirectories(ActiveSettings::GetPersistentId());
 								Require(!cancelMii(), "Mii initialization cancelled");
 								CafeSystem::ShutdownTitle();
+								FileStream::SetCreationObserver([storage = miiStorage.get()](const fs::path& path, HANDLE file) { storage->ObserveCreated(path, file); });
 								Require(MiiInitialization::Request(hash), "Unable to register Mii initialization descriptor");
 								Require(CafeSystem::PrepareMiiInitializationTitle(miiStorage->WorkingMlc()) == CafeSystem::PREPARE_STATUS_CODE::SUCCESS, "Unable to prepare Mii initialization runtime");
 								state->miiGeneration = CafeSystem::GetTitleGeneration();
@@ -1142,7 +1150,7 @@ struct CemuHost::Impl
 					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
 					state->presentationSession = 0;
 					state->CancelTitleUi();
-					if (state->miiInitializing) StopMiiTitle();
+					if (state->miiInitializing) { StopMiiTitle(); FileStream::SetCreationObserver({}); }
 					else CafeSystem::ShutdownTitle();
 					fscDeviceRedirect_removeOwned(state->textures.get());
 					Require(fscDeviceRedirect_ownedCount(state->textures.get()) == 0, "Texture overlay was not released");
@@ -1171,6 +1179,7 @@ struct CemuHost::Impl
 								result.outcome == MiiInitialization::Outcome::Boundary && result.generation == state->miiGeneration && miiStorage, "Mii initialization boundary was not completed");
 							state->Phase("mii-committing");
 							miiStorage->Commit(cancelMii);
+							LogMiiCleanup(miiStorage->Cleanup(cancelMii));
 							Require(!cancelMii(), "Mii initialization cancelled");
 							miiStorage.reset();
 							Require(state->Dispatch([state = state] { return state->callbacks.resetPresentation && state->callbacks.resetPresentation(state->sessionId); }, true, false), "Cannot retain startup cover");
@@ -1196,6 +1205,7 @@ struct CemuHost::Impl
 								"Mii data initialization failed. Existing data was preserved.";
 						}
 						state->miiInitializing = false;
+						if (miiStorage) LogMiiCleanup(miiStorage->Abandon());
 						miiStorage.reset();
 					}
 					if (!state->stop)

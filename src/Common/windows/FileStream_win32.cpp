@@ -1,5 +1,25 @@
 #include "Common/windows/FileStream_win32.h"
 
+namespace
+{
+	std::mutex s_creationMutex;
+	FileStream::CreationObserver s_creationObserver;
+	std::atomic_bool s_hasCreationObserver{false};
+	void ObserveCreation(const fs::path& path, HANDLE file, DWORD creationStatus)
+	{
+		if (creationStatus == ERROR_ALREADY_EXISTS || !s_hasCreationObserver.load(std::memory_order_acquire)) return;
+		std::lock_guard lock(s_creationMutex);
+		if (s_creationObserver) s_creationObserver(path, file);
+	}
+}
+
+void FileStream::SetCreationObserver(CreationObserver observer)
+{
+	std::lock_guard lock(s_creationMutex);
+	s_creationObserver = std::move(observer);
+	s_hasCreationObserver.store(bool(s_creationObserver), std::memory_order_release);
+}
+
 FileStream* FileStream::openFile(std::string_view path)
 {
 	HANDLE hFile = CreateFileW(boost::nowide::widen(path.data(), path.size()).c_str(), FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, 0);
@@ -24,8 +44,10 @@ FileStream* FileStream::openFile2(const fs::path& path, bool allowWrite)
 FileStream* FileStream::createFile(const wchar_t* path)
 {
 	HANDLE hFile = CreateFileW(path, FILE_GENERIC_READ | FILE_GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0);
+	const auto creationStatus = GetLastError();
 	if (hFile == INVALID_HANDLE_VALUE)
 		return nullptr;
+	ObserveCreation(path, hFile, creationStatus);
 	return new FileStream(hFile);
 }
 
@@ -33,8 +55,10 @@ FileStream* FileStream::createFile(std::string_view path)
 {
 	auto w = boost::nowide::widen(path.data(), path.size());
 	HANDLE hFile = CreateFileW(w.c_str(), FILE_GENERIC_READ | FILE_GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0);
+	const auto creationStatus = GetLastError();
 	if (hFile == INVALID_HANDLE_VALUE)
 		return nullptr;
+	ObserveCreation(w, hFile, creationStatus);
 	return new FileStream(hFile);
 }
 
