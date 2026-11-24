@@ -131,9 +131,15 @@ function updateStartupMessage() {
   if (text !== startupMessage) { startupMessage = text; windowCommand("language:startup-message:" + JSON.stringify(text)); }
 }
 window.addEventListener("launcher-language-changed", updateStartupMessage);
+let renderedCoreState = "";
 window.addEventListener("launcher-core-state", (event) => {
   const state = event.detail;
   window.launcherCoreState = state;
+  // 計測値だけの通知では設定や非表示フォームを再描画しない。
+  const {fps, presents, glPresents, acquires, images, heldKeys, pendingUiRequests, ...uiState} = state;
+  const key = JSON.stringify(uiState);
+  if (renderedCoreState === key) return;
+  renderedCoreState = key;
   updateStartupMessage();
   const coreError = document.getElementById("core-error");
   LauncherI18n.bind(coreError, "textContent", () => typeof state.error === "string" && state.error ? LauncherI18n.t("Game launch error: ") + LauncherI18n.t(state.error) : "");
@@ -461,6 +467,8 @@ const resetConfirmation = document.getElementById("input-reset-confirmation");
 let inputSnapshot = null, pendingInput = null;
 let inputSequence = Date.now() * 1000, inputViewId = 1;
 let settingsTimer = null, inputTimer = null, inputPollPending = false, inputPollDeadline = 0, lastCaptureId = 0;
+let renderedLiveInput = "";
+window.addEventListener("resize", () => { renderedLiveInput = ""; });
 const inputMessages = {
   get ready() { return ""; },
   get saved() { return LauncherI18n.t("Profile saved and verified."); },
@@ -520,6 +528,7 @@ function renderInput(info, state = window.launcherCoreState) {
   updateDeadzonePreview();
   const key = LauncherI18n.language + JSON.stringify(current.mapping);
   if (mappingGrid.dataset.snapshot !== key) {
+    renderedLiveInput = "";
     mappingGrid.dataset.snapshot = key;
     mappingGrid.replaceChildren(...current.mapping.map((m) => {
       const row = document.createElement("div"), label = document.createElement("span"), button = document.createElement("button");
@@ -560,6 +569,7 @@ window.addEventListener("launcher-input-result", (event) => {
   drainSaves(); updatePlay();
 });
 function clearLiveInput() {
+  renderedLiveInput = "";
   for (const side of ["left", "right"]) {
     document.querySelectorAll("#" + side + "-stick-test span").forEach(point => point.style.transform = "translate(-50%,-50%)");
     document.getElementById(side + "-stick-value").value = LauncherI18n.t("Raw 0.00 / 0.00 · Output 0.00 / 0.00");
@@ -572,8 +582,11 @@ window.addEventListener("launcher-input-live", (event) => {
   if (!inputActive() || event.detail.viewId !== inputViewId) return;
   inputPollPending = false;
   const state = event.detail.state;
-  if (!state.connected) clearLiveInput();
+  const key = LauncherI18n.language + JSON.stringify(state);
+  if (renderedLiveInput === key) return;
+  if (!state.connected) { clearLiveInput(); renderedLiveInput = key; }
   else {
+    renderedLiveInput = key;
     for (const side of ["left", "right"]) {
       const [x,y] = state[side], raw = state[side === "left" ? "rawLeft" : "rawRight"];
       const test = document.getElementById(side + "-stick-test"), radius = test.clientWidth / 2 - 5;
@@ -1010,6 +1023,7 @@ pageMotion.switchTo("home");
 
 // 全画面共通の同期窓口。ファイル内容の走査は Native の変更通知後だけ行う。
 let liveTimer = 0, liveRequest = 0, liveSerial = 0, liveSentAt = 0, liveFriendsKey = "";
+let liveAppliedSerial = 0, liveFriendsSerial = 0;
 const liveRevisions = new Map();
 function synchronizeLauncherUi() {
   if (window.launcherCoreState?.corePhase !== "ready" || window.launcherCoreState?.stopRequested) return;
@@ -1018,18 +1032,25 @@ function synchronizeLauncherUi() {
   windowCommand(`ui:synchronize:${liveRequest}`);
 }
 window.addEventListener("launcher-live-state", event => {
-  if (event.detail?.requestId !== liveRequest) return;
-  liveRequest = 0;
+  const requestId = event.detail?.requestId;
+  if (!Number.isSafeInteger(requestId) || requestId <= 0 || requestId > liveSerial) return;
+  if (requestId === liveRequest) liveRequest = 0;
   const state = event.detail.state;
   if (!state) return;
-  for (const name of ["graphicPacks","texture","world"]) {
-    const revision = state[name];
-    if (!Number.isSafeInteger(revision) || revision < 0 || liveRevisions.get(name) === revision) continue;
-    liveRevisions.set(name,revision);
-    window.dispatchEvent(new CustomEvent("launcher-library-change",{detail:{name,revision}}));
+  // timeout 後の応答も受け取り、適用済みの新しい revision は上書きしない。
+  if (requestId > liveAppliedSerial) {
+    liveAppliedSerial = requestId;
+    for (const name of ["graphicPacks","texture","world"]) {
+      const revision = state[name];
+      if (!Number.isSafeInteger(revision) || revision < 0 || liveRevisions.get(name) === revision) continue;
+      liveRevisions.set(name,revision);
+      window.dispatchEvent(new CustomEvent("launcher-library-change",{detail:{name,revision}}));
+    }
   }
   const friends = state.friends;
-  if (friends) {
+  // Friends は差分だけ届くため、他の revision とは別に適用順を管理する。
+  if (friends && requestId > liveFriendsSerial) {
+    liveFriendsSerial = requestId;
     const key = `${friends.generation}:${friends.connectionId}:${friends.revision}`;
     if (key !== liveFriendsKey) {
       liveFriendsKey = key;

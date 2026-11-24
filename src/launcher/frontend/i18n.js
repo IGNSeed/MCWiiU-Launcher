@@ -18,6 +18,11 @@ window.LauncherI18n = (() => {
     // 置換値を再走査せず、ユーザー名・ファイル名などの内容をそのまま保持する。
     return message.replace(/\{(\d+)\}/g, (match, index) => index < values.length ? String(values[index]) : match);
   }
+  function apply(node, property, value, attribute) {
+    if (attribute) {
+      if (node.getAttribute(property) !== value) node.setAttribute(property, value);
+    } else if (node[property] !== value) node[property] = value;
+  }
   function bind(node, property, render, attribute = false) {
     node.removeAttribute(property === "textContent" ? "data-i18n" : `data-i18n-${property}`);
     let values = bindings.get(node);
@@ -27,7 +32,7 @@ window.LauncherI18n = (() => {
     }
     values.set(property, {render, attribute});
     const value = render();
-    if (attribute) node.setAttribute(property, value); else node[property] = value;
+    apply(node, property, value, attribute);
     return value;
   }
   function refresh() {
@@ -42,7 +47,7 @@ window.LauncherI18n = (() => {
       if (!node || !node.isConnected) { nodes.delete(reference); if (node) bindings.delete(node); continue; }
       for (const [property, {render, attribute}] of bindings.get(node)) {
         const value = render();
-        if (attribute) node.setAttribute(property, value); else node[property] = value;
+        apply(node, property, value, attribute);
       }
     }
     window.dispatchEvent(new CustomEvent("launcher-language-changed", {detail:{language:current}}));

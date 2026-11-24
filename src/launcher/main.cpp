@@ -503,7 +503,7 @@ namespace
 					",systemLanguage:'" + systemLanguage + "',notice:'" + preferencesNotice + "',version:'" LAUNCHER_VERSION "'}}));");
 			};
 			auto history = std::make_shared<SessionHistory>(LauncherPaths::Get());
-			std::string lastHistoryNotice;
+			std::string lastHistoryNotice, lastUpdateSnapshot, lastLiveSnapshot;
 #ifdef CEMU_NATIVE_HOST
 			std::unique_ptr<CemuHost> core;
 			std::unique_ptr<GameDisplayState> display;
@@ -696,6 +696,8 @@ namespace
 			notifications.m_acceleratorListener = acceleratorToken;
 			webview.on<saucer::webview::event::dom_ready>([&] {
 				notifications.m_frontendReady = true;
+				lastUpdateSnapshot.clear();
+				lastLiveSnapshot.clear();
 				if (preferencesHealthy && preferences.check_on_startup) updates.Check();
 				updateWindowState();
 				publishPreferences();
@@ -827,7 +829,12 @@ namespace
 #endif
 						updateGate = false;
 					}
-					webview.execute("window.dispatchEvent(new CustomEvent('launcher-update-state', {detail:" + updates.Json() + "}));");
+					const auto snapshot = updates.Json();
+					if (lastUpdateSnapshot != snapshot)
+					{
+						lastUpdateSnapshot = snapshot;
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-update-state', {detail:" + snapshot + "}));");
+					}
 					if (updates.WantsClose() && !updateClose) { updateClose = true; window->close(); }
 				}
 				else if (message.starts_with("history:query:"))
@@ -1060,7 +1067,10 @@ namespace
 							lastHistoryNotice = historyNotice;
 							webview.execute("window.dispatchEvent(new CustomEvent('launcher-history-notice', {detail:" + historyNotice + "}));");
 						}
-						webview.execute("window.dispatchEvent(new CustomEvent('launcher-live-state', {detail:{requestId:" + std::to_string(*id) + ",state:" + snapshot + "}}));");
+						// 応答 ID は必ず返し、変化のない snapshot の再転送だけを省く。
+						const bool changed = *id == 1 || lastLiveSnapshot != snapshot;
+						lastLiveSnapshot = snapshot;
+						webview.execute("window.dispatchEvent(new CustomEvent('launcher-live-state', {detail:{requestId:" + std::to_string(*id) + ",state:" + (changed ? snapshot : "null") + "}}));");
 					}
 				}
 				else if (core && (message == "friends:get" || message == "friends:refresh"))
@@ -1104,8 +1114,7 @@ namespace
 					display->m_launcherVisible = true;
 					if (display->m_transitioning || display->IsFullscreen()) return saucer::status::handled;
 					const bool running = core->IsRunning();
-					// HWND を隠しても物理寸法と GPU の Present/SwapBuffers 経路は保持する。
-					// Launcher の入力 gate だけを閉じ、Core の実行状態は変更しない。
+					// 物理寸法と Guest 実行を保ち、非表示のホスト出力だけを停止する。
 					core->InputMessage(WM_CANCELMODE, 0, 0);
 					gameHost.SetVisible(false);
 					if (running) webview.native().controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
