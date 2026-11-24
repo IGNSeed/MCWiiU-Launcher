@@ -617,6 +617,7 @@ void OpenGLRenderer::HandleScreenshotRequest(LatteTextureView* texView, bool pad
 
 void OpenGLRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutputShader* shader, bool useLinearTexFilter, sint32 imageX, sint32 imageY, sint32 imageWidth, sint32 imageHeight, bool padView, bool clearBackground)
 {
+	const auto output = WindowSystem::GetWindowInfo().hostOutputState.load();
 	if (padView && !IsPadWindowActive())
 		return;
 
@@ -684,6 +685,7 @@ void OpenGLRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutpu
 	// switch back to TV context
 	if (padView)
 		GLCanvas_MakeCurrent(false);
+	if (!padView) WindowSystem::GetWindowInfo().hostOutputFrame = output;
 }
 
 void OpenGLRenderer::renderTarget_setViewport(float x, float y, float width, float height, float nearZ, float farZ, bool halfZ /*= false*/)

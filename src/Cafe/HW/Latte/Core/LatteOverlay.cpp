@@ -620,7 +620,9 @@ static void UpdateStats_CemuCpu()
 
 static void UpdateStats_CpuPerCore()
 {
-	std::vector<ProcessorTime> now(g_state.processor_count);
+	// 作業領域を再利用し、毎秒の一時 vector 確保を避ける。
+	static std::vector<ProcessorTime> now;
+	now.resize(g_state.processor_count);
 	QueryCoreTimes(g_state.processor_count, now);
 
 	for (int32_t i = 0; i < g_state.processor_count; ++i)
@@ -634,18 +636,16 @@ static void UpdateStats_CpuPerCore()
 
 void LatteOverlay_updateStats(double fps, sint32 drawcalls, sint32 fastDrawcalls)
 {
-	if (ReadOverlaySettings().overlay.position == ScreenPosition::kDisabled)
+	const auto overlay = ReadOverlaySettings().overlay;
+	if (overlay.position == ScreenPosition::kDisabled)
 		return;
 
 	g_state.fps = fps;
 	g_state.draw_calls_per_frame = drawcalls;
 	g_state.fast_draw_calls_per_frame = fastDrawcalls;
-	UpdateStats_CemuCpu();
-	UpdateStats_CpuPerCore();
-
-	// update ram
-	g_state.ram_usage = (QueryRamUsage() / 1000) / 1000;
-
-	// update vram
-	g_renderer->GetVRAMInfo(g_state.vramUsage, g_state.vramTotal);
+	if (!(WindowSystem::GetWindowInfo().hostOutputState.load() & 1)) return;
+	if (overlay.cpu_usage) UpdateStats_CemuCpu();
+	if (overlay.cpu_per_core_usage) UpdateStats_CpuPerCore();
+	if (overlay.ram_usage) g_state.ram_usage = (QueryRamUsage() / 1000) / 1000;
+	if (overlay.vram_usage) g_renderer->GetVRAMInfo(g_state.vramUsage, g_state.vramTotal);
 }

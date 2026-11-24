@@ -173,7 +173,7 @@ namespace
 		std::atomic_uint64_t vulkanInstance{0}, vulkanDevice{0}, vulkanSurface{0}, surfaceCreates{0};
 		std::atomic_uint64_t glContextsCreated{0}, glContextsDestroyed{0}, glPresents{0};
 		std::atomic_uint64_t presentationSession{0}, presentationBinding{0}, presentationChain{0};
-		std::atomic_bool firstFrameQueued{false}, firstFrameVisible{false};
+		std::atomic_bool firstFrameQueued{false}, firstFrameVisible{false}, freshFrameRequired{false};
 		uint64 vulkanSession = 0; // hook の有効期間は coordinator と GPU join の間に限定する。
 		std::string activeRenderer, rendererDevice;
 		std::string corePhase = "initializing", titlePhase = "idle", stopReason;
@@ -232,10 +232,12 @@ namespace
 		}
 		void FirstFrame(uint64 session, uint64 binding)
 		{
+			const auto output = s_windowInfo.hostOutputState.load();
+			if (!(output & 1) || (freshFrameRequired && s_windowInfo.hostOutputFrame != output)) return;
 			if (!CanPresent(session) || firstFrameVisible || presentationBinding != binding || firstFrameQueued.exchange(true)) return;
 			cemuLog_log(LogType::Force, "NativeHost First Present: session={} binding={}", session, binding);
-			Dispatch([state = shared_from_this(), session, binding] {
-				if (!state->CanPresent(session) || state->presentationBinding != binding || state->firstFrameVisible ||
+			Dispatch([state = shared_from_this(), session, binding, output] {
+				if (s_windowInfo.hostOutputState != output || !state->CanPresent(session) || state->presentationBinding != binding || state->firstFrameVisible ||
 					!IsWindow(state->root) || !IsWindow(state->canvas))
 				{
 					cemuLog_log(LogType::Force, "NativeHost stale First Present rejected: session={} binding={}", session, binding);
@@ -247,6 +249,7 @@ namespace
 					return false;
 				}
 				if (!state->callbacks.firstFrame(session)) return false;
+				state->freshFrameRequired = false;
 				state->firstFrameVisible = true;
 				cemuLog_log(LogType::Force, "NativeHost Black Screen Released: session={} binding={}", session, binding);
 				return true;
@@ -502,9 +505,16 @@ namespace
 			writer.EndObject();
 			return buffer.GetString();
 		}
+		std::atomic_bool publishPending{false};
 		void Publish()
 		{
-			Dispatch([self = shared_from_this()] { self->callbacks.status(self->Json()); return true; }, false, false);
+			// UI 待ちの通知は最新 snapshot に集約し、変更時のキュー蓄積を防ぐ。
+			if (publishPending.exchange(true)) return;
+			Dispatch([self = shared_from_this()] {
+				self->publishPending = false;
+				self->callbacks.status(self->Json());
+				return true;
+			}, false, false);
 		}
 		void Phase(std::string value)
 		{
@@ -887,7 +897,7 @@ struct CemuHost::Impl
 			CafeSystem::SetImplementation(state.get());
 			commonStarted = true;
 			++state->commonInitCount;
-			CemuCommonInit(data, false, paths.cache / "title_list_cache.xml");
+			CemuCommonInit(data, false, paths.cache / "title_list_cache.xml", false);
 			state->inputReady = true;
 			auto graphicPacks = std::make_unique<GraphicPackService>();
 			cemuLog_log(LogType::Force, "NativeHost graphic packs: Launcher-managed, new packs disabled");
@@ -1365,6 +1375,7 @@ void CemuHost::LaunchGame()
 		m_impl->state->presentationSession = m_impl->state->sessionId.load();
 		m_impl->state->firstFrameQueued = false;
 		m_impl->state->firstFrameVisible = false;
+		m_impl->state->freshFrameRequired = false;
 	}
 	const auto session = m_impl->state->sessionId.load();
 	if (!m_impl->state->Dispatch([state = m_impl->state, session] {
@@ -1820,6 +1831,18 @@ void CemuHost::RefreshSettingsInfo()
 }
 void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused, bool fullscreen)
 {
+	const auto output = s_windowInfo.hostOutputState.load();
+	if (bool(output & 1) != visible)
+	{
+		// UI STA だけが可視世代を更新する。入力 gate・Guest 実行状態とは独立する。
+		if (!visible)
+		{
+			if (m_impl->state->firstFrameVisible) m_impl->state->freshFrameRequired = true;
+			m_impl->state->firstFrameVisible = false;
+			m_impl->state->firstFrameQueued = false;
+		}
+		s_windowInfo.hostOutputState = output + 1;
+	}
 	const double scale = static_cast<double>(dpi) / 96;
 	if (size.cx > 0 && size.cy > 0)
 	{

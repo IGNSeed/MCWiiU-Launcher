@@ -81,7 +81,7 @@ void WindowsInitCwd(const fs::path& workingDirectory)
 	#endif
 }
 
-void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks, const fs::path& titleCachePath)
+void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks, const fs::path& titleCachePath, bool scanSaveList)
 {
 	reconfigureGLDrivers();
 	reconfigureVkDrivers();
@@ -113,11 +113,14 @@ void CemuCommonInit(const fs::path& workingDirectory, bool loadGraphicPacks, con
 	if (!mlcPath.empty())
 		CafeTitleList::SetMLCPath(mlcPath);
 	CafeTitleList::Refresh();
-	// init save list
-	CafeSaveList::Initialize();
-	if (!mlcPath.empty())
+	// Native の World 管理は専用サービスを使い、wx 用の一覧走査は要求しない。
+	if (scanSaveList)
 	{
-		CafeSaveList::SetMLCPath(mlcPath);
-		CafeSaveList::Refresh();
+		CafeSaveList::Initialize();
+		if (!mlcPath.empty())
+		{
+			CafeSaveList::SetMLCPath(mlcPath);
+			CafeSaveList::Refresh();
+		}
 	}
 }

@@ -42,6 +42,10 @@ namespace WindowSystem
 		std::atomic_int32_t restored_pad_x = -1, restored_pad_y = -1;
 		std::atomic_int32_t restored_pad_width = -1, restored_pad_height = -1;
 
+		// 奇数は出力有効。Native の表示切替ごとに世代を進め、復帰時の古い画像を拒否する。
+		// 既存の Standalone は常に既定値のまま使う。
+		std::atomic_uint64_t hostOutputState{1}, hostOutputFrame{0};
+
 		std::atomic_bool is_fullscreen;
 		std::atomic_bool debugger_focused;
 

@@ -580,6 +580,8 @@ void NativeGameHost::UpdateLayout()
 	if (!GetClientRect(m_parent, &client))
 		return;
 	const bool active = m_visible && !IsIconic(m_parent) && IsWindowVisible(m_parent);
+	if (!active && m_presentation == Presentation::Presenting)
+		m_presentation = Presentation::AwaitingFirstFrame;
 	// saucer は最小化解除時に Controller を再表示するため、その後で抑止する。
 	if (m_fullscreenLayout && FAILED(m_controller->put_IsVisible(FALSE)))
 	{

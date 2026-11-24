@@ -2992,6 +2992,9 @@ bool VulkanRenderer::AcquireNextSwapchainImage(bool mainWindow)
 	if (chainInfo.swapchainImageIndex != -1)
 		return true; // image already reserved
 
+	if (mainWindow && !(WindowSystem::GetWindowInfo().hostOutputState.load() & 1))
+		return false;
+
 	if (!UpdateSwapchainProperties(mainWindow))
 		return false;
 
@@ -3161,10 +3164,19 @@ void VulkanBenchmarkPrintResults();
 
 void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 {
+	const auto frameCommandBuffer = GetCurrentCommandBufferId();
 	SubmitCommandBuffer();
 
 	if (swapTV && IsSwapchainInfoValid(true))
-		SwapBuffer(true);
+	{
+		if (!(WindowSystem::GetWindowInfo().hostOutputState.load() & 1) && GetChainInfo(true).swapchainImageIndex == -1)
+		{
+			// Guest command は提出し、表示時と同じ前フレームの fence 待機を維持する。
+			WaitCommandBufferFinished(m_commandBufferIDOfPrevFrame);
+			m_commandBufferIDOfPrevFrame = frameCommandBuffer;
+		}
+		else SwapBuffer(true);
+	}
 
 	if (swapDRC && IsSwapchainInfoValid(false))
 		SwapBuffer(false);
@@ -3253,6 +3265,7 @@ void VulkanRenderer::ClearColorImage(LatteTextureVk* vkTexture, uint32 sliceInde
 
 void VulkanRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutputShader* shader, bool useLinearTexFilter, sint32 imageX, sint32 imageY, sint32 imageWidth, sint32 imageHeight, bool padView, bool clearBackground)
 {
+	const auto output = WindowSystem::GetWindowInfo().hostOutputState.load();
 	if(!AcquireNextSwapchainImage(!padView))
 		return;
 
@@ -3325,6 +3338,7 @@ void VulkanRenderer::DrawBackbufferQuad(LatteTextureView* texView, RendererOutpu
 
 	// mark current swapchain image as well defined
 	chainInfo.hasDefinedSwapchainImage = true;
+	if (!padView) WindowSystem::GetWindowInfo().hostOutputFrame = output;
 }
 
 void VulkanRenderer::CreateDescriptorPool()

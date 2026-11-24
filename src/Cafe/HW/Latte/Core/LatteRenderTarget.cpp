@@ -902,6 +902,14 @@ void LatteRenderTarget_copyToBackbuffer(LatteTextureView* textureView, bool isPa
 	_currentOutputImageWidth = effectiveWidth;
 	_currentOutputImageHeight = effectiveHeight;
 
+	const auto output = WindowSystem::GetWindowInfo().hostOutputState.load();
+	if (!isPadView && !(output & 1))
+	{
+		// Guest texture の更新・寿命・要求済み screenshot は非表示でも維持する。
+		g_renderer->HandleScreenshotRequest(textureView, isPadView);
+		return;
+	}
+
 	sint32 imageX, imageY;
 	sint32 imageWidth, imageHeight;
 	sint32 fullscreenWidth, fullscreenHeight;
