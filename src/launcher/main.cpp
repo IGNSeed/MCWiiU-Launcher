@@ -234,7 +234,7 @@ namespace
 				BOOL visible = FALSE;
 				success = SUCCEEDED(controller->get_IsVisible(&visible)) && success;
 				m_webViewWasVisible = visible != FALSE;
-				m_restoreGameFocus = GetFocus() == m_host.GetHandle();
+				m_restoreGameFocus = m_host.HasInputFocus();
 				// saucer は style 更新後に最大化状態と通常配置を失うため、この場合だけ補完する。
 				m_maximizedPlacement.reset();
 				if (m_window.maximized())
@@ -566,6 +566,8 @@ namespace
 					.vulkanCanvas = [&] { return gameHost.GetVulkanHandle(); },
 					.resetPresentation = [&](uint64_t session) { return gameHost.ResetPresentation(session); }
 				}, s_installation, history);
+				gameHost.TextInput().read = swkbd::host::Read;
+				gameHost.TextInput().submit = swkbd::host::Submit;
 				gameHost.stateChanged = [&] {
 					gameHost.SetControlsVisible(display && !display->m_stopping && !display->m_transitioning &&
 						!display->m_stopConfirmation && !display->m_settingsSelected && !display->m_launcherVisible && core->IsRunning());
@@ -579,7 +581,7 @@ namespace
 					}
 					if (display && !display->m_transitioning && core->IsRunning() && gameHost.HasLayoutFailed()) display->Fail();
 					core->UpdateWindowState(gameHost.GetClientSize(), GetDpiForWindow(gameHost.GetHandle()),
-						gameHost.IsRenderable(), GetFocus() == gameHost.GetHandle() && GetForegroundWindow() == window->native().hwnd &&
+						gameHost.IsRenderable(), gameHost.HasInputFocus() && GetForegroundWindow() == window->native().hwnd &&
 							!(display && (display->m_transitioning || display->m_stopConfirmation)),
 						display && display->IsFullscreen());
 					if (display && !display->m_transitioning && !notifications.m_closing) display->Publish();

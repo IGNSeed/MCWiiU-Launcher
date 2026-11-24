@@ -1,6 +1,7 @@
 #include "Cafe/CafeSystem.h"
 #include "Cafe/HW/Latte/Core/LatteConst.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
+#include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/LegacyShaderDecompiler/LatteDecompiler.h"
 #include "Cafe/HW/Latte/Core/FetchShader.h"
@@ -589,85 +590,88 @@ void LatteShaderCache_ShowProgress(const std::function <bool(void)>& loadUpdateF
 			// render background texture
 			LatteShaderCache_drawBackgroundImage(g_shaderCacheLoaderState.textureTVId, 1280, 720);
 
-			const auto progress_font = ImGui_GetFont(window_size.y / 32.0f); // = 24 by default
-			const auto shader_count_font = ImGui_GetFont(window_size.y / 48.0f); // = 16
-
-			ImVec2 position = { window_size.x / 2.0f, window_size.y / 2.0f };
-			ImVec2 pivot = { 0.5f, 0.5f };
-			ImVec2 progress_size = { io.DisplaySize.x * 0.5f, 0 };
-			ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
-			ImGui::SetNextWindowSize(progress_size, ImGuiCond_Always);
-			ImGui::SetNextWindowBgAlpha(0.8f);
-			ImGui::PushStyleColor(ImGuiCol_PlotHistogram, textColor);
-			ImGui::PushStyleColor(ImGuiCol_WindowBg, 0);
-			ImGui::PushFont(progress_font);
-
-			std::string titleText = "Shader progress";
-
-			if (ImGui::Begin(titleText.c_str(), nullptr, kPopupFlags))
+			if (LatteOverlay_shaderProgressVisible())
 			{
-				const float width = ImGui::GetWindowSize().x / 2.0f;
+				const auto progress_font = ImGui_GetFont(window_size.y / 32.0f); // = 24 by default
+				const auto shader_count_font = ImGui_GetFont(window_size.y / 48.0f); // = 16
 
-				std::string text;
-				if (isPipelines)
-				{
-					text = "Loading cached pipelines...";
-				}
-				else
-				{
-					if (shaderCacheScreenStats.compiledShaderCount >= 3)
-						text = "Compiling cached shaders...";
-					else
-						text = "Loading cached shaders...";
-				}
-
-				ImGui::SetCursorPosX(width - ImGui::CalcTextSize(text.c_str()).x / 2);
-				ImGui::Text("%s", text.c_str());
-
-				float percentLoaded;
-				if(isPipelines)
-					percentLoaded = (float)g_shaderCacheLoaderState.loadedPipelines / (float)g_shaderCacheLoaderState.pipelineFileCount;
-				else
-					percentLoaded = (float)g_shaderCacheLoaderState.loadedShaderFiles / (float)g_shaderCacheLoaderState.shaderFileCount;
-				ImGui::ProgressBar(percentLoaded, { -1, 0 }, "");
-
-				if (isPipelines)
-					text = fmt::format("{}/{} ({}%)", g_shaderCacheLoaderState.loadedPipelines, g_shaderCacheLoaderState.pipelineFileCount, (int)(percentLoaded * 100));
-				else
-					text = fmt::format("{}/{} ({}%)", g_shaderCacheLoaderState.loadedShaderFiles, g_shaderCacheLoaderState.shaderFileCount, (int)(percentLoaded * 100));
-				ImGui::SetCursorPosX(width - ImGui::CalcTextSize(text.c_str()).x / 2);
-				ImGui::Text("%s", text.c_str());
-			}
-			ImGui::End();
-			ImGui::PopFont();
-			ImGui::PopStyleColor(2);
-
-			if (!isPipelines)
-			{
-				position = { 10, window_size.y - 10 };
-				pivot = { 0, 1 };
+				ImVec2 position = { window_size.x / 2.0f, window_size.y / 2.0f };
+				ImVec2 pivot = { 0.5f, 0.5f };
+				ImVec2 progress_size = { io.DisplaySize.x * 0.5f, 0 };
 				ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
+				ImGui::SetNextWindowSize(progress_size, ImGuiCond_Always);
 				ImGui::SetNextWindowBgAlpha(0.8f);
+				ImGui::PushStyleColor(ImGuiCol_PlotHistogram, textColor);
 				ImGui::PushStyleColor(ImGuiCol_WindowBg, 0);
-				ImGui::PushFont(shader_count_font);
-				if (ImGui::Begin("Shader count", nullptr, kPopupFlags))
+				ImGui::PushFont(progress_font);
+
+				std::string titleText = "Shader progress";
+
+				if (ImGui::Begin(titleText.c_str(), nullptr, kPopupFlags))
 				{
-					const float offset = shader_count_font->FallbackAdvanceX * 25.f;
-					ImGui::Text("Vertex shaders");
-					ImGui::SameLine(offset);
-					ImGui::Text("%d", shaderCacheScreenStats.vertexShaderCount);
+					const float width = ImGui::GetWindowSize().x / 2.0f;
 
-					ImGui::Text("Pixel shaders");
-					ImGui::SameLine(offset);
-					ImGui::Text("%d", shaderCacheScreenStats.pixelShaderCount);
+					std::string text;
+					if (isPipelines)
+					{
+						text = "Loading cached pipelines...";
+					}
+					else
+					{
+						if (shaderCacheScreenStats.compiledShaderCount >= 3)
+							text = "Compiling cached shaders...";
+						else
+							text = "Loading cached shaders...";
+					}
 
-					ImGui::Text("Geometry shaders");
-					ImGui::SameLine(offset);
-					ImGui::Text("%d", shaderCacheScreenStats.geometryShaderCount);
+					ImGui::SetCursorPosX(width - ImGui::CalcTextSize(text.c_str()).x / 2);
+					ImGui::Text("%s", text.c_str());
+
+					float percentLoaded;
+					if(isPipelines)
+						percentLoaded = (float)g_shaderCacheLoaderState.loadedPipelines / (float)g_shaderCacheLoaderState.pipelineFileCount;
+					else
+						percentLoaded = (float)g_shaderCacheLoaderState.loadedShaderFiles / (float)g_shaderCacheLoaderState.shaderFileCount;
+					ImGui::ProgressBar(percentLoaded, { -1, 0 }, "");
+
+					if (isPipelines)
+						text = fmt::format("{}/{} ({}%)", g_shaderCacheLoaderState.loadedPipelines, g_shaderCacheLoaderState.pipelineFileCount, (int)(percentLoaded * 100));
+					else
+						text = fmt::format("{}/{} ({}%)", g_shaderCacheLoaderState.loadedShaderFiles, g_shaderCacheLoaderState.shaderFileCount, (int)(percentLoaded * 100));
+					ImGui::SetCursorPosX(width - ImGui::CalcTextSize(text.c_str()).x / 2);
+					ImGui::Text("%s", text.c_str());
 				}
 				ImGui::End();
-				ImGui::PopStyleColor();
 				ImGui::PopFont();
+				ImGui::PopStyleColor(2);
+
+				if (!isPipelines)
+				{
+					position = { 10, window_size.y - 10 };
+					pivot = { 0, 1 };
+					ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
+					ImGui::SetNextWindowBgAlpha(0.8f);
+					ImGui::PushStyleColor(ImGuiCol_WindowBg, 0);
+					ImGui::PushFont(shader_count_font);
+					if (ImGui::Begin("Shader count", nullptr, kPopupFlags))
+					{
+						const float offset = shader_count_font->FallbackAdvanceX * 25.f;
+						ImGui::Text("Vertex shaders");
+						ImGui::SameLine(offset);
+						ImGui::Text("%d", shaderCacheScreenStats.vertexShaderCount);
+
+						ImGui::Text("Pixel shaders");
+						ImGui::SameLine(offset);
+						ImGui::Text("%d", shaderCacheScreenStats.pixelShaderCount);
+
+						ImGui::Text("Geometry shaders");
+						ImGui::SameLine(offset);
+						ImGui::Text("%d", shaderCacheScreenStats.geometryShaderCount);
+					}
+					ImGui::End();
+					ImGui::PopStyleColor();
+					ImGui::PopFont();
+				}
 			}
 			g_renderer->ImguiEnd();
 			lastFrameUpdate = tick_cached();

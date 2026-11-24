@@ -18,3 +18,6 @@ void LatteOverlay_setSettings(const LatteOverlaySettings& settings);
 bool LatteOverlay_friendsEnabled();
 void LatteOverlay_setControlInset(unsigned pixels);
 uint64 LatteOverlay_getRenderedRevision();
+
+void LatteOverlay_setShaderProgressVisible(bool visible);
+bool LatteOverlay_shaderProgressVisible();

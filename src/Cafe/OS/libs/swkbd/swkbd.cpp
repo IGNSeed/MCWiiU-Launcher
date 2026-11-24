@@ -4,9 +4,65 @@
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 
 #include <imgui.h>
+#include "HostInput.h"
+#include <mutex>
+#include <optional>
 #include "imgui/imgui_extension.h"
 #include "util/helpers/helpers.h"
 #include "resource/IconsFontAwesome5.h"
+
+namespace
+{
+	std::recursive_mutex s_swkbdMutex;
+	std::mutex s_hostMutex;
+	std::atomic_bool s_nativeInput{false};
+	swkbd::host::Snapshot s_hostInput;
+	struct HostEvent
+	{
+		std::u16string text;
+		swkbd::host::Action action;
+	};
+	std::optional<HostEvent> s_hostEvent;
+	bool s_hostInFlight = false;
+	std::u16string s_initialText;
+	bool s_hostDecided = false;
+	void InvalidateHostInput()
+	{
+		std::lock_guard lock(s_hostMutex);
+		++s_hostInput.generation;
+		s_hostInput.active = false;
+		s_hostInput.text.clear();
+		s_hostEvent.reset();
+		s_hostInFlight = false;
+		s_hostDecided = false;
+	}
+}
+
+namespace swkbd::host
+{
+	void Enable(bool enabled)
+	{
+		s_nativeInput = enabled;
+		InvalidateHostInput();
+	}
+	bool IsEnabled() { return s_nativeInput; }
+	Snapshot Read()
+	{
+		std::lock_guard lock(s_hostMutex);
+		auto snapshot = s_hostInput;
+		snapshot.pending = s_hostEvent.has_value() || s_hostInFlight;
+		return snapshot;
+	}
+	bool Submit(uint64_t generation, std::u16string text, Action action)
+	{
+		std::lock_guard lock(s_hostMutex);
+		if (!s_nativeInput || !s_hostInput.active || generation != s_hostInput.generation || s_hostDecided) return false;
+		// 最新の全文を一件だけ保持し、入力連打でも無制限に蓄積しない。
+		s_hostEvent = HostEvent{Sanitize(text, s_hostInput.limit), action};
+		if (action == Action::Accept || action == Action::Cancel) s_hostDecided = true;
+		return true;
+	}
+}
 
 constinit COSStaticData s_swkbdStaticData;
 
@@ -92,9 +148,50 @@ sint32 isNeedCalcSubThreadPredict = 0;
 
 CafeStaticVar<swkbdInternalState_t> swkbdInternalState{s_swkbdStaticData};
 
+static unsigned SwkbdTextLimit()
+{
+	const auto& state = *swkbdInternalState.GetPtr();
+	if (state.keyboardOnlyMode)
+	{
+		const sint32 size = state.keyboardArg.receiverArg.stringBufSize;
+		const sint32 fixed = state.keyboardArg.receiverArg.fixedCharLimit;
+		return std::min<sint32>(4095, std::max<sint32>(0, fixed >= 0 ? std::min(size - 1, fixed) : size - 1));
+	}
+	return std::clamp<sint32>(state.maxTextLength, 0, 4095);
+}
+
+static std::u16string SwkbdText()
+{
+	std::u16string text;
+	for (sint32 i = 0; i < swkbdInternalState->formStringLength; ++i)
+		text += static_cast<char16_t>(swkbdInternalState->formStringBuffer[i]);
+	return swkbd::host::Sanitize(text, SwkbdTextLimit());
+}
+
+static void PublishHostInput(unsigned cursor)
+{
+	std::lock_guard lock(s_hostMutex);
+	++s_hostInput.generation;
+	++s_hostInput.revision;
+	s_hostInput.active = true;
+	s_hostInput.limit = SwkbdTextLimit();
+	s_hostInput.text = SwkbdText();
+	s_hostInput.cursor = std::min<unsigned>(cursor, static_cast<unsigned>(s_hostInput.text.size()));
+	if (s_hostInput.cursor && s_hostInput.cursor < s_hostInput.text.size() && s_hostInput.text[s_hostInput.cursor] >= 0xdc00 && s_hostInput.text[s_hostInput.cursor] <= 0xdfff) --s_hostInput.cursor;
+	s_initialText = s_hostInput.text;
+	s_hostEvent.reset();
+	s_hostInFlight = false;
+	s_hostDecided = false;
+}
+
+
 void SwkbdCreate(uint8* workMemory, uint32 regionType, uint32 unk, coreinit::FSClient_t* fsClient)
 {
-	memset(swkbdInternalState.GetPtr(), 0, sizeof(swkbdInternalState_t));
+	{
+		std::lock_guard lock(s_swkbdMutex);
+		InvalidateHostInput();
+		memset(swkbdInternalState.GetPtr(), 0, sizeof(swkbdInternalState_t));
+	}
 	coreinit::OSSleepTicks(ESPRESSO_TIMER_CLOCK); // simulate this function taking a bit of time to run. MH3U/MH3G requires this to not softlock
 	// pretend that there is some work to do
 	isNeedCalcSubThreadFont = 3;
@@ -103,6 +200,7 @@ void SwkbdCreate(uint8* workMemory, uint32 regionType, uint32 unk, coreinit::FSC
 
 uint32 SwkbdGetStateKeyboard()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	uint32 r = SWKBD_STATE_BLANK;
 	if( swkbdInternalState->isActive )
 		r = SWKBD_STATE_DISPLAYED;
@@ -111,6 +209,7 @@ uint32 SwkbdGetStateKeyboard()
 
 uint32 SwkbdGetStateInputForm()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	uint32 r = SWKBD_STATE_BLANK;
 	if( swkbdInternalState->isActive )
 		r = SWKBD_STATE_DISPLAYED;
@@ -153,6 +252,7 @@ struct swkdbIEventReceiverVTable_t
 
 uint32 SwkbdSetReceiver(const swkbdReceiverArg_t* receiverArg)
 {
+	std::lock_guard lock(s_swkbdMutex);
 	if(swkbdInternalState == nullptr)
 		return 0;
 	swkbdInternalState->keyboardArg.receiverArg = *receiverArg;
@@ -190,6 +290,7 @@ static_assert(offsetof(swkbdAppearArg_t, cursorIndex) == 0xC4, "appearArg.cursor
 
 uint32 SwkbdAppearInputForm(const swkbdAppearArg_t* appearArg)
 {
+	std::lock_guard lock(s_swkbdMutex);
 	swkbdInternalState->formStringLength = 0;
 	swkbdInternalState->isActive = true;
 	swkbdInternalState->decideButtonWasPressed = false;
@@ -220,11 +321,18 @@ uint32 SwkbdAppearInputForm(const swkbdAppearArg_t* appearArg)
 		swkbdInternalState->formStringBuffer[0] = '\0';
 		swkbdInternalState->formStringLength = 0;
 	}
+	swkbdInternalState->formStringBuffer[swkbdInternalState->formStringLength] = 0;
+	const auto clean = SwkbdText();
+	swkbdInternalState->formStringLength = static_cast<sint32>(clean.size());
+	std::copy(clean.begin(), clean.end(), swkbdInternalState->formStringBuffer);
+	swkbdInternalState->formStringBuffer[clean.size()] = 0;
+	PublishHostInput(appearArg->cursorIndex);
 	return 1;
 }
 
 uint32 SwkbdAppearKeyboard(const SwkbdKeyboardArg_t* keyboardArg)
 {
+	std::lock_guard lock(s_swkbdMutex);
 	// todo: Figure out what the difference between AppearInputForm and AppearKeyboard is?
 	uint32 argPtr = MEMPTR(keyboardArg).GetMPTR();
 	for(sint32 i=0; i<0x180; i += 4)
@@ -239,25 +347,31 @@ uint32 SwkbdAppearKeyboard(const SwkbdKeyboardArg_t* keyboardArg)
 	swkbdInternalState->formStringBuffer[0] = '\0';
 	swkbdInternalState->formStringLength = 0;
 	swkbdInternalState->keyboardArg = *keyboardArg;
+	PublishHostInput(std::max<sint32>(0, keyboardArg->receiverArg.cursorPos));
 	return 1;
 }
 
 uint32 SwkbdDisappearInputForm()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	debug_printf("SwkbdDisappearInputForm__3RplFv\n");
 	swkbdInternalState->isActive = false;
+	InvalidateHostInput();
 	return 1;
 }
 
 uint32 SwkbdDisappearKeyboard()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	debug_printf("SwkbdDisappearKeyboard__3RplFv\n");
 	swkbdInternalState->isActive = false;
+	InvalidateHostInput();
 	return 1;
 }
 
 uint16be* SwkbdGetInputFormString()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	for(sint32 i=0; i<swkbdInternalState->formStringLength; i++)
 		swkbdInternalState->formStringBufferBE[i] = swkbdInternalState->formStringBuffer[i];
 	cemu_assert(swkbdInternalState->formStringLength < SWKBD_FORM_STRING_MAX_LENGTH);
@@ -267,6 +381,7 @@ uint16be* SwkbdGetInputFormString()
 
 uint32 SwkbdIsDecideOkButton(uint8*)
 {
+	std::lock_guard lock(s_swkbdMutex);
 	if (swkbdInternalState->decideButtonWasPressed)
 		return 1;
 	return 0;
@@ -389,14 +504,79 @@ void SwkbdCalcSubThreadPredict()
 	coreinit::OSSleepTicks(ESPRESSO_TIMER_CLOCK / 200); // simulate 5ms of working time
 }
 
+void swkbd_inputStringChanged();
+void swkbd_finishInput();
+struct SwkbdStringChangedCallback
+{
+	MPTR function = 0, receiver = 0, parameter = 0;
+};
+static SwkbdStringChangedCallback swkbd_prepareStringChanged();
+
 void SwkbdCalc(void* controllerInfo)
 {
-	// no op for now
+	std::unique_lock lock(s_swkbdMutex);
+	if (!swkbdInternalState || !swkbdInternalState->isActive || !s_nativeInput) return;
+	std::optional<HostEvent> event;
+	uint64_t generation;
+	{
+		std::lock_guard hostLock(s_hostMutex);
+		if (s_hostInFlight) return;
+		event.swap(s_hostEvent);
+		generation = s_hostInput.generation;
+		// Calc の途中も未反映として扱い、UI が古い snapshot で編集中の文字を戻さない。
+		s_hostInFlight = event.has_value();
+	}
+	if (!event) return;
+	auto text = swkbd::host::Sanitize(event->text, SwkbdTextLimit());
+	if (event->action == swkbd::host::Action::Cancel) text = s_initialText;
+	SwkbdStringChangedCallback callback;
+	if (text != SwkbdText())
+	{
+		std::copy(text.begin(), text.end(), swkbdInternalState->formStringBuffer);
+		swkbdInternalState->formStringLength = static_cast<sint32>(text.size());
+		swkbdInternalState->formStringBuffer[text.size()] = 0;
+		callback = swkbd_prepareStringChanged();
+	}
+	// Guest が receiver を破棄する完了通知より前に、同じ Calc 内で変更通知を終える。
+	// Guest callback 中はロックを解放し、再入による Disappear / Appear を許容する。
+	lock.unlock();
+	if (callback.function) PPCCoreCallback(callback.function, callback.receiver, callback.parameter);
+	lock.lock();
+	{
+		std::lock_guard hostLock(s_hostMutex);
+		if (generation != s_hostInput.generation || !s_hostInput.active) return;
+		// Cancel は初期文字列を返し、非表示は Guest に任せる。
+		if (event->action == swkbd::host::Action::Accept || event->action == swkbd::host::Action::Cancel) swkbd_finishInput();
+		s_hostInput.text = std::move(text);
+		s_hostInput.limit = SwkbdTextLimit();
+		++s_hostInput.revision;
+		s_hostInFlight = false;
+		if (event->action == swkbd::host::Action::Accept || event->action == swkbd::host::Action::Cancel) s_hostInput.active = false;
+	}
 }
 
 void swkbd_keyInput(uint32 keyCode);
 void swkbd_render(bool mainWindow)
 {
+	if (s_nativeInput)
+	{
+		// Controller の既存 ImGui navigation を維持し、Guest 更新は Calc に集約する。
+		if (!mainWindow) return;
+		static bool confirmHeld = false, cancelHeld = false;
+		const auto state = swkbd::host::Read();
+		const auto& io = ImGui::GetIO();
+		const bool confirm = io.NavInputs[ImGuiNavInput_Input] > 0;
+		const bool cancel = io.NavInputs[ImGuiNavInput_Cancel] > 0;
+		if (state.active && !state.pending)
+		{
+			if (confirm && !confirmHeld) swkbd::host::Submit(state.generation, state.text, swkbd::host::Action::Accept);
+			else if (cancel && !cancelHeld) swkbd::host::Submit(state.generation, state.text, swkbd::host::Action::Cancel);
+		}
+		confirmHeld = confirm;
+		cancelHeld = cancel;
+		return;
+	}
+	std::lock_guard lock(s_swkbdMutex);
 	// only render if active
 	if( swkbdInternalState == NULL || swkbdInternalState->isActive == false)
 		return;
@@ -558,11 +738,13 @@ void swkbd_render(bool mainWindow)
 
 bool swkbd_hasKeyboardInputHook()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	return swkbdInternalState != NULL && swkbdInternalState->isActive;
 }
 
 void swkbd_finishInput()
 {
+	std::lock_guard lock(s_swkbdMutex);
 	swkbdInternalState->decideButtonWasPressed = true; // currently we always accept the input
 }
 
@@ -574,17 +756,19 @@ typedef struct
 
 CafeStaticVar<changeStringParam_t> _changeStringParam{s_swkbdStaticData};
 
-void swkbd_inputStringChanged()
+static SwkbdStringChangedCallback swkbd_prepareStringChanged()
 {
+	SwkbdStringChangedCallback callback;
 	if( true )//swkbdInternalState->keyboardOnlyMode )
 	{
 		// write changed string to application's string buffer
-		uint32 stringBufferSize = swkbdInternalState->keyboardArg.receiverArg.stringBufSize; // in 2-byte words
-		if( stringBufferSize > 1 )
+		sint32 stringBufferSize = swkbdInternalState->keyboardArg.receiverArg.stringBufSize; // in 2-byte words
+		if( stringBufferSize > 0 && swkbdInternalState->keyboardArg.receiverArg.stringBuf )
 		{
 			stringBufferSize--; // don't count the null-termination character
 			const auto stringBufferBE = swkbdInternalState->keyboardArg.receiverArg.stringBuf.GetPtr();
-			sint32 copyLength = std::min((sint32)stringBufferSize, swkbdInternalState->formStringLength);
+			sint32 copyLength = std::min({stringBufferSize, swkbdInternalState->formStringLength, SWKBD_FORM_STRING_MAX_LENGTH - 1});
+			if (copyLength > 0 && copyLength < swkbdInternalState->formStringLength && swkbdInternalState->formStringBuffer[copyLength - 1] >= 0xd800 && swkbdInternalState->formStringBuffer[copyLength - 1] <= 0xdbff) --copyLength;
 			for(sint32 i=0; i<copyLength; i++)
 			{
 				stringBufferBE[i] = swkbdInternalState->formStringBuffer[i];
@@ -603,14 +787,23 @@ void swkbd_inputStringChanged()
 				changeStringParam_t* changeStringParam = _changeStringParam.GetPtr();
 				changeStringParam->beginIndex = 0;
 				changeStringParam->endIndex = 0;
-				coreinitAsyncCallback_add(cbChangeString, 2, memory_getVirtualOffsetFromPointer(eventReceiver), _changeStringParam.GetMPTR());
+				callback = {cbChangeString, memory_getVirtualOffsetFromPointer(eventReceiver), _changeStringParam.GetMPTR()};
 			}
 		}
 	}
+	return callback;
+}
+
+void swkbd_inputStringChanged()
+{
+	std::lock_guard lock(s_swkbdMutex);
+	const auto callback = swkbd_prepareStringChanged();
+	if (callback.function) coreinitAsyncCallback_add(callback.function, 2, callback.receiver, callback.parameter);
 }
 
 void swkbd_keyInput(uint32 keyCode)
 {
+	std::lock_guard lock(s_swkbdMutex);
 	if (keyCode == 8 || keyCode == 127) // backspace || backwards delete
 	{
 		if (swkbdInternalState->formStringLength > 0)
@@ -657,6 +850,7 @@ void swkbd_keyInput(uint32 keyCode)
 		else
 			maxLength = 0;
 	}
+	maxLength = std::clamp<sint32>(maxLength, 0, SWKBD_FORM_STRING_MAX_LENGTH - 1);
 	// append character
 	if (swkbdInternalState->formStringLength < maxLength)
 	{
@@ -679,11 +873,15 @@ namespace swkbd
 
 		void RPLUnmapped() override
 		{
+			std::lock_guard lock(s_swkbdMutex);
+			InvalidateHostInput();
 			s_swkbdStaticData.Deallocate();
 		}
 
 		void RPLMapped() override
 		{
+			std::lock_guard lock(s_swkbdMutex);
+			InvalidateHostInput();
 			s_swkbdStaticData.Allocate();
 			isNeedCalcSubThreadFont = 0;
 			isNeedCalcSubThreadPredict = 0;

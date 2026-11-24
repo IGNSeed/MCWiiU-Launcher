@@ -6,6 +6,7 @@
 #include <memory>
 #include <cstdint>
 #include "NativeExitDialog.h"
+#include "NativeTextInput.h"
 
 struct ICoreWebView2Controller;
 
@@ -34,6 +35,8 @@ public:
 	bool SetBounds(const RECT& bounds);
 	void SetVisible(bool visible);
 	bool Focus();
+	bool HasInputFocus() const;
+	NativeTextInput& TextInput() { return *m_textInput; }
 	void SetGameLayout(bool enabled);
 	bool SetFullscreenLayout(bool enabled);
 	bool SetOpenGLComposition(bool enabled);
@@ -56,6 +59,7 @@ private:
 	RECT GameBounds() const;
 	void UpdateLayout();
 	void UpdateControls();
+	void UpdateTextInput();
 	bool IsCovered() const;
 	LRESULT ControlMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	void Release();
@@ -63,6 +67,7 @@ private:
 	void RestoreWebViewFocus();
 
 	std::unique_ptr<NativeExitDialog> m_exitDialog;
+	std::unique_ptr<NativeTextInput> m_textInput;
 	bool m_exitVisible = false;
 	HWND m_touchCapture = nullptr;
 	HWND m_parent = nullptr;

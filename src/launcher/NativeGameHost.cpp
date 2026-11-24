@@ -13,6 +13,20 @@ namespace
 	constexpr wchar_t s_vulkanClassName[] = L"MCWiiULauncher.VulkanSurface";
 	constexpr wchar_t s_coverClassName[] = L"MCWiiULauncher.StartupCover";
 	constexpr UINT_PTR s_subclassId = 0x4d435748;
+	constexpr UINT_PTR s_textInputTimer = 0x4d435754;
+	void ShowIfChanged(HWND window, bool visible)
+	{
+		if (window && bool(GetWindowLongPtrW(window, GWL_STYLE) & WS_VISIBLE) != visible)
+			ShowWindow(window, visible ? SW_SHOWNA : SW_HIDE);
+	}
+	void PlaceAbove(HWND window, HWND below)
+	{
+		if (!window || !below) return;
+		for (auto sibling = GetWindow(below, GW_HWNDPREV); sibling; sibling = GetWindow(sibling, GW_HWNDPREV))
+			if (sibling == window) return;
+		// 必要な sibling の直上へ移す。ダイアログや別 UI の前には出さない。
+		SetWindowPos(window, GetWindow(below, GW_HWNDPREV), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	}
 	// 診断起動時だけ受け付ける固定操作。外部 HWND やポインターは受け取らない。
 	constexpr UINT s_diagnosticMessage = WM_APP + 0x340;
 } // namespace
@@ -84,6 +98,11 @@ NativeGameHost::NativeGameHost(HWND parent, ICoreWebView2Controller* controller,
 		m_subclassed = SetWindowSubclass(parent, ParentProc, s_subclassId, reinterpret_cast<DWORD_PTR>(this)) != FALSE;
 		if (!m_subclassed || (diagnostics && failAfterCreate))
 			throw std::runtime_error("Unable to attach native game host");
+		m_textInput = std::make_unique<NativeTextInput>(m_parent);
+		m_textInput->restoreFocus = [this] { if (IsRenderable() && !m_exitVisible && GetForegroundWindow() == m_parent) SetFocus(m_child); };
+		m_textInput->focusChanged = [this] { if (stateChanged) stateChanged(); };
+		m_textInput->shortcut = [this](UINT key) { if (shortcut) shortcut(key); };
+		if (!SetTimer(m_parent, s_textInputTimer, 33, nullptr)) throw std::runtime_error("Unable to observe text input");
 		m_exitDialog = std::make_unique<NativeExitDialog>(m_parent);
 		m_exitDialog->result = [this](bool confirm) { if (exitResult) exitResult(confirm); };
 		UpdateLayout();
@@ -313,6 +332,8 @@ void NativeGameHost::Release()
 	if (!OnUiThread())
 		std::terminate();
 	CancelTouch();
+	if (m_parent) KillTimer(m_parent, s_textInputTimer);
+	m_textInput.reset();
 	m_exitDialog.reset();
 	SetOpenGLComposition(false);
 	if (m_vulkanContainer) DestroyWindow(m_vulkanContainer);
@@ -383,7 +404,7 @@ bool NativeGameHost::SetBounds(const RECT& bounds)
 
 void NativeGameHost::RestoreWebViewFocus()
 {
-	if (m_child && GetFocus() == m_child && m_controller)
+	if (m_child && HasInputFocus() && m_controller)
 		m_controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 }
 
@@ -405,8 +426,28 @@ bool NativeGameHost::Focus()
 {
 	if (!OnUiThread() || !IsRenderable() || GetForegroundWindow() != m_parent)
 		return false;
+	if (m_textInput && m_textInput->Focus()) return true;
 	SetFocus(m_child);
 	return GetFocus() == m_child;
+}
+
+bool NativeGameHost::HasInputFocus() const
+{
+	return GetFocus() == m_child || (m_textInput && m_textInput->HasFocus());
+}
+
+void NativeGameHost::UpdateTextInput()
+{
+	try
+	{
+		if (m_textInput) m_textInput->Sync(IsRenderable() && !IsCovered() && !m_exitVisible, GameBounds());
+	}
+	catch (const std::exception&)
+	{
+		m_layoutFailed = true;
+		if (m_parent) KillTimer(m_parent, s_textInputTimer);
+		if (stateChanged) stateChanged();
+	}
 }
 
 void NativeGameHost::SetGameLayout(bool enabled)
@@ -449,7 +490,9 @@ void NativeGameHost::SetExitConfirmation(bool visible)
 	if (!OnUiThread() || visible == m_exitVisible) return;
 	CancelTouch();
 	m_exitVisible = visible;
+	UpdateTextInput();
 	if (m_exitDialog) m_exitDialog->Show(visible, GameBounds());
+	if (!visible) UpdateTextInput();
 }
 
 void NativeGameHost::CancelTouch()
@@ -517,12 +560,11 @@ void NativeGameHost::UpdateControls()
 			RECT previous{}; GetWindowRect(m_controls[index], &previous); MapWindowPoints(nullptr, m_parent, reinterpret_cast<POINT*>(&previous), 2);
 			if (previous.left != x || previous.top != y || previous.right - previous.left != size || previous.bottom - previous.top != size)
 			{
-				SetWindowPos(m_controls[index], HWND_TOP, x, y, size, size, SWP_NOACTIVATE);
+				SetWindowPos(m_controls[index], nullptr, x, y, size, size, SWP_NOACTIVATE | SWP_NOZORDER);
 				const auto region = CreateRoundRectRgn(0, 0, size + 1, size + 1, MulDiv(8, dpi, 96), MulDiv(8, dpi, 96));
 				if (region && !SetWindowRgn(m_controls[index], region, TRUE)) DeleteObject(region);
 			}
-			else
-				SetWindowPos(m_controls[index], HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW);
+			PlaceAbove(m_controls[index], IsCovered() ? m_startupCover : m_vulkanContainer ? m_vulkanContainer : m_child);
 		}
 		if (bool(GetWindowLongPtrW(m_controls[index], GWL_STYLE) & WS_VISIBLE) != visible)
 			ShowWindow(m_controls[index], visible ? SW_SHOWNA : SW_HIDE);
@@ -585,9 +627,9 @@ void NativeGameHost::UpdateLayout()
 	// 描画面は遮蔽中も visible に保ち、Acquire/Present の起動待ちを妨げない。
 	if (m_vulkanChild)
 	{
-		SetWindowPos(m_vulkanContainer, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-		ShowWindow(m_vulkanContainer, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
-		ShowWindow(m_vulkanChild, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+		PlaceAbove(m_vulkanContainer, m_child);
+		ShowIfChanged(m_vulkanContainer, active && !m_layoutFailed);
+		ShowIfChanged(m_vulkanChild, active && !m_layoutFailed);
 	}
 	for (const auto surface : {m_openGLChild})
 	{
@@ -595,17 +637,19 @@ void NativeGameHost::UpdateLayout()
 		RECT bounds{};
 		if (!GetClientRect(m_child, &bounds) || !SetWindowPos(surface, HWND_BOTTOM, 0, 0,
 			std::max<LONG>(1, bounds.right), std::max<LONG>(1, bounds.bottom), SWP_NOACTIVATE)) m_layoutFailed = true;
-		ShowWindow(surface, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+		ShowIfChanged(surface, active && !m_layoutFailed);
 	}
 	const bool covered = active && !m_layoutFailed && IsCovered();
 	if (covered)
 	{
-		SetWindowPos(m_startupCover, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+		PlaceAbove(m_startupCover, m_vulkanContainer ? m_vulkanContainer : m_child);
+		ShowIfChanged(m_startupCover, true);
 		RedrawWindow(m_startupCover, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
 	}
-	else ShowWindow(m_startupCover, SW_HIDE);
-	ShowWindow(m_child, active && !m_layoutFailed ? SW_SHOWNA : SW_HIDE);
+	else ShowIfChanged(m_startupCover, false);
+	ShowIfChanged(m_child, active && !m_layoutFailed);
 	UpdateControls();
+	UpdateTextInput();
 	if (m_exitDialog) m_exitDialog->Layout(GameBounds());
 	if (stateChanged) stateChanged();
 }
@@ -643,6 +687,7 @@ LRESULT CALLBACK NativeGameHost::ParentProc(HWND hwnd, UINT message, WPARAM wPar
 		self->m_controller = nullptr;
 		return DefSubclassProc(hwnd, message, wParam, lParam);
 	}
+	if (message == WM_TIMER && wParam == s_textInputTimer) { self->UpdateTextInput(); return 0; }
 	if (message == s_diagnosticMessage && self->m_diagnostics && lParam == 0)
 	{
 		switch (wParam)

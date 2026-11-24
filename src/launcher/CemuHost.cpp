@@ -1,4 +1,5 @@
 #include "CemuHost.h"
+#include "Cafe/OS/libs/swkbd/HostInput.h"
 #include "MiiDatabase.h"
 #include "MiiInitializationStorage.h"
 #include "Cafe/OS/MiiInitialization.h"
@@ -1292,6 +1293,8 @@ CemuHost::CemuHost(HWND root, HWND canvas, Callbacks callbacks, std::shared_ptr<
 	m_impl->state->installation = std::move(installation);
 	m_impl->state->history = std::move(history);
 	s_currentHost = m_impl->state;
+	swkbd::host::Enable(true);
+	LatteOverlay_setShaderProgressVisible(false);
 	s_windowInfo.window_main = {WindowSystem::WindowHandleInfo::Backend::Windows, nullptr, canvas};
 	s_windowInfo.canvas_main = s_windowInfo.window_main;
 	s_windowInfo.pad_open = false;
@@ -1304,6 +1307,8 @@ CemuHost::~CemuHost()
 	if (m_impl->worker.joinable()) m_impl->worker.join();
 	if (m_impl->textureWorker.joinable()) m_impl->textureWorker.join();
 	s_currentHost.reset();
+	swkbd::host::Enable(false);
+	LatteOverlay_setShaderProgressVisible(true);
 }
 void CemuHost::Start(bool launchImmediately)
 {
@@ -1861,6 +1866,7 @@ void CemuHost::InputMessage(UINT message, WPARAM key, LPARAM value)
 	if (message == WM_SETFOCUS) { s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation(); return; }
 	if ((message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && s_windowInfo.app_active)
 	{
+		if (swkbd::host::Read().active) { s_windowInfo.set_keystatesup(); return; }
 		UINT code = static_cast<UINT>(key);
 		if (code == VK_SHIFT) code = MapVirtualKeyW((static_cast<UINT>(value) >> 16) & 255, MAPVK_VSC_TO_VK_EX);
 		if (code == VK_CONTROL) code = (value & (1LL << 24)) ? VK_RCONTROL : VK_LCONTROL;
@@ -1886,7 +1892,7 @@ namespace WindowSystem
 		// ゲーム以外が入力を所有する間は、既存の VPAD/KPAD 抑止経路を使う。
 		return !s_windowInfo.app_active || s_inputRecoveryPending;
 	}
-	bool IsKeyDown(uint32 key) { return s_windowInfo.get_keystate(key); }
+	bool IsKeyDown(uint32 key) { return !swkbd::host::Read().active && s_windowInfo.get_keystate(key); }
 	bool IsKeyDown(PlatformKeyCodes key)
 	{
 		switch (key)

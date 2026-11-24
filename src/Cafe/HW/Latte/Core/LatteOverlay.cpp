@@ -21,6 +21,7 @@ namespace
 	std::mutex s_settingsMutex;
 	std::optional<LatteOverlaySettings> s_settings;
 	std::atomic_uint s_controlInset{0};
+	std::atomic_bool s_shaderProgressVisible{true};
 	std::atomic_uint64_t s_renderedRevision{0};
 	LatteOverlaySettings ReadOverlaySettings()
 	{
@@ -35,6 +36,8 @@ void LatteOverlay_setSettings(const LatteOverlaySettings& settings)
 	std::lock_guard lock(s_settingsMutex);
 	s_settings = settings;
 }
+void LatteOverlay_setShaderProgressVisible(bool visible) { s_shaderProgressVisible = visible; }
+bool LatteOverlay_shaderProgressVisible() { return s_shaderProgressVisible; }
 bool LatteOverlay_friendsEnabled() { return ReadOverlaySettings().notification.friends; }
 void LatteOverlay_setControlInset(unsigned pixels) { s_controlInset = pixels; }
 uint64 LatteOverlay_getRenderedRevision() { return s_renderedRevision; }
@@ -324,7 +327,7 @@ void LatteOverlay_RenderNotifications(ImVec2& position, ImVec2& pivot, sint32 di
 		}
 	}
 
-	if (config.notification.shader_compiling)
+	if (config.notification.shader_compiling || !LatteOverlay_shaderProgressVisible())
 	{
 		static int32_t s_shader_count = 0;
 		static int32_t s_shader_count_async = 0;
@@ -347,7 +350,7 @@ void LatteOverlay_RenderNotifications(ImVec2& position, ImVec2& pivot, sint32 di
 				s_shader_count_async = 0;
 			}
 
-			if (s_shader_count > 0)
+			if (s_shader_count > 0 && LatteOverlay_shaderProgressVisible())
 			{
 				ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
 				ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
@@ -402,7 +405,7 @@ void LatteOverlay_RenderNotifications(ImVec2& position, ImVec2& pivot, sint32 di
 				s_pipeline_count_async = 0;
 			}
 
-			if (s_pipeline_count > 0)
+			if (s_pipeline_count > 0 && LatteOverlay_shaderProgressVisible())
 			{
 				ImGui::SetNextWindowPos(position, ImGuiCond_Always, pivot);
 				ImGui::SetNextWindowBgAlpha(kBackgroundAlpha);
@@ -537,6 +540,14 @@ void LatteOverlay_translateScreenPosition(ScreenPosition pos, const Vector2f& wi
 void LatteOverlay_render(bool pad_view)
 {
 	const auto config = ReadOverlaySettings();
+	if (!LatteOverlay_shaderProgressVisible() && config.notification.position == ScreenPosition::kDisabled)
+	{
+		// 表示位置が無効でも、通知用の差分カウンターを蓄積させない。
+		g_compiled_shaders_total.exchange(0);
+		g_compiled_shaders_async.exchange(0);
+		g_compiling_pipelines.exchange(0);
+		g_compiling_pipelines_async.exchange(0);
+	}
 	if(config.overlay.position == ScreenPosition::kDisabled && config.notification.position == ScreenPosition::kDisabled)
 	{
 		s_renderedRevision = config.revision;
