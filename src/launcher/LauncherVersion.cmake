@@ -1,4 +1,4 @@
-set(MCWIIU_LAUNCHER_VERSION "0.4.2")
+set(MCWIIU_LAUNCHER_VERSION "0.4.3")
 set(MCWIIU_FOUNDATION_VERSION "1.0.2")
 # Windows EXEの版情報と同じ整数範囲に固定する。
 if(NOT MCWIIU_LAUNCHER_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
