@@ -5,6 +5,8 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LatteAsyncCommands.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
+#include "util/highresolutiontimer/HighResolutionTimer.h"
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
 #include "Cafe/HW/Latte/Core/LatteIndices.h"
 #include "Cafe/HW/Latte/Core/LatteBufferCache.h"
@@ -163,10 +165,11 @@ void LatteCP_signalEnterWait()
 
 /*
 * Read a U32 from the command buffer
-* If no data is available then wait in a busy loop
+* データがなければ周期処理を進め、Native Vulkan は通知と期限を待つ。
 */
 uint32 LatteCP_readU32Deprc()
 {
+	uint64 idleBegin = 0;
 	// no display list active
 	while (true)
 	{
@@ -174,6 +177,10 @@ uint32 LatteCP_readU32Deprc()
 		if ( TCL::TCLGPUReadRBWord(cmdWord) )
 			return cmdWord;
 
+		const bool notifiedWait = LatteIdleWait::IsEnabled();
+		const auto sequence = notifiedWait ? LatteIdleWait::GetSequence() : 0;
+		if (notifiedWait && !idleBegin)
+			idleBegin = HighResolutionTimer::now().getTick();
 		g_renderer->NotifyLatteCommandProcessorIdle(); // let the renderer know in case it wants to flush any commands
 		performanceMonitor.gpuTime_idleTime.beginMeasuring();
 		// no command data available, spin in a busy loop for a bit then check again
@@ -191,7 +198,23 @@ uint32 LatteCP_readU32Deprc()
 		// still no command data available, do some other tasks
 		LatteTiming_HandleTimedVsync();
 		LatteAsyncCommands_checkAndExecute();
-		std::this_thread::yield();
+		if (notifiedWait)
+		{
+			const auto now = HighResolutionTimer::now().getTick();
+			const auto remaining = LatteGPUState.timer_nextVSync > now ? LatteGPUState.timer_nextVSync - now : 0;
+			const auto guard = HighResolutionTimer::microsecondsToTicks(1500);
+			// 短い空きは spin、長い空きは通知待機。VSync 直前は余裕を残す。
+			// 未通知の Renderer 周期処理も進めるため、最大 1ms で再確認する。
+			if (now - idleBegin >= HighResolutionTimer::microsecondsToTicks(20) && remaining > guard)
+			{
+				const auto ticks = std::min(remaining - guard, HighResolutionTimer::microsecondsToTicks(1000));
+				LatteIdleWait::Wait(sequence, ticks * 10000000 / HighResolutionTimer::getFrequency());
+			}
+			else
+				std::this_thread::yield();
+		}
+		else
+			std::this_thread::yield();
 		performanceMonitor.gpuTime_idleTime.endMeasuring();
 	}
 	UNREACHABLE;

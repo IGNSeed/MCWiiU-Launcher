@@ -1,6 +1,7 @@
 #include "Cafe/OS/common/OSCommon.h"
 #include "Cafe/OS/libs/gx2/GX2.h"
 #include "Cafe/HW/Latte/Core/Latte.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
 
 #include "Cafe/OS/libs/coreinit/coreinit_OSScreen_font.h"
 #include "Cafe/OS/libs/coreinit/coreinit_OSScreen.h"
@@ -82,6 +83,7 @@ namespace coreinit
 		cemu_assert(screenIndex < 2);
 		LatteGPUState.osScreen.screen[screenIndex].flipRequestCount++;
 		_updateCurrentDrawScreen(screenIndex);
+		LatteIdleWait::Notify();
 	}
 
 	void OSScreenPutPixelEx(uint32 screenIndex, sint32 x, sint32 y, uint32 color)

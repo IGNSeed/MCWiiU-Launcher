@@ -33,6 +33,7 @@
 #include "Cafe/HW/Latte/Core/Latte.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
 #include "Cafe/HW/Latte/Core/LatteTiming.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
 #include "Cafe/HW/Latte/Core/MinecraftNativeResolution.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanAPI.h"
@@ -1131,6 +1132,7 @@ struct CemuHost::Impl
 									std::lock_guard lock(state->statusMutex); state->rendererDevice = renderer->GetDeviceName();
 								}
 								g_isGPUInitFinished = false;
+								LatteIdleWait::SetEnabled(!useOpenGL);
 								if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
 								if (CafeSystem::IsTitleRunning())
 								{
@@ -1163,6 +1165,7 @@ struct CemuHost::Impl
 					state->CancelTitleUi();
 					if (state->miiInitializing) { StopMiiTitle(); FileStream::SetCreationObserver({}); }
 					else CafeSystem::ShutdownTitle();
+					LatteIdleWait::SetEnabled(false);
 					fscDeviceRedirect_removeOwned(state->textures.get());
 					Require(fscDeviceRedirect_ownedCount(state->textures.get()) == 0, "Texture overlay was not released");
 					state->textures->EndTitle();

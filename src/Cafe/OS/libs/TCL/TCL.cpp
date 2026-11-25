@@ -3,6 +3,7 @@
 #include "HW/Latte/Core/LattePM4.h"
 #include "OS/libs/coreinit/coreinit_Time.h"
 #include "Common/CafeStaticVar.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
 
 namespace TCL
 {
@@ -115,6 +116,7 @@ namespace TCL
 		}
 
 		tclRingBufferA_writeIndex.store(writeIndex, std::memory_order::release);
+		LatteIdleWait::Notify();
 	}
 
 	#define EVENT_TYPE_TS		5

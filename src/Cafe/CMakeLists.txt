@@ -104,6 +104,8 @@ add_library(CemuCafe
   HW/Latte/Core/FetchShader.h
   HW/Latte/Core/LatteAsyncCommands.cpp
   HW/Latte/Core/LatteAsyncCommands.h
+  HW/Latte/Core/LatteIdleWait.cpp
+  HW/Latte/Core/LatteIdleWait.h
   HW/Latte/Core/LatteBufferCache.cpp
   HW/Latte/Core/LatteBufferCache.h
   HW/Latte/Core/LatteBufferData.cpp

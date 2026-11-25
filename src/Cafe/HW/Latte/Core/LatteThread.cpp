@@ -5,6 +5,7 @@
 #include "Cafe/HW/Latte/Core/LatteDraw.h"
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LatteAsyncCommands.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
 #include "Cafe/GameProfile/GameProfile.h"
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "WindowSystem.h"
@@ -238,6 +239,7 @@ void Latte_Stop()
 	if (!sLatteThreadRunning)
 		return;
 	sLatteThreadRunning = false;
+	LatteIdleWait::Notify();
 	_lock.unlock();
 	sLatteThread.join();
 }

@@ -3,6 +3,7 @@
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/LatteSurfaceCopy.h"
 #include "Cafe/HW/Latte/Core/LatteTexture.h"
+#include "Cafe/HW/Latte/Core/LatteIdleWait.h"
 
 void LatteThread_Exit();
 
@@ -51,6 +52,7 @@ typedef struct
 #define ASYNC_CMD_TEXTURE_COPY					3
 
 std::queue<LatteAsyncCommand_t> LatteAsyncCommandQueue;
+static std::atomic_uint32_t s_pendingCommands{0};
 
 void LatteAsyncCommands_queueForceTextureReadback(MPTR physAddr, MPTR mipAddr, uint32 swizzle, sint32 format, sint32 width, sint32 height, sint32 depth, uint32 pitch, uint32 slice, sint32 dim, Latte::E_HWTILEMODE tilemode, sint32 aa, sint32 level)
 {
@@ -73,7 +75,9 @@ void LatteAsyncCommands_queueForceTextureReadback(MPTR physAddr, MPTR mipAddr, u
 	asyncCommand.forceTextureReadback.level = level;
 	swl_gpuAsyncCommands.LockWrite();
 	LatteAsyncCommandQueue.push(asyncCommand);
+	s_pendingCommands.fetch_add(1, std::memory_order::release);
 	swl_gpuAsyncCommands.UnlockWrite();
+	LatteIdleWait::Notify();
 }
 
 void LatteAsyncCommands_queueDeleteShader(uint64 shaderBaseHash, uint64 shaderAuxHash, LatteConst::ShaderType shaderType)
@@ -88,7 +92,9 @@ void LatteAsyncCommands_queueDeleteShader(uint64 shaderBaseHash, uint64 shaderAu
 
 	swl_gpuAsyncCommands.LockWrite();
 	LatteAsyncCommandQueue.push(asyncCommand);
+	s_pendingCommands.fetch_add(1, std::memory_order::release);
 	swl_gpuAsyncCommands.UnlockWrite();
+	LatteIdleWait::Notify();
 }
 
 void LatteAsyncCommand_queueTextureCopy(const LatteSurfaceCopyParam& src, const LatteSurfaceCopyParam& dst, const LatteSurfaceCopyRect& rect)
@@ -102,12 +108,14 @@ void LatteAsyncCommand_queueTextureCopy(const LatteSurfaceCopyParam& src, const 
 
 	swl_gpuAsyncCommands.LockWrite();
 	LatteAsyncCommandQueue.push(asyncCommand);
+	s_pendingCommands.fetch_add(1, std::memory_order::release);
 	swl_gpuAsyncCommands.UnlockWrite();
+	LatteIdleWait::Notify();
 }
 
 void LatteAsyncCommands_waitUntilAllProcessed()
 {
-	while (LatteAsyncCommandQueue.empty() == false)
+	while (s_pendingCommands.load(std::memory_order::acquire) != 0)
 	{
 		_mm_pause();
 	}
@@ -118,10 +126,10 @@ void LatteAsyncCommands_waitUntilAllProcessed()
  */
 void LatteAsyncCommands_checkAndExecute()
 {
-	// quick check if queue is empty (requires no lock)
+	// queue 本体をロック外で読まず、処理中の要求も完了まで pending に含める。
 	if (Latte_GetStopSignal())
 		LatteThread_Exit();
-	if (LatteAsyncCommandQueue.empty())
+	if (s_pendingCommands.load(std::memory_order::acquire) == 0)
 		return;
 	swl_gpuAsyncCommands.LockWrite();
 	while (LatteAsyncCommandQueue.empty() == false)
@@ -160,6 +168,7 @@ void LatteAsyncCommands_checkAndExecute()
 		}
 		swl_gpuAsyncCommands.LockWrite();
 		LatteAsyncCommandQueue.pop();
+		s_pendingCommands.fetch_sub(1, std::memory_order::release);
 	}
 	swl_gpuAsyncCommands.UnlockWrite();
 }
