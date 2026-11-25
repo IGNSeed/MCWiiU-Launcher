@@ -55,6 +55,8 @@ function validWorldName(name) {
   return name.length > 0 && name.length <= 32 && name.isWellFormed() && !/[\u0000-\u001f\u007f]/u.test(name) && !/^[ \u3000]*$/u.test(name);
 }
 function worldCanEdit() { return worldSnapshot?.canEdit === true && window.launcherCoreState?.canEditWorlds === true && !worldPending; }
+function worldCanManageAll() { return worldCanEdit() && window.launcherCoreState?.canRecoverWorlds === true; }
+function worldCanOperate(op) { return ["rename","delete"].includes(op) ? worldCanEdit() : worldCanManageAll(); }
 function worldPayload(op, target = worldTarget, extra = {}) {
   return {op,activeId:target?.activeId ?? worldSnapshot.activeId,revision:target?.revision ?? worldSnapshot.revision,
     ...(target?.id ? {world:target.id,version:target.version} : {}),...extra};
@@ -75,12 +77,13 @@ function updateWorldControls() {
   document.getElementById("world-trash").disabled = !!worldPending || window.launcherCoreState?.corePhase !== "ready";
   document.getElementById("world-back").disabled = !!worldPending;
   worldList.setAttribute("aria-busy", String(!!worldPending));
-  for (const button of worldList.querySelectorAll("button")) button.disabled = !enabled || button.dataset.purgeBlocked === "true";
-  document.getElementById("world-empty-trash").disabled = !enabled || !worldSnapshot?.trash.length;
+  for (const button of worldList.querySelectorAll("button")) button.disabled = !worldCanOperate(button.dataset.worldOperation) || button.dataset.purgeBlocked === "true";
+  document.getElementById("world-empty-trash").disabled = !worldCanManageAll() || !worldSnapshot?.trash.length;
   const current = worldTarget && worldSnapshot && worldTarget.activeId === worldSnapshot.activeId && worldTarget.revision === worldSnapshot.revision;
-  worldName.disabled = worldDestination.disabled = document.getElementById("world-select-image").disabled = !enabled;
+  worldName.disabled = !enabled;
+  worldDestination.disabled = document.getElementById("world-select-image").disabled = !worldCanManageAll();
   const recover = worldTarget?.op === "recover";
-  worldConfirm.disabled = !current || (recover ? !!worldPending || window.launcherCoreState?.canRecoverWorlds !== true : !enabled) ||
+  worldConfirm.disabled = !current || (recover ? !!worldPending || window.launcherCoreState?.canRecoverWorlds !== true : !worldCanOperate(worldTarget?.op)) ||
     (worldTarget?.op === "rename" && !validWorldName(worldName.value)) || (worldTarget?.op === "icon" && worldSnapshot?.preview?.world !== worldTarget.id) ||
     (worldTarget?.op === "move" && !worldSnapshot.accounts.some(account => account.id === Number(worldDestination.value))) ||
     (worldTarget?.op === "restore" && (!worldTarget.accountAvailable || worldTarget.problem || worldTarget.status !== "deleted")) ||
@@ -152,7 +155,7 @@ function renderWorlds() {
   updateWorldControls();
 }
 function openWorldDialog(op, world, opener = document.activeElement) {
-  if (op === "recover" ? !worldSnapshot?.recoveryRequired || worldPending : !worldCanEdit()) return;
+  if (op === "recover" ? !worldSnapshot?.recoveryRequired || worldPending || window.launcherCoreState?.canRecoverWorlds !== true : !worldCanOperate(op)) return;
   worldTarget = {...world,op,activeId:worldSnapshot.activeId,revision:worldSnapshot.revision}; worldFocus = opener;
   LauncherI18n.bind(document.getElementById("world-dialog-title"), "textContent", () => ({get rename() { return LauncherI18n.t("Rename World"); },get icon() { return LauncherI18n.t("Change Icon"); },get move() { return LauncherI18n.t("Move World"); },get recover() { return LauncherI18n.t("World recovery"); },get delete() { return LauncherI18n.t("Delete World"); },get restore() { return LauncherI18n.t("Restore World"); },get purge() { return LauncherI18n.t("Delete Permanently"); }, get "empty-trash"() { return LauncherI18n.t("Empty Trash"); }}[op]));
   LauncherI18n.bind(document.getElementById("world-dialog-description"), "textContent", () => (op === "recover" ? LauncherI18n.t("Compare backups with current files and restore the previous state. Stop without changes if they do not match.") : op === "move" ? LauncherI18n.t("Move only this world to the selected account. Existing destination worlds are preserved.") : op === "delete" ? LauncherI18n.t("Remove this world from the game list. Its body and .ext are stored in Trash and can be restored to the original account.") : op === "restore" ? LauncherI18n.t("Restore to the original account. Existing worlds are not overwritten.") : ""));
@@ -270,7 +273,7 @@ function updateWorldView() {
   if (!visible) { worldVisible = false; if (!worldPending) { if (worldDialog.open) worldDialog.close(); if (worldImportDialog.open) worldImportDialog.close(); } return; }
   updateWorldControls();
   if (window.launcherCoreState?.phase === "unavailable") { LauncherI18n.bind(document.getElementById("world-notice"), "textContent", () => (LauncherI18n.t("Connect to Core to view worlds."))); return; }
-  if ((!worldVisible || worldDirty) && !worldPending && !worldDialog.open && !worldImportDialog.open && window.launcherCoreState?.canRecoverWorlds === true) { worldVisible = true; worldDirty = false; sendWorld(worldView === "trash" ? "trash-list" : "list",{op:worldView === "trash" ? "trash-list" : "list"}); }
+  if ((!worldVisible || worldDirty) && !worldPending && !worldDialog.open && !worldImportDialog.open && (window.launcherCoreState?.canEditWorlds === true || window.launcherCoreState?.canRecoverWorlds === true)) { worldVisible = true; worldDirty = false; sendWorld(worldView === "trash" ? "trash-list" : "list",{op:worldView === "trash" ? "trash-list" : "list"}); }
 }
 window.updateWorldView = updateWorldView;
 worldList.addEventListener("click", event => {
@@ -287,7 +290,7 @@ document.getElementById("world-trash").addEventListener("click", () => { worldVi
 document.getElementById("world-back").addEventListener("click", () => { worldView = "worlds"; renderWorlds(); sendWorld("list",{op:"list"}); document.getElementById("world-trash").focus(); });
 document.getElementById("world-empty-trash").addEventListener("click", () => openWorldDialog("empty-trash"));
 document.getElementById("world-recover").addEventListener("click", () => openWorldDialog("recover"));
-document.getElementById("world-select-image").addEventListener("click", () => { if (worldCanEdit()) sendWorld("preview",worldPayload("preview"),true); });
+document.getElementById("world-select-image").addEventListener("click", () => { if (worldCanManageAll()) sendWorld("preview",worldPayload("preview"),true); });
 document.getElementById("world-cancel").addEventListener("click", () => { if (!worldPending) worldDialog.close(); });
 worldDialog.addEventListener("cancel", event => { if (worldPending) event.preventDefault(); });
 worldDialog.addEventListener("close", () => {
@@ -358,9 +361,12 @@ window.addEventListener("launcher-account-result", event => {
     if (!worldPending) { if (worldDialog.open) worldDialog.close(); if (worldImportDialog.open) worldImportDialog.close(); } worldSnapshot = null; worldVisible = false; renderWorlds(); updateWorldView();
   }
 });
-let worldManagerGeneration;
+let worldManagerGeneration, worldEditingAllowed = false;
 window.addEventListener("launcher-core-state", () => {
   const generation = window.launcherCoreState?.managerGeneration;
+  const canEdit = window.launcherCoreState?.canEditWorlds === true;
+  if (canEdit && !worldEditingAllowed) worldDirty = true;
+  worldEditingAllowed = canEdit;
   if (generation !== worldManagerGeneration) {
     worldManagerGeneration = generation; worldPending = 0; worldPendingOp = ""; worldSnapshot = null; worldTarget = null; worldImportTarget = null; worldVisible = false;
     clearTimeout(worldImportNameTimer); worldDialog.close(); worldImportDialog.close(); renderWorlds();

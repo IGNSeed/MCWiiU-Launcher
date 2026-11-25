@@ -24,6 +24,7 @@ public:
 		uint64_t accountRevision;
 		bool canEdit;
 		std::vector<Account> accounts;
+		bool canManageAll = false; // 移動・既存アイコン変更・復旧・Trash 編集は Ready 時だけ許可する。
 	};
 	WorldService(std::filesystem::path configRoot, std::filesystem::path saveRoot, uint64_t titleId = 0x00050000101dbe00ULL, uint64_t initialRevision = 1);
 	~WorldService();

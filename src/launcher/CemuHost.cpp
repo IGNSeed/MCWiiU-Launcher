@@ -337,9 +337,18 @@ namespace
 		{
 			return CanEditWorldsLocked() && (!worlds || worlds->IsHealthy()) && (!textures || textures->IsHealthy()) && (!graphicPacks || graphicPacks->IsHealthy());
 		}
+		bool CanAccessWorldDataLocked() const
+		{
+			return !launcherUpdate && !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && !stop && !titleStop && !stopped && !failed && !miiInitializing && !miiRestartRequired && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+		}
 		bool CanEditWorldsLocked() const
 		{
-			return !launcherUpdate && !installationBusy && !graphicPackBusy && !textureBusy && !openingWorldFolder && corePhase == "ready" && phase == "ready" && !launch && !stop && !titleStop && !stopped && !failed && !miiRestartRequired && !confirmationId && (!input || input->IsHealthy()) && (!av || av->IsHealthy()) && (!accounts || (accounts->IsHealthy() && !accounts->IsTesting()));
+			return CanAccessWorldDataLocked() && phase == "ready" && !launch;
+		}
+		bool CanManageWorldsLocked() const
+		{
+			// launch は通常実行中も true。起動・停止途中と Mii 初期化は許可しない。
+			return CanAccessWorldDataLocked() && ((phase == "ready" && !launch) || (phase == "running" && titlePhase == "running" && titleRunning && launch));
 		}
 		bool RegionManagersAvailable() const
 		{
@@ -381,7 +390,7 @@ namespace
 		}
 		WorldService::Context WorldContext() const
 		{
-			WorldService::Context result{ActiveSettings::GetPersistentId(), accounts->Revision(), CanEditWorldsLocked() && RegionManagersAvailable(), {}};
+			WorldService::Context result{ActiveSettings::GetPersistentId(), accounts->Revision(), CanManageWorldsLocked() && RegionManagersAvailable(), {}, CanEditWorldsLocked() && RegionManagersAvailable()};
 			for (const auto& account : Account::GetAccounts())
 				result.accounts.push_back({account.GetPersistentId(), boost::nowide::narrow(account.GetMiiName().data(), account.GetMiiName().size())});
 			return result;
@@ -424,7 +433,7 @@ namespace
 				writer.Key("stopConfirmationId"); writer.Uint64(confirmationId);
 				writer.Key("stopConfirmationSessionId"); writer.Uint64(confirmationSession);
 				writer.Key("canEditAccounts"); writer.Bool(CanEditSettingsLocked() && accounts != nullptr);
-				writer.Key("canEditWorlds"); writer.Bool(RegionManagersAvailable() && CanEditSettingsLocked() && worlds != nullptr);
+				writer.Key("canEditWorlds"); writer.Bool(RegionManagersAvailable() && CanManageWorldsLocked() && worlds && worlds->IsHealthy() && (!textures || textures->IsHealthy()) && (!graphicPacks || graphicPacks->IsHealthy()));
 				writer.Key("canRecoverWorlds"); writer.Bool(RegionManagersAvailable() && CanEditWorldsLocked() && worlds != nullptr);
 				writer.Key("canEditTextures"); writer.Bool(RegionManagersAvailable() && CanEditWorldsLocked() && textures && (!worlds || worlds->IsHealthy()));
 				writer.Key("canAcknowledgeTextureWarnings"); writer.Bool(CanAcknowledgeTexturesLocked());
@@ -1601,7 +1610,7 @@ std::string CemuHost::SynchronizeUi(bool full)
 		state.graphicPackReloadPending = false; ++state.graphicPackRevision;
 	}
 	if (state.textureMonitor.Poll(!state.installationBusy && !state.textureBusy)) ++state.textureRevision;
-	if (state.worldMonitor.Poll(idle)) ++state.worldRevision;
+	if (state.worldMonitor.Poll(state.CanManageWorldsLocked() && state.RegionManagersAvailable())) ++state.worldRevision;
 	const bool synchronizing = state.graphicPackMonitor.HasPending() || state.graphicPackReloadPending;
 	if (synchronizing != state.graphicPackSynchronizing)
 	{
@@ -1644,7 +1653,7 @@ std::string CemuHost::OpenWorldFolder(uint64_t requestId, std::string_view paylo
 	if (std::chrono::steady_clock::now() < state.nextWorldFolderOpen) return "{\"notice\":\"folder-open-busy\"}";
 	return state.worlds->OpenFolder(payload, state.WorldContext(), [&](const fs::path& folder) {
 		state.openingWorldFolder = true; state.nextWorldFolderOpen = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-		// Shell の COM 呼出し中は Core のロックを外し、起動・Account 変更は Ready gate で止める。
+		// Shell の COM 呼出し中は Core のロックを外し、競合操作は openingWorldFolder で止める。
 		statusLock.unlock(); workLock.unlock();
 		bool opened = false;
 		try { opened = open && open(folder.native()); } catch (...) {}

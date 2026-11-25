@@ -1098,8 +1098,11 @@ std::string WorldService::Command(std::string_view payload, const Context& conte
 	try
 	{
 		DirectoryGuard configGuard(state.config), saveGuard(state.save);
-		state.healthy = IsHealthy(); state.Scan(context);
 		const auto json = Json(payload); Require(json.HasMember("op"), "invalid-request"); const auto op = String(json["op"]);
+		// 実行中に許可する操作を限定し、既存の特殊操作の制限を維持する。
+		static const std::set<std::string> liveOperations{"list", "trash-list", "begin-import", "name-import", "clear-import-metadata", "import", "clear-import", "rename", "delete"};
+		Require(context.canEdit && (context.canManageAll || liveOperations.contains(op)), "not-ready");
+		state.healthy = IsHealthy(); state.Scan(context);
 		if (op == "list" || op == "trash-list") { Require(json.MemberCount() == 1, "invalid-request"); if (op == "trash-list") state.ScanTrash(); if (state.healthy) state.notice = "ready"; }
 		else if (op == "recover")
 		{
@@ -1193,6 +1196,7 @@ std::string WorldService::PreviewImage(std::string_view payload, const fs::path&
 	try
 	{
 		DirectoryGuard configGuard(state.config), saveGuard(state.save);
+		Require(context.canManageAll, "not-ready");
 		state.healthy = IsHealthy(); state.Scan(context); const auto json = Json(payload); const auto id = state.Validate(json, context);
 		Require(json.MemberCount() == 5 && json.HasMember("op") && String(json["op"]) == "preview", "invalid-request");
 		state.preview.clear(); state.previewToken.clear();
