@@ -12,7 +12,7 @@ MCWiiU Launcher は [cemu-project/Cemu](https://github.com/cemu-project/Cemu) �
 
 Phase 13 のローカル Native パッケージでは **125件の原文通知**と `license-inventory.json` を採取しました。生成工程は [LauncherLicenses.cmake](../src/launcher/LauncherLicenses.cmake) と [installer](../src/launcher/installer/PreparePackage.ps1) です。件数は現行依存集合の検証結果であり、将来版の固定件数ではありません。
 
-ビルドの `bin/licenses/`、ZIP の `licenses/`、導入先の `versions/<版>/licenses/` に原文を置く方式です。同階層の `license-inventory.json` が component、元 source の相対パスと SHA-256、通知ファイルのパスと SHA-256 を対応付けます。欠落・改変した通知を文章の要約で置き換えず、パッケージ生成を停止します。現時点では一般公開パッケージはありません。
+ビルドの `bin/licenses/`、ZIP の `licenses/`、導入先の `versions/<版>/licenses/` に原文を置く方式です。同階層の `license-inventory.json` が component、元 source の相対パスと SHA-256、通知ファイルのパスと SHA-256 を対応付けます。欠落・改変した通知を文章の要約で置き換えず、パッケージ生成を停止します。v0.4.3の正式ZIPにも原文通知とinventoryを含め、元ファイルと個別SHA-256を照合しています。
 
 | 依存物 | 原文通知（`licenses/` 内）・対応 |
 |---|---|
@@ -34,9 +34,7 @@ vcpkg port の再利用元表示は source 内の `LICENSE-vcpkg.txt` も維持�
 
 ## 対応ソースの入手
 
-開発ソースは [IGNSeed/MCWiiU-Launcher](https://github.com/IGNSeed/MCWiiU-Launcher) で公開しています。**まだ正式な Release Tag はありません。** 将来の配布では、Release 説明にビルドした正確な Commit SHA、同 SHA の source archive、submodule の revision と取得先、ビルド条件を明記し、実際のバイナリと対応付ける運用が必要です。
-
-受領者はその配布 Commit をチェックアウトし、`git submodule update --init --recursive` で対応する依存物を取得する方式です。動く main へのリンクだけを配布バイナリの対応ソースとしません。現行のキャッシュ再利用ビルドは保護対象の未公開 wx 差分と旧 revision 表示を含むため、そのまま正式配布用の source 対応が成立したとはいえません。クリーン候補での最終照合が残っています。
+v0.4.3の対応ソースは [Commit `3d9339b09fae4f587b12acb5fed8a8e0a679f9d3`](https://github.com/IGNSeed/MCWiiU-Launcher/tree/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3)、固定Tagは `v0.4.3` です。`git checkout 3d9339b09fae4f587b12acb5fed8a8e0a679f9d3` と `git submodule update --init --recursive` で対応するsubmoduleと取得先を復元します。[同CommitのBUILD](https://github.com/IGNSeed/MCWiiU-Launcher/blob/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3/BUILD.md)を参照してください。Release説明にも正確なCommitと入手方法を記載しています。最終配布はクリーンソース用キャッシュの入力と照合し、未公開wx差分と診断変更を含めていません。これは下記の素材許諾・契約・依存評価の未確認事項を解消したことを意味しません。
 
 ## SDK・ゲーム・素材の境界
 

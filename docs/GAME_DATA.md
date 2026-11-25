@@ -39,7 +39,7 @@ Game Data の導入画面は WUD / WUX / WUA、暗号化済み配布形式、ゲ
 
 ## 初回Miiデータベースの自動初期化
 
-v0.4.2のNative版は、検証済みRPX identityの**JPN v560**に限り、HDB / ODB不足時に一度の`PLAY`でMii DBを初期化します。ご自身が所有する`FFLResMiddle.dat`・`FFLResHigh.dat`とAccountが管理MLC内に必要です。これらやMii Makerを生成・配布・他環境から自動コピーする機能はありません。USA / EURの自動初期化は未対応で、不足時は安全に停止します。
+v0.4.3のNative版は、検証済みRPX identityの**JPN v560**に限り、HDB / ODB不足時に一度の`PLAY`でMii DBを初期化します。ご自身が所有する`FFLResMiddle.dat`・`FFLResHigh.dat`とAccountが管理MLC内に必要です。これらやMii Makerを生成・配布・他環境から自動コピーする機能はありません。USA / EURの自動初期化は未対応で、不足時は安全に停止します。
 
 Launcherに初期化の進行状況が表示されます。独立した作業MLCでゲームの正規FFL処理を実行し、確認済みの完了境界で専用セッションを正常停止します。HDB / ODB / ODB_OLDのヘッダー・完全長・CRCを検証し、元から存在した正常DBが不変であることを確認してから、不足分だけを正式MLCへ追加します。同じPLAYでMinecraftを通常起動します。正常なHDB / ODBがある通常起動では初期化を繰り返しません。既存の破損ファイルは不足扱いにせず保持します。
 
@@ -68,3 +68,7 @@ Launcherに初期化の進行状況が表示されます。独立した作業MLC
 `AlreadyInstalled` は再インストール操作を使用、`UnsupportedVersion` は Update v560 を確認、`RegionMismatch` は BASE/Update の地域を確認します。空き容量不足やアクセス拒否では、原本を保持して容量・権限・使用中のアプリを確認します。
 
 中断時は操作記録を照合して復旧します。`RecoveryRequired` または「復旧が必要です」と表示されたら、既存データと操作記録を削除せず保全し、Launcher を正常終了して状況を記録してください。無条件の再試行、ジャーナル削除、セーブ削除はしません。詳細は[TROUBLESHOOTING](TROUBLESHOOTING.md)を参照してください。
+
+## ゲーム実行中の World 管理
+
+v0.4.3ではWorld一覧・更新・フォルダを開く・インポート・名前変更・Trashへの削除がゲーム実行中も可能です。Worldファイル、Metadata、Trash、Backup、Transactionの保存形式はv0.4.2と同じです。保存中の読み込み済みワールドを変更・削除する安全性までは保証しません。[操作条件](FEATURES.md#world)を確認し、大切なセーブをバックアップしてください。

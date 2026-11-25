@@ -7,7 +7,7 @@
 <p align="center">在一个启动器中畅玩 Minecraft: Wii U Edition。</p>
 
 <p align="center">
-  <strong>0.4.2 Stable — 已发布</strong><br>
+  <strong>0.4.3 Stable — 已发布</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,11 +27,11 @@ MCWiiU Launcher 是一款基于 Cemu 的非官方启动器，用于在 Windows P
 
 ## 发布情况
 
-新增 JPN v560 首次运行时的 Mii 数据库自动初始化。一次 `PLAY` 即可生成并验证缺失的 DB，正常停止初始化会话后启动 Minecraft。完成后的工作 MLC 副本会在核对所有权及文件 ID 后清理。保留现有 DB、Account 和存档，不覆盖损坏的 DB。需要已验证的 RPX identity 以及您自己拥有的 FFL 资源。暂不支持 USA / EUR 的 Mii 自动初始化。 [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)
+v0.4.3 改善退出按钮闪烁，提供黑白软件键盘、物理键盘输入、Windows 日语 IME、Unicode 显示和文字居中。仅隐藏着色器进度 UI，保留缓存与编译。减少重复 DOM/IPC、游戏隐藏时的主机渲染和 Vulkan 提交，并优化 Windows Native Vulkan 的 CPU 等待。游戏运行时可查看/刷新 World 列表、打开文件夹、导入、改名及移至 Trash。不保证在保存过程中修改或删除当前已加载世界的安全性。保留现有 JPN Mii 初始化；OpenGL 游戏运行期间 Launcher 动画流畅度下降仍未修复。 [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-win-x64.zip)
 
-**[0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) 已发布。** Foundation 为 **1.0.2**，Updater Protocol 为 **2**。[下载 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe)。
+**[0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) 已发布。** Foundation 为 **1.0.2**，Updater Protocol 为 **2**。[下载 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe)。
 
-发布二进制文件对应的源代码 Commit：[c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca)。
+发布二进制文件对应的源代码 Commit：[3d9339b09fae4f587b12acb5fed8a8e0a679f9d3](https://github.com/IGNSeed/MCWiiU-Launcher/commit/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3)。
 
 已内置生产环境 Ed25519 公钥，并验证了签名 Manifest、分发文件的完整性和公开下载。图片再分发许可、许可证与对应源代码的未确认事项、依赖库的剩余漏洞，以及全新 Windows 10 / 11 环境中的全面验收仍未完成。
 
@@ -63,7 +63,7 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 ## 安装
 
 1. 阅读 [INSTALLATION](../docs/INSTALLATION.md)，了解环境要求和安全检查。
-2. 请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
+2. 请从官方 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) 获取 Setup 并选择安装目录。Setup **不使用 Authenticode 签名**。请按照指南独立核实分发来源和文件完整性。
 3. 运行 `MCWiiU-Launcher.exe`（Bootstrapper），安装自有游戏数据，然后在 Home 中选择 `PLAY`。程序本体为 `MCWiiU Launcher.exe`，更新程序为 `MCWiiU-Updater.exe`。
 
 从旧开发版本自动迁移不在正式支持范围内。卸载和数据保留方式也请参阅安装指南。
@@ -76,7 +76,7 @@ Windows 10 的常规支持已于 **2025-10-14 结束**。列为目标 OS 不代�
 
 ## 更新
 
-常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。**已内置生产环境公钥。已验证 0.4.1 → 0.4.2 的签名、设置兼容性及公开 Asset 对应关系；尚未执行完整的实际自动更新测试。**
+常规 Launcher 更新会在用户批准后应用带签名的 ZIP，并验证 Ed25519、SHA-256、GitHub Asset 的对应关系和文件清单。若 30 秒 Readiness 检查失败，Rollback 会返回可验证的旧版本。用户已确认实际 v0.4.1 → v0.4.2 更新成功。v0.4.2 → v0.4.3 已验证生产签名、旧版实际解析器、设置/World 格式及公开 Asset。由于没有安全隔离的 Windows 用户配置，实际 Updater 应用与 Readiness 全流程为 **NOT RUN**。保留 Foundation 1.0.2 / Protocol 2，无需手动更新 Foundation。
 
 Foundation 采用**手动 Setup 更新**，与常规 Launcher 更新分开进行。详情和恢复方式见 [UPDATING](../docs/UPDATING.md)。
 

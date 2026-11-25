@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition, together in one launcher.</p>
 
 <p align="center">
-  <strong>0.4.2 Stable — Released</strong><br>
+  <strong>0.4.3 Stable — Released</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,11 +27,11 @@ MCWiiU Launcher is an unofficial, Cemu-based launcher for Minecraft: Wii U Editi
 
 ## Release status
 
-Added first-run Mii database initialization for JPN v560. One `PLAY` generates and validates missing databases, stops the initialization session normally, then starts Minecraft. Completed working MLC copies are cleaned after checking ownership and file identities. Existing databases, accounts and saves are preserved; corrupt databases are never overwritten. The verified RPX identity and your own FFL resources are required. Mii auto-initialization for USA / EUR is not supported. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)
+v0.4.3 improves exit-button stability and adds a black-and-white software keyboard with physical keyboard input, Windows Japanese IME, Unicode rendering and centered text. Shader progress UI is hidden while caching/compilation remain enabled. Duplicate DOM/IPC work, hidden-game rendering and Vulkan submissions are reduced; Windows Native Vulkan uses a CPU-saving hybrid wait. While playing, list/refresh worlds, open their folder, import, rename and move them to Trash. Modifying/deleting a loaded world while it is being saved is not guaranteed safe. Existing JPN Mii initialization remains. Reduced launcher-animation smoothness during OpenGL gameplay is unresolved. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-win-x64.zip)
 
-**[0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) is available.** Foundation **1.0.2**, Updater Protocol **2**. [Download Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe).
+**[0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) is available.** Foundation **1.0.2**, Updater Protocol **2**. [Download Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe).
 
-Release binary source commit: [c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca).
+Release binary source commit: [3d9339b09fae4f587b12acb5fed8a8e0a679f9d3](https://github.com/IGNSeed/MCWiiU-Launcher/commit/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3).
 
 The production Ed25519 public key is embedded; signed manifest integrity and public downloads have been verified. Image redistribution rights, open license and corresponding-source checks, remaining dependency vulnerabilities, and full acceptance on clean Windows 10 / 11 systems remain incomplete.
 
@@ -63,7 +63,7 @@ Acceptance so far has mainly used one Windows 11 development host, an isolated, 
 ## Installation
 
 1. Read [INSTALLATION](../docs/INSTALLATION.md) for requirements and safety checks.
-2. Obtain Setup from the official [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) and choose an installation directory. Setup **does not use Authenticode signing**. Follow the guide's independent source and integrity checks.
+2. Obtain Setup from the official [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) and choose an installation directory. Setup **does not use Authenticode signing**. Follow the guide's independent source and integrity checks.
 3. Start `MCWiiU-Launcher.exe` (Bootstrapper), install your own game data, and select `PLAY` on Home. The application is `MCWiiU Launcher.exe`; the updater is `MCWiiU-Updater.exe`.
 
 Automatic migration from older development builds is not officially supported. The installation guide also covers uninstalling and data retention.
@@ -76,7 +76,7 @@ Use Update **v560** from the same region as BASE. DLC is optional. [GAME_DATA](.
 
 ## Updates
 
-Normal Launcher updates apply a signed ZIP after user approval. Verification covers Ed25519, SHA-256, GitHub Asset binding and the file inventory. If the 30-second Readiness check fails, Rollback returns to a verifiable previous version. **The production public key is embedded. Signatures, preferences compatibility and public asset binding for 0.4.1 → 0.4.2 are verified; an end-to-end automatic update has not been run.**
+Normal Launcher updates apply a signed ZIP after user approval. Verification covers Ed25519, SHA-256, GitHub Asset binding and the file inventory. If the 30-second Readiness check fails, Rollback returns to a verifiable previous version. The user confirmed a real v0.4.1 → v0.4.2 update. For v0.4.2 → v0.4.3, production signatures, the actual old parser, settings/World formats and public assets were verified. End-to-end updater application/readiness is **NOT RUN** because no safely isolated Windows profile is available. Foundation 1.0.2 / Protocol 2 remain; no manual Foundation update is required.
 
 Foundation uses a **manual Setup update**, separate from normal Launcher updates. See [UPDATING](../docs/UPDATING.md) for details and recovery.
 

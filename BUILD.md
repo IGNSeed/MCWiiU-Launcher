@@ -2,11 +2,13 @@
 
 [README](README.md) / [貢献方法](CONTRIBUTING.md) / [第三者通知](docs/THIRD_PARTY_NOTICES.md)
 
-対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.2 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
+対象は Windows 10 / 11 x64、MSVC、Ninja の Release ビルドです。Launcher は C++23、Cemu Core は C++20 です。Launcher 0.4.3 / Foundation 1.0.2 / Updater Protocol 2 を使用します。Linux・macOS・FreeBSD 向け Cemu の構成はこの Launcher の対応手順ではありません。上流については [Cemu](https://github.com/cemu-project/Cemu) を参照してください。
 
 **検証範囲:** Phase 15A では、Commit `b54cc33ce8fb07adaf2d428cc37173af9e678ce2` と再帰 submodule を固定した隔離 checkout で Native / Standalone Release を構築しました。既存 CMakeCache・オブジェクト・PDB・ビルド済み依存ライブラリを使わず、依存もソースから再構築し、成果物の版・アイコン・原文通知・SHA-256 を照合しています。未公開 wx 差分は含めていません。同一開発ホストでのクリーンビルド確認です。別 PC での再現と bit 単位の同一性は未確認です。v0.4.1 は同キャッシュで Native を増分ビルドし、署名・bundle・公開ダウンロードを検証しました。別 Windows プロファイルでの実インストールと自動更新の通し試験は未実施です。
 
 v0.4.2は同じ依存・増分キャッシュを使用し、最新のCore・frontend・Cleanup実装をNative Releaseへ含めました。既存の未公開wx差分は除外しています。最終Native / SigningToolビルドとSetupビルドの終了コードは0です。JPN初回・2回目のタイトルメニュー起動と作業MLC整理をOpenGL / Vulkanで確認しました。全面ゲーム回帰・別GPU / OS・実インストール・実自動更新全工程はNOT RUNです。
+
+v0.4.3は既存クリーンソース用ReleaseキャッシュでPhase 22〜26とLauncher版更新を構築しました。配布ソースCommit `3d9339b09fae4f587b12acb5fed8a8e0a679f9d3` をrevisionへ明示し、保護対象wx差分・診断コードを除外しています。Native Core ON / JPN Mii ON / Developer Diagnostics OFF、既存最適化・本番公開鍵を維持します。長時間性能matrixは過去Phaseの証跡を再利用し、最終Releaseオブジェクトを使う隔離スモークを別途確認しました。実Updater・実Setup導入全工程はNOT RUNです。
 
 ## 開発環境
 
@@ -31,7 +33,7 @@ cd MCWiiU-Launcher
 git submodule update --init --recursive
 ```
 
-v0.4.2 の正式 Release Tag は `v0.4.2`、配布ソース Commit は `c758cb39180ff28311638315ffa90b80994b0bca` です。配布物を再現する場合はこの Commit と対応 submodule を使用します。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
+v0.4.3 の正式 Release Tag は `v0.4.3`、配布ソース Commit は `3d9339b09fae4f587b12acb5fed8a8e0a679f9d3` です。配布物を再現する場合はこの Commit と対応 submodule を使用します。指定された Cemu fork 基点は `3f8dd913cfd4c8247ad65ab41ba6ef0a55926769` で、現在の Launcher の HEAD を意味する値ではありません。
 
 Discord SDK は [Discord Developer Portal](https://discord.com/developers/applications) で認可されたアプリの Social SDK ダウンロードから取得します。リポジトリへ SDK をコピー・Commit しないでください。既定のローカル配置先は `.local/dependencies/discord-social-sdk`。別配置は `MCWIIU_DISCORD_SDK_ROOT` と `MCWIIU_DISCORD_SDK_NOTICES` で指定できます。
 
@@ -79,7 +81,7 @@ Core の現行 CMake は libusb 検出に `vcpkg_installed/x64-windows/tools/pkg
 
 ## パッケージと署名
 
-以下は既存実装と Phase 13 の隔離試験に基づく工程です。本番鍵が未生成・公開鍵が未設定なので、**現状で正式 Setup を生成・配布できる手順ではありません**。ここでは本番鍵生成、Release / Draft / Tag 作成、アップロード、workflow 実行を行いません。
+以下は既存の署名済みStable配布で使用する工程です。本番公開鍵は組込み済みです。既存の暗号化された本番鍵を管理環境で使用し、ユーザーがOpenSSLの対話promptへパスフレーズを入力します。鍵・パスフレーズは引数・ログ・公開Gitへ保存しません。
 
 | 順序 | 実在するツール・入力・出力 |
 |---|---|
@@ -93,7 +95,7 @@ Core の現行 CMake は libusb 検出に `vcpkg_installed/x64-windows/tools/pkg
 
 `installer/` は [src/launcher/installer](src/launcher/installer/PreparePackage.ps1) の略です。実パラメーターは各スクリプトの `param` を参照してください。出力は workspace の `.local/` 内の新しいディレクトリに限定します。署名後の ZIP/Manifest は変更せず、変更が必要なら新規取引として再準備・再署名します。
 
-鍵の入力欄は構文説明用で、本番秘密鍵の実体・保存先は記載していません。署名は認可された管理環境でのみ行い、秘密値をソース・コマンド履歴・ログへ貼り付けないでください。将来の本番鍵導入は別工程です。
+鍵の入力欄は構文説明用で、本番秘密鍵の実体・保存先は記載していません。署名は認可された管理環境でのみ行い、秘密値をソース・コマンド履歴・ログへ貼り付けないでください。新しい鍵の生成・置換は通常リリースの工程に含めません。
 
 既存の署名ツールには読み取りの `identity`、`fingerprint <公開鍵>`、`verify-manifest <公開鍵> <Manifest> <署名>`、`verify-foundation`、`verify-bundle <公開鍵> <bundle> <bin>` があります。本番生成コマンドをこの文書の確認目的で実行しないでください。Setup は Authenticode 署名を使わない方針です。
 

@@ -15,6 +15,10 @@ JPN v560の対応RPXでは、必要なFFLリソースがあれば初回の`PLAY`
 - ゲーム中に管理画面を開いた場合は `ゲームに戻る` で戻れます。
 - Launcher 右上の閉じる操作は、必要な確認とゲーム・保存・管理処理の正常終了を経て終了します。タスクの強制終了を通常の終了手順にしないでください。
 
+## Software Keyboard・ゲーム表示
+
+黒・白基調の入力画面で物理キーボードとWindows日本語IMEを使用できます。Unicodeと日本語表示を扱い、入力文字を上下左右中央に配置します。IME変換中のEnter / EscapeはIMEへ渡します。右上終了ボタンの表示順更新を整理し、シェーダー・パイプラインの進捗と件数UIは非表示にしました。Shader Cacheとコンパイル処理は維持します。
+
 ## Settings → Game Data / Account
 
 Game Data は独立したサイドバーページではなく、Settings のタブです。[BASE・Update・DLC の導入と管理](GAME_DATA.md)を参照してください。
@@ -34,6 +38,8 @@ Account も Settings のタブです。`Active Account` で利用する Account 
 Account と選択サービスの準備・接続が必要です。未接続・Offline・準備不足では状態を表示して操作を制限します。Friends 管理の実装は、すべてのサーバーでのオンライン動作や、ゲームへの招待・マルチプレイ成立の保証ではありません。実サービス全経路の受入は未完了です。
 
 ## World
+
+v0.4.3ではゲーム実行中も一覧の表示・更新、フォルダを開く、インポート、名前変更、Trashへの削除を利用できます。既存の検証・トランザクションを維持しますが、現在読み込んでいるワールドを保存中に変更・削除する操作の安全性までは保証しません。Account間移動・既存アイコン変更・復旧・Trash編集はゲーム停止後に行います。起動・停止途中、Mii初期化中、更新中、不正な管理状態では操作できません。
 
 Active Account のワールドを表示します。`Open World Folder` のフォルダアイコンで現在の保存先を開けます。
 
@@ -78,3 +84,7 @@ Warning の詳細を読み、実際に問題なく動くことを確認した場
 Discord Social SDK を通じて、閲覧ページ、`Playing Minecraft: Wii U Edition` / `In Game`、Launcher 開始時刻等の固定情報を通知します。Account の PNID、ワールド名、保存パスをこの Presence に入れる実装ではありません。[通信と保存](PRIVACY.md)も参照してください。
 
 Discord がない・終了している場合でも Launcher を利用できる設計で、既存の隔離試験で継続利用を確認しています。再接続時は現在の状態を再送します。Discord 側のアクティビティ共有設定によって表示は制限されます。SDK の成功応答だけでプロフィール上の表示成功とは判断していません。共有 ON での外観受入や異常終了後の表示消失時間は未完了です。
+
+## v0.4.3 の性能と検証範囲
+
+同値DOM更新とNative / WebView2の重複処理、非表示時のホスト描画、冗長なVulkan Queue Submissionを削減し、Windows Native VulkanのLatteThreadにHybrid Waitを導入しました。OpenGL実行中のLauncherアニメーション低下は未修正です。測定条件と制限は[CHANGELOG](../CHANGELOG.md)を参照してください。実オンライン・物理Controller・音声聴取・実表示フレームタイムは今回NOT RUNです。

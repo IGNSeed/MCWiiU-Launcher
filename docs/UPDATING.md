@@ -2,7 +2,13 @@
 
 [README](../README.md) / [インストール](INSTALLATION.md)
 
-**[0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) を公開し、本番署名・4ファイルの匿名ダウンロード・v0.4.1の実パーサーによるManifestと設定の互換性を確認済みです。** 実際の自動更新全工程はNOT RUNです。安全にKnown FolderとHKCUを隔離できるWindowsプロファイルがないため、正式インストール先での適用試験は行っていません。
+**[0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3)を公開しました。** 本番署名・4ファイルの匿名取得・v0.4.2の実UpdateSecurity / Manifest parser・公開Asset bindingを確認しました。実Updater適用・Readiness全工程は安全な隔離Windowsプロファイルがないため **NOT RUN** です。正式インストール先を無断で更新していません。
+
+## v0.4.2からv0.4.3への互換性
+
+Foundation **1.0.2** / Updater Protocol **2** / Manifest schema **2**を維持し、通常のLauncher更新として受理されます。Foundationの手動更新は不要です。Preferences schema 2、history / account / game_data schema 1、言語設定、起動時更新確認、Mii journal、World / Trash / Backup / Transaction、パック・入力・音声・描画設定とShader Cacheの形式・保存先を維持します。Worldの変更は操作許可の拡張で、保存処理はv0.4.2と同じです。旧実パーサーの設定読書き198件と形式のソース比較に基づき`rollback_safe=true`を維持しています。
+
+配布ソースCommit: `3d9339b09fae4f587b12acb5fed8a8e0a679f9d3`。Tag `v0.4.3`はこのCommitに固定し、文書更新では移動しません。ユーザーは実環境で **v0.4.1 → v0.4.2の実Updater更新成功** を確認済みです。以下の過去版の自動検証記録とは区別します。
 
 ## v0.4.1からv0.4.2への互換性
 
@@ -38,7 +44,7 @@ Foundation は固定入口の `MCWiiU-Launcher.exe`、`MCWiiU-Updater.exe` 等�
 
 通常 ZIP がより新しい Foundation を要求した場合、`FoundationRequired` の案内が出て、ボタンは `Open Official Releases` になります。ここで行うのは[正規 Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を開くことだけです。Foundation の自動ダウンロード・自動 Setup 実行は廃止されています。
 
-利用者が新しい Setup を取得・検証し、ゲームと Launcher を正常終了して、既存の導入先に明示的に実行します。[未署名 Setup の注意](INSTALLATION.md#windows-の警告と配布確認)を参照してください。[0.4.2 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe) を取得できます。
+利用者が新しい Setup を取得・検証し、ゲームと Launcher を正常終了して、既存の導入先に明示的に実行します。[未署名 Setup の注意](INSTALLATION.md#windows-の警告と配布確認)を参照してください。[0.4.3 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe) を取得できます。
 
 Phase 13 の手動 Foundation 更新は、既存インストールの current / previous Launcher とユーザーデータを保持し、基盤を更新してから通常 ZIP 更新を再開する設計です。対応する隔離試験を実施済みですが、旧開発版すべての移行を保証しません。Setup は稼働中・未完了 pending・不正な既存状態を拒否します。エラーがある場合に JSON を編集して続行しないでください。
 
@@ -48,7 +54,7 @@ Phase 13 の手動 Foundation 更新は、既存インストールの current / 
 
 | 状況 | 確認と対処 |
 |---|---|
-| 更新が見つからない | Stable のみが対象。現在版と Release の版を比較。同じ 0.4.2 への更新は発生しない |
+| 更新が見つからない | Stable のみが対象。現在版と Release の版を比較。同じ 0.4.3 への更新は発生しない |
 | ネットワークエラー | 接続、GitHub の到達性、プロキシ等を確認して再確認。認証情報をログへ載せない |
 | Manifest / 署名 / SHA-256 エラー | その更新を適用せず停止。正規配布元と対象版を確認し、エラーコードを記録。検証を迂回しない |
 | Foundation Version 不足 | 上記の手動 Setup 手順へ。版や Manifest の値を書き換えない |

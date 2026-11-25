@@ -1,10 +1,10 @@
 # セキュリティと配布確認
 
-MCWiiU Launcher は 2026-11-23 に [0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) を公開しました。本番 Ed25519 公開鍵を組込み済みです。旧開発版の自動移行は正式サポート外です。
+MCWiiU Launcher は 2026-11-25 に [0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) を公開しました。本番 Ed25519 公開鍵を組込み済みです。旧開発版の自動移行は正式サポート外です。
 
 ## 正規の配布元
 
-[IGNSeed/MCWiiU-Launcher の Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を確認してください。所有者・リポジトリ・対象版・ファイル名を照合し、第三者ミラーや広告を取り違えないでください。[正式 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe) を取得できます。
+[IGNSeed/MCWiiU-Launcher の Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases)を確認してください。所有者・リポジトリ・対象版・ファイル名を照合し、第三者ミラーや広告を取り違えないでください。[正式 Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe) を取得できます。
 
 Setup には **Authenticode 署名を使用しません**。Windows による発行元認証があるとは案内していません。SmartScreen / Smart App Control の警告やブロック時に、Windows のセキュリティ機能を無効化しないでください。判断できないファイルは実行を止めます。
 

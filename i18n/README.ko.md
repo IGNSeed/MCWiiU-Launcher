@@ -7,7 +7,7 @@
 <p align="center">Minecraft: Wii U Edition을 하나의 런처에서.</p>
 
 <p align="center">
-  <strong>0.4.2 Stable — 공개됨</strong><br>
+  <strong>0.4.3 Stable — 공개됨</strong><br>
   Windows 10 / 11 x64 · Cemu-based · Unofficial
 </p>
 
@@ -27,11 +27,11 @@ MCWiiU Launcher는 Windows PC에서 Minecraft: Wii U Edition **v560**을 플레�
 
 ## 출시 현황
 
-JPN v560의 최초 Mii 데이터베이스 자동 초기화를 지원합니다. 한 번의 `PLAY`로 누락된 DB를 생성·검증하고 초기화 세션을 정상 종료한 뒤 Minecraft를 시작합니다. 완료된 작업용 MLC는 소유 정보와 파일 ID를 확인한 후 정리합니다. 기존 DB·Account·세이브는 보존하며 손상된 DB는 덮어쓰지 않습니다. 검증된 RPX identity와 본인이 소유한 FFL 리소스가 필요합니다. USA / EUR의 Mii 자동 초기화는 지원하지 않습니다. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)
+v0.4.3은 종료 버튼 깜박임을 개선하고 흑백 소프트웨어 키보드, 물리 키보드 입력, Windows 일본어 IME, Unicode 표시와 중앙 정렬을 지원합니다. 셰이더 진행 UI만 숨기며 캐시와 컴파일은 유지합니다. 중복 DOM/IPC, 게임 비표시 렌더링, Vulkan 제출을 줄이고 Windows Native Vulkan의 CPU 대기를 개선했습니다. 게임 중에도 World 목록·새로 고침·폴더 열기·가져오기·이름 변경·Trash 삭제를 사용할 수 있습니다. 저장 중인 현재 월드의 변경·삭제 안전성은 보장하지 않습니다. 기존 JPN Mii 초기화는 유지합니다. OpenGL 게임 실행 중 Launcher 애니메이션 저하는 미해결입니다. [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-win-x64.zip)
 
-**[0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2)이 공개되었습니다.** Foundation **1.0.2**, Updater Protocol **2**입니다. [Setup 다운로드](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe).
+**[0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3)이 공개되었습니다.** Foundation **1.0.2**, Updater Protocol **2**입니다. [Setup 다운로드](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe).
 
-배포 바이너리의 소스 Commit: [c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca).
+배포 바이너리의 소스 Commit: [3d9339b09fae4f587b12acb5fed8a8e0a679f9d3](https://github.com/IGNSeed/MCWiiU-Launcher/commit/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3).
 
 실서비스용 Ed25519 공개 키가 포함되어 있으며, 서명된 Manifest와 배포 파일의 무결성 및 공개 다운로드를 확인했습니다. 이미지 재배포 허가, 라이선스와 대응 소스의 미확인 사항, 의존 라이브러리의 잔여 취약점, 깨끗한 Windows 10 / 11 환경에서의 전체 검증은 아직 완료되지 않았습니다.
 
@@ -63,7 +63,7 @@ Windows 10의 일반 지원은 **2025-10-14에 종료**되었습니다. 대상 O
 ## 설치
 
 1. [INSTALLATION](../docs/INSTALLATION.md)에서 요구 사항과 안전 확인 절차를 읽으세요.
-2. 공식 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2)에서 Setup을 받고 설치 경로를 선택하세요. Setup은 **Authenticode 서명을 사용하지 않습니다**. 가이드에 따라 배포 출처와 무결성을 독립적으로 확인하세요.
+2. 공식 [GitHub Releases](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3)에서 Setup을 받고 설치 경로를 선택하세요. Setup은 **Authenticode 서명을 사용하지 않습니다**. 가이드에 따라 배포 출처와 무결성을 독립적으로 확인하세요.
 3. `MCWiiU-Launcher.exe`(Bootstrapper)를 실행하고, 소유한 게임 데이터를 설치한 뒤 Home의 `PLAY`를 선택하세요. 본체 이름은 `MCWiiU Launcher.exe`, 업데이터는 `MCWiiU-Updater.exe`입니다.
 
 이전 개발 빌드에서의 자동 이전은 공식 지원 대상이 아닙니다. 제거 및 데이터 유지에 대해서도 설치 가이드를 참조하세요.
@@ -76,7 +76,7 @@ BASE와 같은 지역의 Update **v560**을 사용하세요. DLC는 선택 사�
 
 ## 업데이트
 
-일반 Launcher 업데이트는 사용자 승인 후 서명된 ZIP을 적용합니다. Ed25519, SHA-256, GitHub Asset의 대응 관계와 파일 목록을 검증합니다. 30초 Readiness 확인에 실패하면 검증 가능한 이전 버전으로 Rollback합니다. **실서비스용 공개 키가 포함되어 있습니다. 0.4.1 → 0.4.2의 서명·설정 호환성·공개 Asset 대응 관계는 확인했지만, 실제 자동 업데이트의 전체 과정은 아직 시험하지 않았습니다.**
+일반 Launcher 업데이트는 사용자 승인 후 서명된 ZIP을 적용합니다. Ed25519, SHA-256, GitHub Asset의 대응 관계와 파일 목록을 검증합니다. 30초 Readiness 확인에 실패하면 검증 가능한 이전 버전으로 Rollback합니다. 사용자는 실제 v0.4.1 → v0.4.2 업데이트 성공을 확인했습니다. v0.4.2 → v0.4.3의 프로덕션 서명, 실제 구버전 파서, 설정/World 형식, 공개 Asset을 검증했습니다. 안전하게 격리된 Windows 프로필이 없어 실제 Updater 적용·Readiness 전체 과정은 **NOT RUN**입니다. Foundation 1.0.2 / Protocol 2를 유지하며 수동 Foundation 업데이트는 필요하지 않습니다.
 
 Foundation은 **수동 Setup 업데이트**를 사용하며 일반 Launcher 업데이트와 별도입니다. 자세한 내용과 복구 방법은 [UPDATING](../docs/UPDATING.md)을 참조하세요.
 

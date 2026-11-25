@@ -2,6 +2,20 @@
 
 以下は Launcher 固有の変更履歴で、上流 Cemu のリリース履歴ではありません。
 
+## [0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3) — 2026-11-25
+
+Launcher 0.4.3 / Foundation 1.0.2 / Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-Setup-x64.exe) / [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.3/MCWiiU-Launcher-0.4.3-win-x64.zip)。配布ソースCommit: [3d9339b09fae4f587b12acb5fed8a8e0a679f9d3](https://github.com/IGNSeed/MCWiiU-Launcher/commit/3d9339b09fae4f587b12acb5fed8a8e0a679f9d3)。Tagは固定です。
+
+- 右上終了ボタンの表示順競合と点滅対策。Shader / Pipeline進捗・件数UIのみを非表示化し、Cacheとコンパイルを維持。
+- 黒白SWKBD、物理キーボード、Windows日本語IME、Unicodeと日本語表示、上下左右中央配置。
+- 重複DOM / Native-WebView2処理、非表示時のホスト描画、Vulkan Queue Submissionを削減。Windows Native VulkanのLatteThreadにHybrid Waitを導入。
+- ゲーム中もWorldの一覧・更新・フォルダを開く・インポート・名前変更・Trash削除を許可。既存の検証・保存形式を維持。読み込み済みワールドを保存中に変更・削除する安全性までは保証しません。
+- v0.4.2実Manifest parser、本番署名、設定とWorld形式、Rollback互換性を確認。Foundationの手動更新は不要です。ユーザーは以前のv0.4.1 → v0.4.2実Updater更新を確認済み。今回v0.4.2 → v0.4.3実Updater適用・ReadinessはNOT RUNです。
+
+Phase24 → Phase25 / NVIDIA Vulkan / 60FPS / VSync1でGPU worker CPU 100.102% → 13.848%（約86.2%削減）、Native CPU 325.569% → 234.716%（約27.9%削減）、Guest FPS 60.000 → 59.999。1論理CPU=100%で、v0.4.2 → v0.4.3全体の比較ではありません。Phase23 Input DOM約98.8%削減とPhase24 Queue Submission約14.3%削減も各条件での結果です。全環境の同率改善・最大throughputの確定20%以上改善を保証しません。実表示フレームタイムは未測定です。
+
+過去Phaseの隔離OpenGL / NVIDIA・Intel Vulkan、30/60/120FPS、長時間、IME、Mii、保存・再読込み、F10/F11、再PLAYと同期stressを再利用し、ユーザー自身のPhase22・Vulkanアニメーション・ゲーム中World管理の確認と区別しています。OpenGLアニメーション低下は未修正。JPN Mii自動初期化のidentity・所有FFL条件を維持しUSA/EURは未対応。実オンライン・物理Controller・音声聴取・実Setup導入・クリーンPC全面受入はNOT RUN。一部メモリ/Handle増加の帰属と旧F11試作失敗原因はPENDING。SetupはAuthenticode未署名。既存の素材許諾・ライセンス・依存評価の未確認事項は継続します。
+
 ## [0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2) — 2026-11-23
 
 Launcher 0.4.2 / Foundation 1.0.2 / Updater Protocol 2。[Setup](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-Setup-x64.exe) / [ZIP](https://github.com/IGNSeed/MCWiiU-Launcher/releases/download/v0.4.2/MCWiiU-Launcher-0.4.2-win-x64.zip)。配布ソースCommit: [c758cb39180ff28311638315ffa90b80994b0bca](https://github.com/IGNSeed/MCWiiU-Launcher/commit/c758cb39180ff28311638315ffa90b80994b0bca)。TagはこのCommitに固定しています。

@@ -8,7 +8,7 @@
 
 | 症状・表示 | 考えられる原因と確認 | 安全な対処 |
 |---|---|---|
-| Launcher が起動しない | 誤った EXE、Runtime 不足、破損した版、Windows によるブロック。配布元・実行した EXE・警告を確認 | スタートメニューか `MCWiiU-Launcher.exe` から起動。[導入ガイド](INSTALLATION.md)の Runtime・署名方針を確認。[v0.4.2 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.2)を取得できます |
+| Launcher が起動しない | 誤った EXE、Runtime 不足、破損した版、Windows によるブロック。配布元・実行した EXE・警告を確認 | スタートメニューか `MCWiiU-Launcher.exe` から起動。[導入ガイド](INSTALLATION.md)の Runtime・署名方針を確認。[v0.4.3 Stable](https://github.com/IGNSeed/MCWiiU-Launcher/releases/tag/v0.4.3)を取得できます |
 | `Install the Microsoft Edge WebView2 Evergreen Runtime before installing the launcher.` | Setup が Runtime の登録を確認できない | Microsoft 公式の Runtime 導入を確認して再試行。Edge 本体の有無とは区別 |
 | `Installation stopped. Close the launcher normally...` | 稼働中、未完了更新、安全でない配置先など | 通常終了後、専用導入先・未完了状態を確認。ジャーナルを消して強行しない |
 | `The signed program bundle could not be verified. Nothing will be installed.` | 改変・破損・誤った署名/入力など | 実行を止め、配布元・ファイルを確認。本番署名の検証失敗を迂回しない |
@@ -56,3 +56,7 @@
 - `%LOCALAPPDATA%\MCWiiU-Launcher\Logs` 等の該当部分を、自身で内容を確認・伏字化した抜粋。
 
 ユーザー名を含むパス、メール、PNID・Account ID、IP、認証 Cookie/Token、秘密鍵、ゲーム鍵、Account 原本、MLC・セーブ全体、ゲームファイルは添付しないでください。ログは完全に匿名化されているとは保証していません。伏字化できない場合は公開添付を止め、セキュリティ問題は[SECURITY](../SECURITY.md)を確認してください。
+
+## v0.4.3 の表示と性能
+
+SWKBDは物理キーボードとWindows日本語IMEに対応します。シェーダー進捗・件数の表示は非表示ですが、Cacheとコンパイル処理は継続します。OpenGL実行中のLauncherアニメーション低下は未修正です。CPU待機改善はWindows Native Vulkan限定です。実表示フレームタイムは未測定で、全環境で同じ性能改善を保証しません。
