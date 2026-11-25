@@ -3165,7 +3165,11 @@ void VulkanBenchmarkPrintResults();
 void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 {
 	const auto frameCommandBuffer = GetCurrentCommandBufferId();
-	SubmitCommandBuffer();
+	// 取得済みの TV image は SwapBuffer 内の signal 付き提出へまとめる。
+	// image 未取得・非表示の経路では従来どおり Guest command を先に提出する。
+	const bool hasTVImage = swapTV && IsSwapchainInfoValid(true) && GetChainInfo(true).swapchainImageIndex != -1;
+	if (!hasTVImage)
+		SubmitCommandBuffer();
 
 	if (swapTV && IsSwapchainInfoValid(true))
 	{
