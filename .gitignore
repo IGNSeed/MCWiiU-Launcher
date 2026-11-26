@@ -72,6 +72,9 @@ docs/
 !/docs/TROUBLESHOOTING.md
 !/docs/PRIVACY.md
 !/docs/THIRD_PARTY_NOTICES.md
+!/docs/integration/
+/docs/integration/*
+!/docs/integration/GUEST_INPUT_PROVIDER.md
 
 # ビルド中間生成物、ログ、一時ファイル、IDE のローカル設定
 *.pdb

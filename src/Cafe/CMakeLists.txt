@@ -1,4 +1,6 @@
 add_library(CemuCafe
+  OS/libs/mcwiiu_input/mcwiiu_input.cpp
+  OS/libs/mcwiiu_input/mcwiiu_input.h
   Account/Account.cpp
   Account/AccountError.h
   Account/Account.h

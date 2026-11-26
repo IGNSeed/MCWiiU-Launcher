@@ -1,4 +1,5 @@
 #include "CemuHost.h"
+#include "input/GuestInput.h"
 #include "Cafe/OS/libs/swkbd/HostInput.h"
 #include "MiiDatabase.h"
 #include "MiiInitializationStorage.h"
@@ -1142,7 +1143,11 @@ struct CemuHost::Impl
 								}
 								g_isGPUInitFinished = false;
 								LatteIdleWait::SetEnabled(!useOpenGL);
-								if (!state->stop && !state->titleStop) CafeSystem::LaunchForegroundTitle();
+								if (!state->stop && !state->titleStop)
+								{
+									if (!state->miiInitializing) guestinput::Get().BeginSession();
+									CafeSystem::LaunchForegroundTitle();
+								}
 								if (CafeSystem::IsTitleRunning())
 								{
 									sint32 applied = 0;
@@ -1170,6 +1175,7 @@ struct CemuHost::Impl
 					}
 					if (!state->stop && !state->miiInitializing) state->StopTitle("title-shutdown");
 					// coordinator だけが停止・join・Renderer 解放を行う。UI STA は待たない。
+					guestinput::Get().EndSession();
 					state->presentationSession = 0;
 					state->CancelTitleUi();
 					if (state->miiInitializing) { StopMiiTitle(); FileStream::SetCreationObserver({}); }
@@ -1867,6 +1873,7 @@ void CemuHost::UpdateWindowState(SIZE size, UINT dpi, bool visible, bool focused
 	s_windowInfo.is_fullscreen = fullscreen;
 	LatteOverlay_setControlInset(!fullscreen && visible ? MulDiv(56, dpi, 96) : 0);
 	s_windowInfo.app_active = visible && focused && IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation();
+	guestinput::Get().Focus(s_windowInfo.app_active && !swkbd::host::IsActive());
 	if (!s_windowInfo.app_active) InputMessage(WM_CANCELMODE, 0, 0);
 }
 uint64_t CemuHost::StopConfirmationId() const
@@ -1877,36 +1884,68 @@ uint64_t CemuHost::StopConfirmationId() const
 
 void CemuHost::InputMessage(UINT message, WPARAM key, LPARAM value)
 {
-	// マウスは既存 VPAD の image-area 変換に渡す。KBM の割当は追加しない。
-	if (m_impl->state->inputReady && (message == WM_LBUTTONDOWN || message == WM_MOUSEMOVE || message == WM_LBUTTONUP || message == WM_CAPTURECHANGED || message == WM_KILLFOCUS || message == WM_CANCELMODE))
+	auto& provider = guestinput::Get();
+	if (message == WM_KILLFOCUS || message == WM_CANCELMODE)
+	{
+		provider.Focus(false);
+		s_windowInfo.set_keystatesup();
+		s_windowInfo.app_active = false;
+	}
+	else if (message == WM_SETFOCUS)
+		s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation();
+	const bool active = s_windowInfo.app_active && IsRunning() && !m_impl->state->titleStop &&
+		!HasStopGameConfirmation() && !swkbd::host::IsActive();
+	provider.Focus(active);
+	const bool pointer = message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP ||
+		message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
+		message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_MOUSELEAVE || message == WM_CAPTURECHANGED;
+	guestinput::Viewport viewport{};
+	if (pointer && active)
+	{
+		LatteRenderTarget_getScreenImageArea(&viewport.x, &viewport.y, &viewport.width, &viewport.height, nullptr, nullptr, false);
+		const uint32_t type = message == WM_MOUSEMOVE ? MCW_INPUT_MOVE :
+			message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL ? MCW_INPUT_WHEEL :
+			message == WM_MOUSELEAVE ? MCW_INPUT_LEAVE : message == WM_CAPTURECHANGED ? MCW_INPUT_CAPTURE_LOST : MCW_INPUT_BUTTON;
+		const uint32_t button = message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ? 1 :
+			message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ? 2 : 0;
+		const bool down = message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN;
+		provider.Pointer(type, GET_X_LPARAM(value), GET_Y_LPARAM(value), viewport, button, down,
+			message == WM_MOUSEHWHEEL ? GET_WHEEL_DELTA_WPARAM(key) : 0,
+			message == WM_MOUSEWHEEL ? GET_WHEEL_DELTA_WPARAM(key) : 0);
+	}
+	const auto route = provider.LegacyRoute();
+	if (m_impl->state->inputReady && (pointer || message == WM_KILLFOCUS || message == WM_CANCELMODE))
 	{
 		auto& mouse = InputManager::instance().m_main_mouse;
 		std::unique_lock lock(mouse.m_mutex);
-		if (message == WM_CAPTURECHANGED || message == WM_KILLFOCUS || message == WM_CANCELMODE)
+		if (route.mouse || !active || message == WM_CAPTURECHANGED || message == WM_MOUSELEAVE)
 			mouse.left_down = mouse.left_down_toggle = false;
 		else if (message == WM_LBUTTONUP)
 			mouse.left_down = false;
-		else if (s_windowInfo.app_active && IsRunning() && !m_impl->state->titleStop)
+		else if (message == WM_LBUTTONDOWN || message == WM_MOUSEMOVE)
 		{
 			const glm::ivec2 point{GET_X_LPARAM(value), GET_Y_LPARAM(value)};
-			int x = 0, y = 0, width = 0, height = 0;
-			LatteRenderTarget_getScreenImageArea(&x, &y, &width, &height, nullptr, nullptr, false);
-			const bool inside = width > 0 && height > 0 && point.x >= x && point.y >= y && point.x < x + width && point.y < y + height;
+			const bool inside = viewport.width > 0 && viewport.height > 0 && point.x >= viewport.x && point.y >= viewport.y &&
+				point.x < viewport.x + viewport.width && point.y < viewport.y + viewport.height;
 			mouse.position = point;
 			if (!inside) mouse.left_down = mouse.left_down_toggle = false;
 			else if (message == WM_LBUTTONDOWN) mouse.left_down = mouse.left_down_toggle = true;
 		}
 	}
-	if (message == WM_KILLFOCUS || message == WM_CANCELMODE) { s_windowInfo.set_keystatesup(); s_windowInfo.app_active = false; return; }
-	if (message == WM_SETFOCUS) { s_windowInfo.app_active = IsRunning() && !m_impl->state->titleStop && !HasStopGameConfirmation(); return; }
-	if ((message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && s_windowInfo.app_active)
+	if (message == WM_CHAR)
 	{
-		if (swkbd::host::Read().active) { s_windowInfo.set_keystatesup(); return; }
+		if (active) provider.Character(static_cast<uint32_t>(key));
+		return;
+	}
+	if ((message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) && active)
+	{
 		UINT code = static_cast<UINT>(key);
 		if (code == VK_SHIFT) code = MapVirtualKeyW((static_cast<UINT>(value) >> 16) & 255, MAPVK_VSC_TO_VK_EX);
 		if (code == VK_CONTROL) code = (value & (1LL << 24)) ? VK_RCONTROL : VK_LCONTROL;
 		if (code == VK_MENU) code = (value & (1LL << 24)) ? VK_RMENU : VK_LMENU;
-		s_windowInfo.set_keystate(code, message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+		const bool down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+		provider.Key(code, down, (value & (1LL << 30)) != 0);
+		s_windowInfo.set_keystate(code, down && provider.LegacyKeyAllowed(code));
 	}
 }
 
@@ -1927,7 +1966,7 @@ namespace WindowSystem
 		// ゲーム以外が入力を所有する間は、既存の VPAD/KPAD 抑止経路を使う。
 		return !s_windowInfo.app_active || s_inputRecoveryPending;
 	}
-	bool IsKeyDown(uint32 key) { return !swkbd::host::Read().active && s_windowInfo.get_keystate(key); }
+	bool IsKeyDown(uint32 key) { return !swkbd::host::IsActive() && guestinput::Get().LegacyKeyAllowed(key) && s_windowInfo.get_keystate(key); }
 	bool IsKeyDown(PlatformKeyCodes key)
 	{
 		switch (key)

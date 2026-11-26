@@ -14,6 +14,7 @@
 #include "config/ActiveSettings.h"
 #include "Cafe/OS/libs/coreinit/coreinit_DynLoad.h"
 #include "COSModule.h"
+#include "input/GuestInput.h"
 
 class PPCCodeHeap : public VHeap
 {
@@ -1898,6 +1899,7 @@ uint32 RPLLoader_GetModuleEntrypoint(RPLModule* rplLoaderContext)
 // takes a module name without extension, returns true if the RPL module is a known Cafe OS module
 bool RPLLoader_IsKnownCafeOSModule(std::string_view name)
 {
+	if (name == "mcwiiu_input") return guestinput::Get().Available();
 	static std::unordered_set<std::string> s_systemModules556 = {
 			"avm","camera","coreinit","dc","dmae","drmapp","erreula",
 			"gx2","h264","lzma920","mic","nfc","nio_prof","nlibcurl",
@@ -1920,7 +1922,10 @@ COSModule* RPLLoader_GetHLECafeOSModule(std::string_view moduleName)
 	for (auto& module : cosModules)
 	{
 		if (module->GetName() == moduleName)
+		{
+			if (moduleName == "mcwiiu_input" && !guestinput::Get().Available()) return nullptr;
 			return module;
+		}
 	}
 	return nullptr;
 }
@@ -2214,6 +2219,7 @@ void RPLLoader_UpdateDependencies()
 void RPLLoader_LoadCoreinit()
 {
 	RPLLoader_AddDependency("coreinit");
+	if (guestinput::Get().Available()) RPLLoader_AddDependency("mcwiiu_input");
 	for (auto& dep : s_rplDependencyList)
 	{
 		if (dep->moduleName == "coreinit")
@@ -2348,6 +2354,9 @@ uint32 RPLLoader_FindModuleOrHLEExport(uint32 moduleHandle, bool isData, const c
 		}
 	}
 
+	if (!dependency) return 0;
+	if (dependency->moduleName == "mcwiiu_input" &&
+		(isData || !guestinput::Provider::KnownExport(exportName))) return 0;
 	uint32 exportResult = 0;
 	if (rplLoaderContext)
 	{

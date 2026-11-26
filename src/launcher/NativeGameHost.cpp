@@ -1,4 +1,7 @@
 #include "NativeGameHost.h"
+#ifdef CEMU_NATIVE_HOST
+#include "../input/GuestInput.h"
+#endif
 
 #include <WebView2.h>
 #include <windowsx.h>
@@ -8,6 +11,15 @@
 
 namespace
 {
+	bool GuestKeyboardCapture()
+	{
+#ifdef CEMU_NATIVE_HOST
+		return guestinput::Get().LegacyRoute().keyboard;
+#else
+		return false;
+#endif
+	}
+
 	constexpr wchar_t s_className[] = L"MCWiiULauncher.NativeGameHost";
 	constexpr wchar_t s_openGLClassName[] = L"MCWiiULauncher.OpenGLSurface";
 	constexpr wchar_t s_vulkanClassName[] = L"MCWiiULauncher.VulkanSurface";
@@ -499,6 +511,7 @@ void NativeGameHost::CancelTouch()
 {
 	const auto captured = m_touchCapture;
 	m_touchCapture = nullptr;
+	m_mouseButtons = 0;
 	if (captured && GetCapture() == captured) ReleaseCapture();
 	if (input) input(WM_CAPTURECHANGED, 0, 0);
 }
@@ -508,34 +521,50 @@ bool NativeGameHost::MouseMessage(HWND hwnd, UINT message, WPARAM key, LPARAM po
 	switch (message)
 	{
 	case WM_LBUTTONDOWN:
+	case WM_RBUTTONDOWN:
+	case WM_MBUTTONDOWN:
 	case WM_MOUSEMOVE:
 	case WM_LBUTTONUP:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL:
+	case WM_MOUSEHWHEEL:
 	{
 		if (!IsRenderable() || m_exitVisible) { CancelTouch(); return true; }
-		if (message == WM_LBUTTONDOWN)
+		const bool down = message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN;
+		const bool up = message == WM_LBUTTONUP || message == WM_RBUTTONUP || message == WM_MBUTTONUP;
+		if (down)
 		{
 			if (!Focus()) return true;
 			SetCapture(hwnd);
 			if (GetCapture() != hwnd) return true;
 			m_touchCapture = hwnd;
-			TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0}; TrackMouseEvent(&track);
+			m_mouseButtons |= message == WM_LBUTTONDOWN ? 1u : message == WM_RBUTTONDOWN ? 2u : 4u;
 		}
+		TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+		TrackMouseEvent(&track);
 		POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
-		MapWindowPoints(hwnd, m_child, &point, 1);
+		MapWindowPoints(message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL ? nullptr : hwnd, m_child, &point, 1);
 		if (input) input(message, key, MAKELPARAM(point.x, point.y));
-		if (message == WM_LBUTTONUP)
+		if (up)
 		{
-			const auto captured = m_touchCapture;
-			m_touchCapture = nullptr;
-			if (captured && GetCapture() == captured) ReleaseCapture();
+			m_mouseButtons &= ~(message == WM_LBUTTONUP ? 1u : message == WM_RBUTTONUP ? 2u : 4u);
+			if (!m_mouseButtons)
+			{
+				const auto captured = m_touchCapture;
+				m_touchCapture = nullptr;
+				if (captured && GetCapture() == captured) ReleaseCapture();
+			}
 		}
 		return true;
 	}
 	case WM_MOUSELEAVE:
+		if (input) input(message, 0, 0);
+		return true;
 	case WM_CANCELMODE:
 	case WM_KILLFOCUS:
 		CancelTouch();
-		return message == WM_MOUSELEAVE || message == WM_CAPTURECHANGED;
+		return false;
 	case WM_CAPTURECHANGED:
 		if (m_touchCapture) CancelTouch();
 		return true;
@@ -808,14 +837,23 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		break;
 	case WM_LBUTTONDOWN:
 	case WM_LBUTTONUP:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL:
+	case WM_MOUSEHWHEEL:
 	case WM_MOUSEMOVE:
 	case WM_MOUSELEAVE:
 	case WM_CAPTURECHANGED:
 		self->MouseMessage(hwnd, message, wParam, lParam);
 		return 0;
+	case WM_CHAR:
+		if (self->input) self->input(message, wParam, lParam);
+		return 0;
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		if ((!self->m_diagnostics && wParam == VK_ESCAPE) || wParam == VK_F11 || (wParam == VK_F10 && !(lParam & (1LL << 29))))
+		if ((!self->m_diagnostics && wParam == VK_ESCAPE && !GuestKeyboardCapture()) || wParam == VK_F11 || (wParam == VK_F10 && !(lParam & (1LL << 29))))
 		{
 			// 両側の down/up を消費し、フォーカス変更後のリピートも再配送しない。
 			if (!(lParam & (1LL << 30)))
@@ -839,7 +877,7 @@ LRESULT CALLBACK NativeGameHost::ChildProc(HWND hwnd, UINT message, WPARAM wPara
 		return message == WM_SYSKEYDOWN ? DefWindowProcW(hwnd, message, wParam, lParam) : 0;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
-		if ((!self->m_diagnostics && wParam == VK_ESCAPE) || wParam == VK_F10 || wParam == VK_F11) return 0;
+		if ((!self->m_diagnostics && wParam == VK_ESCAPE && !GuestKeyboardCapture()) || wParam == VK_F10 || wParam == VK_F11) return 0;
 		if (self->input) self->input(message, wParam, lParam);
 		return 0;
 	case WM_SETFOCUS:

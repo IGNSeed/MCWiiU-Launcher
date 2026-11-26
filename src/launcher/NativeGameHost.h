@@ -70,6 +70,7 @@ private:
 	std::unique_ptr<NativeTextInput> m_textInput;
 	bool m_exitVisible = false;
 	HWND m_touchCapture = nullptr;
+	uint32_t m_mouseButtons = 0;
 	HWND m_parent = nullptr;
 	HWND m_child = nullptr;
 	HWND m_controls[2]{};

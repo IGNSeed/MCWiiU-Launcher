@@ -42,6 +42,7 @@ namespace swkbd::host
 	// UI はコピーだけを扱う。Guest バッファと callback は SwkbdCalc が更新する。
 	void Enable(bool enabled);
 	bool IsEnabled();
+	bool IsActive();
 	Snapshot Read();
 	bool Submit(uint64_t generation, std::u16string text, Action action);
 }

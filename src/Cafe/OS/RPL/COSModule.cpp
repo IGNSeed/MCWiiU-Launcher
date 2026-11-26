@@ -1,4 +1,5 @@
 #include "COSModule.h"
+#include "Cafe/OS/libs/mcwiiu_input/mcwiiu_input.h"
 
 #include "Cafe/OS/libs/coreinit/coreinit.h"
 #include "Cafe/OS/libs/zlib125/zlib125.h"
@@ -55,6 +56,7 @@ std::span<COSModule*> GetCOSModules()
 	static std::vector<COSModule*> s_cosModules =
 	{
 		coreinit::GetModule(),
+		guestinput::GetModule(),
 		zlib::GetModule(),
 		GX2::GetModule(),
 		dmae::GetModule(),

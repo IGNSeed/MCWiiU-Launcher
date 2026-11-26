@@ -1,4 +1,7 @@
 add_library(CemuInput
+	GuestInput.cpp
+	GuestInput.h
+	GuestInputAbi.h
 	InputManager.cpp
 	InputManager.h
 	ControllerFactory.cpp

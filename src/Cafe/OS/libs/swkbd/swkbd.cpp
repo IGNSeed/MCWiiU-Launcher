@@ -46,6 +46,11 @@ namespace swkbd::host
 		InvalidateHostInput();
 	}
 	bool IsEnabled() { return s_nativeInput; }
+	bool IsActive()
+	{
+		std::lock_guard lock(s_hostMutex);
+		return s_hostInput.active;
+	}
 	Snapshot Read()
 	{
 		std::lock_guard lock(s_hostMutex);

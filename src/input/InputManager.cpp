@@ -1,4 +1,5 @@
 #include "input/InputManager.h"
+#include "GuestInput.h"
 #include "config/ActiveSettings.h"
 #include "input/ControllerFactory.h"
 #include <boost/property_tree/ini_parser.hpp>
@@ -846,6 +847,7 @@ glm::ivec2 InputManager::get_mouse_position(bool pad_window) const
 
 std::optional<glm::ivec2> InputManager::get_left_down_mouse_info(bool* is_pad)
 {
+	if (guestinput::Get().LegacyRoute().mouse) return {};
 	if (is_pad)
 		*is_pad = false;
 
