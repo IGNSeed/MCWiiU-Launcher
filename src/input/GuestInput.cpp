@@ -8,7 +8,7 @@ namespace guestinput
 {
 	namespace
 	{
-		constexpr uint32_t CAPABILITIES = 63;
+		constexpr uint32_t CAPABILITIES = 127;
 		constexpr uint32_t RIGHT_SHIFT = 0xA1;
 		constexpr uint32_t TOGGLE_ROUTE = 8;
 		constexpr uint64_t LEASE_MS = 2000;
@@ -153,7 +153,7 @@ namespace guestinput
 	{
 		if (!name)
 			return false;
-		for (const char* known : {"MCWInputQuery", "MCWInputRegister", "MCWInputUnregister", "MCWInputDrain", "MCWInputCapture", "MCWInputToggle"})
+		for (const char* known : {"MCWInputQuery", "MCWInputRegister", "MCWInputUnregister", "MCWInputDrain", "MCWInputCapture", "MCWInputToggle", "MCWInputPoll"})
 		{
 			if (std::strcmp(name, known) == 0)
 				return true;
@@ -280,6 +280,18 @@ namespace guestinput
 		ReleaseToggle();
 		m_consumer = m_count = m_head = 0;
 		return MCW_INPUT_OK;
+	}
+
+	uint32_t Provider::Poll(uint32_t session, uint32_t consumer, uint32_t expectedResetSerial, uint32_t expectedCaptureSequence)
+	{
+		std::lock_guard lock(m_mutex);
+		const uint64_t now = Now();
+		Expire(now);
+		if (!Valid(session, consumer))
+			return MCW_INPUT_INVALID_CONSUMER;
+		m_lastDrain = now;
+		return m_count || expectedResetSerial != m_resetSerial || expectedCaptureSequence != m_captureSequence
+				   ? MCW_INPUT_PENDING : MCW_INPUT_OK;
 	}
 
 	uint32_t Provider::Drain(uint32_t session, uint32_t consumer, std::span<uint8_t> output, uint32_t maxEvents)

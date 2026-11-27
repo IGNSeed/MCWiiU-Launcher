@@ -5,7 +5,7 @@
 
 #define MCW_INPUT_MODULE "mcwiiu_input.rpl"
 #define MCW_INPUT_MAGIC 0x4D435749u
-#define MCW_INPUT_VERSION 0x00010001u
+#define MCW_INPUT_VERSION 0x00010002u
 #define MCW_INPUT_HEADER_SIZE 64u
 #define MCW_INPUT_EVENT_SIZE 48u
 #define MCW_INPUT_MAX_DRAIN 32u
@@ -19,7 +19,8 @@ enum MCWInputResult
 	MCW_INPUT_INVALID_BUFFER = 3,
 	MCW_INPUT_INVALID_CONSUMER = 4,
 	MCW_INPUT_BUSY = 5,
-	MCW_INPUT_INVALID_REQUEST = 6
+	MCW_INPUT_INVALID_REQUEST = 6,
+	MCW_INPUT_PENDING = 7
 };
 
 enum MCWInputCaptureFlags
@@ -50,7 +51,8 @@ enum MCWInputCapabilities
 	MCW_INPUT_CAP_UNICODE = 4,
 	MCW_INPUT_CAP_CAPTURE = 8,
 	MCW_INPUT_CAP_NORMALIZED = 16,
-	MCW_INPUT_CAP_MENU_TOGGLE = 32
+	MCW_INPUT_CAP_MENU_TOGGLE = 32,
+	MCW_INPUT_CAP_POLL = 64
 };
 
 // 全fieldはGuest memory内でBig Endian。pointerやHost handleは含めない。
@@ -78,6 +80,7 @@ static_assert(offsetof(MCWInputEvent, x) == 24 && offsetof(MCWInputEvent, code) 
 extern "C"
 {
 #endif
+	uint32_t MCWInputPoll(uint32_t session, uint32_t consumer, uint32_t expectedResetSerial, uint32_t expectedCaptureSequence);
 	uint32_t MCWInputToggle(uint32_t session, uint32_t consumer, uint32_t enabled, void* output, uint32_t bytes);
 	uint32_t MCWInputQuery(void* output, uint32_t bytes);
 	uint32_t MCWInputRegister(uint32_t major, void* output, uint32_t bytes);

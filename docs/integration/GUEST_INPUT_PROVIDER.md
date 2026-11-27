@@ -1,5 +1,34 @@
 # Native Guest Input Provider — ABI 1.x
 
+## Phase 5.3: optional ABI 1.2
+
+ユーザーの個別承認に基づき、開発Providerへ軽量Pollを追加する。製品番号0.4.3と既存GUIは維持する。
+既存1.0/1.1の構造体・API・buffer検査を変更せず、Guestの必須importにはしない。
+VERSION=0x00010002、追加CapabilityはMCW_INPUT_CAP_POLL=64、全capabilities=127。
+
+    uint32_t MCWInputPoll(uint32_t session, uint32_t consumer,
+        uint32_t expectedResetSerial, uint32_t expectedCaptureSequence);
+
+既存mutex内でLease失効とtokenを確認し、有効な場合だけLeaseを更新する。
+queueが空かつresetSerial/captureSequenceが一致するとOK、変化や待機eventがあると
+追加resultのMCW_INPUT_PENDING=7を返す。古いtokenはINVALID_CONSUMER。
+Pollはeventを消費せず、Guest pointerを受け取らず、Guest RAMを読み書きしない。
+Drain/Capture/Query等のVirtualQuery・bounds・alignment検査はそのまま適用する。
+
+ConsumerはCapabilityとoptional exportの両方を確認する。現在のCaptureと要求が一致し、
+右Shift通知のopt-inが確立した場合だけPollを使う。PENDING時は同じ有限Drain経路へ進み、
+未知resultやtoken失効時はCapture解除と再登録の安全経路へ戻す。Capture変更はPollで省略しない。
+Focus、Overflow、Reset、短いdown/up、session終了の処理・二重配送防止を維持する。
+旧Providerまたはexport不足では既存Drain経路を使う。poll頻度自体は下げない。
+
+Provider 46 checks、既存Provider 103095 checks、右Shift47 checks、実HLEのread-only RAM上Poll、
+実routing/loader componentはPASS。これはHost componentの結果であり、PPC実行とは区別する。
+既存Release cacheのLauncherShell差分buildはPASS。既存NativeGameHostのD9025警告は残る。
+Stable、current.json、Updater、正式配布物は変更しない。実ワールドでの比較はTaneClientの
+docs/validation/IN_WORLD_PERFORMANCE.mdへ記録し、過去の検証表を今回の結果で上書きしない。
+
+
+
 ## ABI 1.1 — Phase 5.1の右Shift専用通知
 
 開発Launcher製品番号は0.4.3を維持し、独立Provider ABIを0x00010001へ更新する。

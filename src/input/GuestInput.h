@@ -36,6 +36,7 @@ namespace guestinput
 		void Character(uint32_t utf16);
 		Route LegacyRoute();
 		bool LegacyKeyAllowed(uint32_t key);
+		uint32_t Poll(uint32_t session, uint32_t consumer, uint32_t expectedResetSerial, uint32_t expectedCaptureSequence);
 		uint32_t Toggle(uint32_t session, uint32_t consumer, uint32_t enabled, std::span<uint8_t> output);
 		uint32_t Query(std::span<uint8_t> output);
 		uint32_t Register(uint32_t major, std::span<uint8_t> output);
