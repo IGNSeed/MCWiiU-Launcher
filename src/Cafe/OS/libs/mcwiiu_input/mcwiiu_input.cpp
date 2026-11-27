@@ -36,6 +36,11 @@ namespace guestinput
 			return {pointer, bytes};
 		}
 
+		uint32 MCWInputToggle(uint32 session, uint32 consumer, uint32 enabled, uint32 output, uint32 bytes)
+		{
+			return Get().Toggle(session, consumer, enabled, Output(output, bytes, MCW_INPUT_HEADER_SIZE));
+		}
+
 		uint32 MCWInputQuery(uint32 output, uint32 bytes)
 		{
 			return Get().Query(Output(output, bytes, MCW_INPUT_HEADER_SIZE));
@@ -72,6 +77,7 @@ namespace guestinput
 			}
 			void RPLMapped() override
 			{
+				cafeExportRegister("mcwiiu_input", MCWInputToggle, LogType::InputAPI);
 				cafeExportRegister("mcwiiu_input", MCWInputQuery, LogType::InputAPI);
 				cafeExportRegister("mcwiiu_input", MCWInputRegister, LogType::InputAPI);
 				cafeExportRegister("mcwiiu_input", MCWInputUnregister, LogType::InputAPI);

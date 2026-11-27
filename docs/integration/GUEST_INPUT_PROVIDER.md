@@ -1,4 +1,44 @@
-# Native Guest Input Provider — ABI 1.0
+# Native Guest Input Provider — ABI 1.x
+
+## ABI 1.1 — Phase 5.1の右Shift専用通知
+
+開発Launcher製品番号は0.4.3を維持し、独立Provider ABIを0x00010001へ更新する。
+以下のABI1.0本文は導入時の履歴。本節を現行の追加契約とする。
+既存module/5 Export/header64/event48/queue256/BE/Guest RAM/Session/Lease/Capture ackの値と意味は維持する。
+既存Consumerはopt-inしなければ新Eventを受け取らず、右Shiftも従来のKeyboard入力として扱う。
+
+追加CapabilityはMCW_INPUT_CAP_MENU_TOGGLE=32、全capabilities=63。追加EventはMCW_INPUT_MENU_TOGGLE=10。
+optional Exportの正式宣言は次のとおり。
+
+    uint32_t MCWInputToggle(uint32_t session, uint32_t consumer, uint32_t enabled, void* output, uint32_t bytes);
+
+enabledは0/1。有効なsession/consumer、header出力buffer、focusを確認し、成功時は標準64byte headerでackする。
+未知enabled/非focusのenable要求はINVALID_REQUEST、古いtokenはINVALID_CONSUMER。
+成功ToggleもLeaseを更新する。opt-in状態は通常のCaptureとは独立する。
+
+Game Viewがactiveかつ有効Consumerの明示opt-in中だけ、VK_RSHIFT=0xA1のdown edgeを通知する。
+Event10はcode=0xA1/value=1/flags=0、他fieldは0とsession内のsequence/timestamp。
+WM_KEYDOWN/UPのVK_SHIFTは既存MapVirtualKeyWのscan code正規化を使い、左Shift=0xA0と区別する。
+repeat、opt-in前からheld、Focus復帰後のheldは通知せず、upを確認して再armする。
+
+予約右Shiftは通常KEY Event/modifierから除外し、CemuHostのstate更新とWindowSystemのpoll双方の
+LegacyKeyAllowedでKeyboard Controller Mappingへの二重配送を防ぐ。
+非Capture中も他キーの通常mappingを維持し、全Keyboard/Text Captureを保持しない。
+global hook/他app監視/GetAsyncKeyState/Host pointer公開は追加しない。
+Focus Lost、Unregister、Lease失効、Overflow、Session終了、capture lostで予約解除する。
+通常Capture変更は予約を維持する。解除時heldはupまでlegacy復帰を保留し、他キーは個別に復帰する。
+GuestはresetSerial/focus/session/consumerをrecordより先に検査し、boundaryの古い通知を破棄して再opt-inする。
+
+新ExportはProvider allowlist/HLE登録へ追加するが、Guestの必須importにはしない。
+旧Provider1.0/Export不足は専用通知を使わずController開閉と既存Native入力へ戻る。
+ProviderなしStableはController/Touchへfallbackする。TaneClientの製品Registryは0件。
+
+Host Provider47 checks、実HLE/既存routing/loader component、新Consumer39 checks、旧Native778 checksがPASS。
+Native Release LauncherShell/CemuBinの既存cache差分buildはPASS。
+既存NativeGameHost compiler optionのD9025警告は残る。新ProviderのW4/WX componentは警告0。
+実UI、PPC Guest API、物理Controller、実ゲーム入力はNOT RUN。長時間/FPS/安定性はSKIPPED。
+Stable/current.json/Updater配布物は変更せず、開発EXEを自動runtime deployしていない。
+Stable/開発版のKnown Folder/HKCU/Data共有はユーザー許可済み。同時起動は禁止し、完全隔離を要求しない。
 
 Phase 3.5.1で追加したLauncher独自のoptional Host-to-Guest入力API。
 Native Game ViewのPC Mouse / KeyboardをWii U Guestへ配送する。

@@ -8,7 +8,9 @@ namespace guestinput
 {
 	namespace
 	{
-		constexpr uint32_t CAPABILITIES = 31;
+		constexpr uint32_t CAPABILITIES = 63;
+		constexpr uint32_t RIGHT_SHIFT = 0xA1;
+		constexpr uint32_t TOGGLE_ROUTE = 8;
 		constexpr uint64_t LEASE_MS = 2000;
 
 		uint64_t ClockMilliseconds()
@@ -53,7 +55,7 @@ namespace guestinput
 
 	void Provider::UpdateRoute()
 	{
-		uint32_t route = m_capture | (m_blockedButtons ? MCW_INPUT_CAPTURE_MOUSE : 0u);
+		uint32_t route = m_capture | (m_toggle ? TOGGLE_ROUTE : 0u) | (m_blockedButtons ? MCW_INPUT_CAPTURE_MOUSE : 0u);
 		if (std::any_of(m_blockedKeys.begin(), m_blockedKeys.end(), [](bool down) { return down; }))
 		{
 			route |= MCW_INPUT_CAPTURE_KEYBOARD;
@@ -72,6 +74,14 @@ namespace guestinput
 		UpdateRoute();
 	}
 
+	void Provider::ReleaseToggle()
+	{
+		if (m_toggle && m_keys[RIGHT_SHIFT])
+			m_blockedKeys[RIGHT_SHIFT] = true;
+		m_toggle = m_toggleArmed = false;
+		UpdateRoute();
+	}
+
 	void Provider::Reset(uint32_t reason)
 	{
 		m_head = m_count = 0;
@@ -87,6 +97,7 @@ namespace guestinput
 		if (m_consumer && (now < m_lastDrain || now - m_lastDrain > LEASE_MS))
 		{
 			ReleaseCapture();
+			ReleaseToggle();
 			m_consumer = 0;
 			m_head = m_count = 0;
 			++m_resetSerial;
@@ -98,6 +109,7 @@ namespace guestinput
 		std::lock_guard lock(m_mutex);
 		m_active = false;
 		ReleaseCapture();
+		ReleaseToggle();
 		m_consumer = m_captureSequence = m_sequence = m_head = m_count = 0;
 		m_keys.fill(false);
 		m_blockedKeys.fill(false);
@@ -116,6 +128,7 @@ namespace guestinput
 		std::lock_guard lock(m_mutex);
 		m_active = false;
 		ReleaseCapture();
+		ReleaseToggle();
 		m_consumer = m_head = m_count = 0;
 		m_keys.fill(false);
 		m_blockedKeys.fill(false);
@@ -140,7 +153,7 @@ namespace guestinput
 	{
 		if (!name)
 			return false;
-		for (const char* known : {"MCWInputQuery", "MCWInputRegister", "MCWInputUnregister", "MCWInputDrain", "MCWInputCapture"})
+		for (const char* known : {"MCWInputQuery", "MCWInputRegister", "MCWInputUnregister", "MCWInputDrain", "MCWInputCapture", "MCWInputToggle"})
 		{
 			if (std::strcmp(name, known) == 0)
 				return true;
@@ -160,6 +173,7 @@ namespace guestinput
 		if (m_sequence == std::numeric_limits<uint32_t>::max())
 		{
 			ReleaseCapture();
+			ReleaseToggle();
 			m_consumer = m_count = 0;
 			return;
 		}
@@ -179,6 +193,7 @@ namespace guestinput
 		if (m_count == MCW_INPUT_QUEUE_SIZE)
 		{
 			ReleaseCapture();
+			ReleaseToggle();
 			m_head = m_count = 0;
 			++m_resetSerial;
 			event = {};
@@ -196,6 +211,31 @@ namespace guestinput
 								  m_sequence, count, m_resetSerial, m_active ? 1u : 0u, static_cast<uint32_t>(LEASE_MS), 1000};
 		for (size_t i = 0; i < std::size(words); ++i)
 			Word(output, i * 4, words[i]);
+	}
+
+	uint32_t Provider::Toggle(uint32_t session, uint32_t consumer, uint32_t enabled, std::span<uint8_t> output)
+	{
+		if (output.size() < MCW_INPUT_HEADER_SIZE)
+			return MCW_INPUT_INVALID_BUFFER;
+		if (enabled > 1)
+			return MCW_INPUT_INVALID_REQUEST;
+		std::lock_guard lock(m_mutex);
+		Expire(Now());
+		if (!Valid(session, consumer))
+			return MCW_INPUT_INVALID_CONSUMER;
+		if (enabled && !m_focused)
+			return MCW_INPUT_INVALID_REQUEST;
+		if (!enabled)
+			ReleaseToggle();
+		else if (!m_toggle)
+		{
+			m_toggle = true;
+			m_toggleArmed = !m_keys[RIGHT_SHIFT] && !m_blockedKeys[RIGHT_SHIFT];
+		}
+		m_lastDrain = Now();
+		UpdateRoute();
+		Header(output, 0);
+		return MCW_INPUT_OK;
 	}
 
 	uint32_t Provider::Query(std::span<uint8_t> output)
@@ -237,6 +277,7 @@ namespace guestinput
 		if (!Valid(session, consumer))
 			return MCW_INPUT_INVALID_CONSUMER;
 		ReleaseCapture();
+		ReleaseToggle();
 		m_consumer = m_count = m_head = 0;
 		return MCW_INPUT_OK;
 	}
@@ -308,6 +349,7 @@ namespace guestinput
 		if (!focused)
 		{
 			ReleaseCapture();
+			ReleaseToggle();
 			m_keys.fill(false);
 			m_buttons = 0;
 			Reset(3);
@@ -320,7 +362,7 @@ namespace guestinput
 
 	uint32_t Provider::Modifiers() const
 	{
-		return (m_keys[0xA0] || m_keys[0xA1] ? 1u : 0u) |
+		return (m_keys[0xA0] || (!m_toggle && m_keys[RIGHT_SHIFT]) ? 1u : 0u) |
 			   (m_keys[0xA2] || m_keys[0xA3] ? 2u : 0u) |
 			   (m_keys[0xA4] || m_keys[0xA5] ? 4u : 0u) |
 			   (m_keys[0x5B] || m_keys[0x5C] ? 8u : 0u);
@@ -361,6 +403,7 @@ namespace guestinput
 			if (type == MCW_INPUT_CAPTURE_LOST)
 			{
 				ReleaseCapture();
+				ReleaseToggle();
 				m_buttons = 0;
 				Reset(4);
 			}
@@ -408,6 +451,7 @@ namespace guestinput
 		Expire(Now());
 		if (!m_focused)
 			return;
+		const bool reserved = m_toggle && m_consumer && key == RIGHT_SHIFT;
 		const bool previous = m_keys[key];
 		m_keys[key] = down;
 		if (!down)
@@ -415,6 +459,21 @@ namespace guestinput
 		if (!std::any_of(m_keys.begin(), m_keys.end(), [](bool held) { return held; }))
 			m_neutralCapture &= ~MCW_INPUT_CAPTURE_KEYBOARD;
 		UpdateRoute();
+		if (reserved)
+		{
+			if (!down)
+				m_toggleArmed = true;
+			else if (!previous && !repeat && m_toggleArmed)
+			{
+				m_toggleArmed = false;
+				MCWInputEvent event{};
+				event.type = MCW_INPUT_MENU_TOGGLE;
+				event.code = RIGHT_SHIFT;
+				event.value = 1;
+				Push(event);
+			}
+			return;
+		}
 		if (!m_consumer || !(m_capture & MCW_INPUT_CAPTURE_KEYBOARD) ||
 			(m_neutralCapture & MCW_INPUT_CAPTURE_KEYBOARD) || previous == down)
 			return;
@@ -482,6 +541,8 @@ namespace guestinput
 			return true;
 		std::lock_guard lock(m_mutex);
 		Expire(Now());
-		return !(m_capture & MCW_INPUT_CAPTURE_KEYBOARD) && (key >= 256 || !m_blockedKeys[key]);
+		return !(m_capture & MCW_INPUT_CAPTURE_KEYBOARD) &&
+			   !(m_toggle && m_focused && m_consumer && key == RIGHT_SHIFT) &&
+			   (key >= 256 || !m_blockedKeys[key]);
 	}
 } // namespace guestinput

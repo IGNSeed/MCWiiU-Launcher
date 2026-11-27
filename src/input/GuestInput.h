@@ -36,6 +36,7 @@ namespace guestinput
 		void Character(uint32_t utf16);
 		Route LegacyRoute();
 		bool LegacyKeyAllowed(uint32_t key);
+		uint32_t Toggle(uint32_t session, uint32_t consumer, uint32_t enabled, std::span<uint8_t> output);
 		uint32_t Query(std::span<uint8_t> output);
 		uint32_t Register(uint32_t major, std::span<uint8_t> output);
 		uint32_t Unregister(uint32_t session, uint32_t consumer);
@@ -48,6 +49,7 @@ namespace guestinput
 		uint64_t Now() const;
 		void Expire(uint64_t now);
 		void ReleaseCapture();
+		void ReleaseToggle();
 		void Reset(uint32_t reason);
 		void Push(MCWInputEvent event);
 		void Header(std::span<uint8_t> output, uint32_t count);
@@ -62,7 +64,7 @@ namespace guestinput
 		uint32_t m_captureSequence{}, m_capture{}, m_resetSerial{}, m_buttons{}, m_blockedButtons{};
 		uint32_t m_neutralCapture{}, m_highSurrogate{};
 		uint64_t m_lastDrain{};
-		bool m_focused{};
+		bool m_focused{}, m_toggle{}, m_toggleArmed{};
 		std::atomic_bool m_active{false};
 		std::atomic_uint32_t m_route{0};
 	};

@@ -5,7 +5,7 @@
 
 #define MCW_INPUT_MODULE "mcwiiu_input.rpl"
 #define MCW_INPUT_MAGIC 0x4D435749u
-#define MCW_INPUT_VERSION 0x00010000u
+#define MCW_INPUT_VERSION 0x00010001u
 #define MCW_INPUT_HEADER_SIZE 64u
 #define MCW_INPUT_EVENT_SIZE 48u
 #define MCW_INPUT_MAX_DRAIN 32u
@@ -39,7 +39,8 @@ enum MCWInputEventType
 	MCW_INPUT_TEXT = 6,
 	MCW_INPUT_FOCUS = 7,
 	MCW_INPUT_LEAVE = 8,
-	MCW_INPUT_CAPTURE_LOST = 9
+	MCW_INPUT_CAPTURE_LOST = 9,
+	MCW_INPUT_MENU_TOGGLE = 10
 };
 
 enum MCWInputCapabilities
@@ -48,7 +49,8 @@ enum MCWInputCapabilities
 	MCW_INPUT_CAP_KEYBOARD = 2,
 	MCW_INPUT_CAP_UNICODE = 4,
 	MCW_INPUT_CAP_CAPTURE = 8,
-	MCW_INPUT_CAP_NORMALIZED = 16
+	MCW_INPUT_CAP_NORMALIZED = 16,
+	MCW_INPUT_CAP_MENU_TOGGLE = 32
 };
 
 // 全fieldはGuest memory内でBig Endian。pointerやHost handleは含めない。
@@ -76,6 +78,7 @@ static_assert(offsetof(MCWInputEvent, x) == 24 && offsetof(MCWInputEvent, code) 
 extern "C"
 {
 #endif
+	uint32_t MCWInputToggle(uint32_t session, uint32_t consumer, uint32_t enabled, void* output, uint32_t bytes);
 	uint32_t MCWInputQuery(void* output, uint32_t bytes);
 	uint32_t MCWInputRegister(uint32_t major, void* output, uint32_t bytes);
 	uint32_t MCWInputUnregister(uint32_t session, uint32_t consumer);
